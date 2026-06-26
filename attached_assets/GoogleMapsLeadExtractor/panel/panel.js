@@ -438,6 +438,7 @@ async function runHarvest() {
     setStatus(`Stopped - ${rowsByKey.size} total found so far.`, "warn");
   }
 
+  saveLeadsToBackend(getRows());
   running = false;
   render();
 }
@@ -1017,4 +1018,26 @@ function readableError(error) {
   if (!error) return "Unknown error.";
   if (typeof error === "string") return error;
   return error.message || String(error);
+}
+
+async function saveLeadsToBackend(rows) {
+  if (!rows || rows.length === 0) return;
+  const API = "https://mapleadextractor.net/api/leads/save";
+  const attempt = async () => {
+    const res = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rows),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  };
+  try {
+    const result = await attempt();
+    const current = els.status.textContent || "";
+    els.status.textContent = current + " · ☁ " + result.saved + " saved";
+  } catch {
+    await new Promise(r => window.setTimeout(r, 3000));
+    try { await attempt(); } catch { /* silent */ }
+  }
 }
