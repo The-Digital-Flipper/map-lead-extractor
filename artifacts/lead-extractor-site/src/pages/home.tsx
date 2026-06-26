@@ -286,11 +286,11 @@ export default function Home() {
         </section>
 
         {/* Section: Install Tutorial */}
-        <section id="install-tutorial" className="py-24 bg-card/30 border-y border-border relative overflow-hidden">
+        <section id="install-tutorial" className="py-24 border-y border-border relative overflow-hidden">
           <div className="absolute -left-32 top-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl -z-10" />
           <div className="absolute -right-32 bottom-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl -z-10" />
           <div className="container mx-auto px-6">
-            <div className="text-center mb-16">
+            <div className="text-center mb-20">
               <Badge variant="outline" className="px-4 py-1.5 border-primary/50 text-primary bg-primary/10 font-mono text-xs uppercase tracking-wider mb-4">
                 <Chrome className="w-3.5 h-3.5 mr-2 inline" /> Installation Guide
               </Badge>
@@ -298,81 +298,317 @@ export default function Home() {
                 How to Install the<br /><span className="text-primary">Google Maps Extractor</span>
               </h2>
               <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                Up and running in under 60 seconds. No account. No credit card.
+                Up and running in under 60 seconds. No account. No credit card. Follow these 6 steps.
               </p>
             </div>
 
-            <div className="max-w-3xl mx-auto space-y-4">
-              {[
-                {
-                  icon: <Search className="w-6 h-6" />,
-                  step: "Step 1",
-                  title: "Open the Chrome Web Store page",
-                  desc: "Click the button below to go directly to the extension's listing on the official Chrome Web Store.",
-                  action: { label: "Open Chrome Web Store →", href: STORE_URL }
-                },
-                {
-                  icon: <MousePointerClick className="w-6 h-6" />,
-                  step: "Step 2",
-                  title: 'Click "Add to Chrome"',
-                  desc: 'On the store page, click the blue "Add to Chrome" button in the top-right corner. A confirmation popup will appear — click "Add extension" to confirm.'
-                },
-                {
-                  icon: <Pin className="w-6 h-6" />,
-                  step: "Step 3",
-                  title: "Pin it to your toolbar",
-                  desc: 'Click the puzzle piece icon (🧩) in the top-right of Chrome to open your extensions list. Find "Google Maps Lead Extractor" and click the pin icon to keep it visible in your toolbar.'
-                },
-                {
-                  icon: <Search className="w-6 h-6" />,
-                  step: "Step 4",
-                  title: "Search on Google Maps",
-                  desc: 'Go to google.com/maps and type any business search — for example "Plumbers in Houston" or "Dentists in London". Wait for the results list to load on the left side.'
-                },
-                {
-                  icon: <Play className="w-6 h-6" />,
-                  step: "Step 5",
-                  title: "Click the extension & press Start",
-                  desc: 'Click the MapLeadExtractor icon in your toolbar to open the panel. Hit the green "Start Extracting" button. It will auto-scroll, paginate, and harvest every listing automatically.'
-                },
-                {
-                  icon: <Download className="w-6 h-6" />,
-                  step: "Step 6",
-                  title: "Export your leads to CSV",
-                  desc: 'Once finished, click "Download CSV" or "Download XLSX" to save the full lead list directly to your computer — ready to drop into any CRM or outreach tool.'
-                },
-              ].map((item, i) => (
-                <motion.div
-                  key={i}
-                  initial="hidden"
-                  whileInView="visible"
-                  viewport={{ once: true, margin: "-60px" }}
-                  variants={fadeIn}
-                  className="flex gap-5 bg-background border border-border rounded-2xl p-6 hover:border-primary/40 transition-colors group"
-                >
-                  <div className="shrink-0 flex flex-col items-center gap-2">
-                    <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/30 text-primary flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-all">
-                      {item.icon}
+            <div className="max-w-5xl mx-auto space-y-20">
+
+              {/* Step 1 */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="grid md:grid-cols-2 gap-10 items-center">
+                <div>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-lg shrink-0">1</div>
+                    <p className="font-mono text-xs text-primary uppercase tracking-widest">Step 1</p>
+                  </div>
+                  <h3 className="text-2xl font-display font-bold mb-3">Go to the Chrome Web Store</h3>
+                  <p className="text-muted-foreground leading-relaxed mb-4">Open Google Chrome and visit the extension's official Chrome Web Store page. You'll see the extension name, icon, ratings, and user reviews confirming it's the right one.</p>
+                  <ul className="space-y-2 text-sm text-muted-foreground mb-6">
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> Search "Google Maps Lead Extractor" in the Chrome Web Store</li>
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> Or click the button below to go directly</li>
+                  </ul>
+                  <Button asChild size="sm" className="font-bold">
+                    <a href={STORE_URL} target="_blank" rel="noopener noreferrer"><SiGooglechrome className="mr-2" /> Open Chrome Web Store</a>
+                  </Button>
+                </div>
+                <div className="rounded-2xl border border-border overflow-hidden shadow-2xl shadow-black/60">
+                  {/* Browser chrome */}
+                  <div className="bg-[#3c4043] px-3 py-2 flex items-center gap-2">
+                    <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-[#ff5f57]"/><div className="w-3 h-3 rounded-full bg-[#febc2e]"/><div className="w-3 h-3 rounded-full bg-[#28c840]"/></div>
+                    <div className="flex-1 bg-[#202124] rounded text-[10px] text-[#9aa0a6] px-3 py-1 font-mono truncate">chromewebstore.google.com/detail/google-maps-lead-extractor</div>
+                  </div>
+                  {/* CWS page mockup */}
+                  <div className="bg-white p-4">
+                    <div className="flex items-start gap-4">
+                      <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center shrink-0 shadow">
+                        <Map className="w-8 h-8 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-[13px] font-bold text-gray-900 leading-tight">Google Maps Lead Extractor</p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">offered by MapLeadExtractor</p>
+                        <div className="flex items-center gap-1 mt-1">
+                          {[1,2,3,4,5].map(s => <svg key={s} className="w-3 h-3 fill-yellow-400" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}
+                          <span className="text-[10px] text-gray-500 ml-1">386 ratings</span>
+                        </div>
+                        <p className="text-[10px] text-gray-500 mt-0.5">👤 100,000+ users</p>
+                      </div>
+                      <div className="shrink-0">
+                        <div className="bg-[#1a73e8] text-white text-[11px] font-bold px-4 py-2 rounded-full ring-2 ring-[#1a73e8] ring-offset-2 ring-offset-white animate-pulse">
+                          Add to Chrome
+                        </div>
+                      </div>
                     </div>
-                    {i < 5 && <div className="w-px flex-1 bg-border min-h-[16px]" />}
+                    <div className="mt-3 flex gap-2">
+                      {["Extract Emails","Export CSV","No Signup"].map(t => <span key={t} className="text-[9px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{t}</span>)}
+                    </div>
                   </div>
-                  <div className="flex-1 pb-1">
-                    <p className="text-xs font-mono text-primary uppercase tracking-wider mb-1">{item.step}</p>
-                    <h3 className="text-lg font-display font-bold mb-2">{item.title}</h3>
-                    <p className="text-muted-foreground leading-relaxed">{item.desc}</p>
-                    {item.action && (
-                      <a
-                        href={item.action.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center mt-3 text-sm font-semibold text-primary hover:underline"
-                      >
-                        {item.action.label}
-                      </a>
-                    )}
+                </div>
+              </motion.div>
+
+              {/* Step 2 */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="grid md:grid-cols-2 gap-10 items-center">
+                <div className="md:order-2">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-lg shrink-0">2</div>
+                    <p className="font-mono text-xs text-primary uppercase tracking-widest">Step 2</p>
                   </div>
-                </motion.div>
-              ))}
+                  <h3 className="text-2xl font-display font-bold mb-3">Click "Add to Chrome" & Confirm</h3>
+                  <p className="text-muted-foreground leading-relaxed mb-4">Click the blue "Add to Chrome" button on the store page. Chrome will show a permissions popup listing what the extension can access. Click "Add extension" to confirm.</p>
+                  <ul className="space-y-2 text-sm text-muted-foreground">
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> The extension only reads the Maps page — no private data access</li>
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> Installation takes under 5 seconds</li>
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> No account or sign-in required</li>
+                  </ul>
+                </div>
+                <div className="md:order-1 rounded-2xl border border-border overflow-hidden shadow-2xl shadow-black/60">
+                  <div className="bg-[#3c4043] px-3 py-2 flex items-center gap-2">
+                    <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-[#ff5f57]"/><div className="w-3 h-3 rounded-full bg-[#febc2e]"/><div className="w-3 h-3 rounded-full bg-[#28c840]"/></div>
+                    <div className="flex-1 bg-[#202124] rounded text-[10px] text-[#9aa0a6] px-3 py-1 font-mono truncate">chromewebstore.google.com</div>
+                  </div>
+                  <div className="bg-white p-6 flex justify-center">
+                    <div className="w-72 border border-gray-300 rounded-xl shadow-xl p-5">
+                      <p className="text-[13px] font-bold text-gray-900 mb-1">Add "Google Maps Lead Extractor"?</p>
+                      <p className="text-[11px] text-gray-500 mb-3">It can:</p>
+                      <ul className="space-y-1.5 mb-4">
+                        {["Read and change your data on maps.google.com","Display notifications"].map(p => (
+                          <li key={p} className="flex gap-2 text-[11px] text-gray-700"><span className="text-[#1a73e8] mt-0.5">•</span>{p}</li>
+                        ))}
+                      </ul>
+                      <div className="flex gap-2">
+                        <button className="flex-1 border border-gray-300 rounded text-[11px] py-1.5 text-gray-700 font-medium">Cancel</button>
+                        <button className="flex-1 bg-[#1a73e8] text-white rounded text-[11px] py-1.5 font-bold ring-2 ring-[#1a73e8] ring-offset-1">Add extension</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Step 3 */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="grid md:grid-cols-2 gap-10 items-center">
+                <div>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-lg shrink-0">3</div>
+                    <p className="font-mono text-xs text-primary uppercase tracking-widest">Step 3</p>
+                  </div>
+                  <h3 className="text-2xl font-display font-bold mb-3">Pin the Extension to Your Toolbar</h3>
+                  <p className="text-muted-foreground leading-relaxed mb-4">After installing, click the puzzle piece 🧩 icon in the top-right of Chrome. Find "Google Maps Lead Extractor" in the list and click the pin icon next to it. This keeps the button always visible.</p>
+                  <ul className="space-y-2 text-sm text-muted-foreground">
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> Pinning is optional but highly recommended</li>
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> You can also access it from the Extensions menu anytime</li>
+                  </ul>
+                </div>
+                <div className="rounded-2xl border border-border overflow-hidden shadow-2xl shadow-black/60">
+                  <div className="bg-[#3c4043] px-3 py-2 flex items-center gap-2">
+                    <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-[#ff5f57]"/><div className="w-3 h-3 rounded-full bg-[#febc2e]"/><div className="w-3 h-3 rounded-full bg-[#28c840]"/></div>
+                    <div className="flex-1 bg-[#202124] rounded text-[10px] text-[#9aa0a6] px-3 py-1 font-mono">maps.google.com</div>
+                    {/* Toolbar icons */}
+                    <div className="flex items-center gap-1">
+                      <div className="w-6 h-6 rounded bg-[#e8f0fe] flex items-center justify-center text-[#1a73e8] text-[10px] font-bold ring-2 ring-[#1a73e8]">🧩</div>
+                    </div>
+                  </div>
+                  <div className="bg-white">
+                    {/* Extensions dropdown */}
+                    <div className="mx-auto w-64 border border-gray-200 rounded-b-xl shadow-lg bg-white overflow-hidden">
+                      <div className="px-4 py-2 border-b border-gray-100">
+                        <p className="text-[11px] font-bold text-gray-800">Extensions</p>
+                      </div>
+                      {[
+                        { name: "AdBlock Plus", pinned: false },
+                        { name: "Google Maps Lead Extractor", pinned: true, highlight: true },
+                        { name: "Grammarly", pinned: false },
+                      ].map(ext => (
+                        <div key={ext.name} className={`flex items-center gap-2 px-3 py-2 ${ext.highlight ? "bg-blue-50" : ""}`}>
+                          <div className={`w-5 h-5 rounded flex items-center justify-center text-[8px] shrink-0 ${ext.highlight ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-500"}`}>
+                            {ext.highlight ? <Map className="w-3 h-3" /> : ""}
+                          </div>
+                          <span className={`text-[10px] flex-1 ${ext.highlight ? "font-bold text-gray-900" : "text-gray-600"}`}>{ext.name}</span>
+                          <div className={`w-4 h-4 flex items-center justify-center ${ext.highlight ? "text-[#1a73e8]" : "text-gray-300"}`}>
+                            <Pin className="w-3 h-3" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="h-8 bg-white" />
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Step 4 */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="grid md:grid-cols-2 gap-10 items-center">
+                <div className="md:order-2">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-lg shrink-0">4</div>
+                    <p className="font-mono text-xs text-primary uppercase tracking-widest">Step 4</p>
+                  </div>
+                  <h3 className="text-2xl font-display font-bold mb-3">Open Google Maps & Search</h3>
+                  <p className="text-muted-foreground leading-relaxed mb-4">Go to <strong className="text-foreground">maps.google.com</strong> and search for any business type and location — for example "Plumbers in Houston TX" or "Dentists near London". Wait for the results list to appear on the left sidebar.</p>
+                  <ul className="space-y-2 text-sm text-muted-foreground">
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> Works with any city, country, or zip code</li>
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> Any business category works — restaurants, lawyers, gyms, clinics…</li>
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> Make sure the results sidebar is visible before starting</li>
+                  </ul>
+                </div>
+                <div className="md:order-1 rounded-2xl border border-border overflow-hidden shadow-2xl shadow-black/60">
+                  <div className="bg-[#3c4043] px-3 py-2 flex items-center gap-2">
+                    <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-[#ff5f57]"/><div className="w-3 h-3 rounded-full bg-[#febc2e]"/><div className="w-3 h-3 rounded-full bg-[#28c840]"/></div>
+                    <div className="flex-1 bg-[#202124] rounded text-[10px] text-[#9aa0a6] px-3 py-1 font-mono">maps.google.com/search/Plumbers+in+Houston+TX</div>
+                  </div>
+                  <div className="bg-[#f5f5f5] flex" style={{height: 200}}>
+                    {/* Left sidebar */}
+                    <div className="w-48 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
+                      <div className="p-2 border-b border-gray-200">
+                        <div className="flex items-center gap-1 bg-white border border-gray-300 rounded-full px-2 py-1 shadow-sm">
+                          <Search className="w-3 h-3 text-gray-400" />
+                          <span className="text-[9px] text-gray-700 font-medium">Plumbers in Houston TX</span>
+                        </div>
+                      </div>
+                      <div className="p-2 text-[8px] text-gray-500 font-semibold">Results (120+)</div>
+                      {[
+                        { name: "Houston Plumbing Co.", stars: "★★★★★", reviews: "312" },
+                        { name: "A-1 Drain Masters", stars: "★★★★☆", reviews: "87" },
+                        { name: "Royal Rooter Plumbing", stars: "★★★★★", reviews: "204" },
+                      ].map(r => (
+                        <div key={r.name} className="px-2 py-1.5 border-b border-gray-100 hover:bg-gray-50">
+                          <p className="text-[9px] font-bold text-gray-800 truncate">{r.name}</p>
+                          <p className="text-[8px] text-yellow-500">{r.stars} <span className="text-gray-400">({r.reviews})</span></p>
+                          <p className="text-[8px] text-gray-400">Plumber · Open now</p>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Map area */}
+                    <div className="flex-1 bg-[#e8ead3] relative">
+                      <div className="absolute inset-0 opacity-20" style={{backgroundImage:"repeating-linear-gradient(0deg,#ccc,#ccc 1px,transparent 1px,transparent 40px),repeating-linear-gradient(90deg,#ccc,#ccc 1px,transparent 1px,transparent 40px)"}} />
+                      {[{t:"20%",l:"30%"},{t:"45%",l:"55%"},{t:"65%",l:"35%"}].map((p,i) => (
+                        <div key={i} className="absolute w-4 h-4 bg-[#ea4335] rounded-full border-2 border-white shadow text-[7px] text-white flex items-center justify-center font-bold" style={{top:p.t,left:p.l}}>{i+1}</div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Step 5 */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="grid md:grid-cols-2 gap-10 items-center">
+                <div>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-lg shrink-0">5</div>
+                    <p className="font-mono text-xs text-primary uppercase tracking-widest">Step 5</p>
+                  </div>
+                  <h3 className="text-2xl font-display font-bold mb-3">Open the Extension & Press Start</h3>
+                  <p className="text-muted-foreground leading-relaxed mb-4">Click the extension icon in your Chrome toolbar. The extraction panel will open. Click the green <strong className="text-primary">"Start Extracting"</strong> button — it will automatically scroll through every listing, open each one, and harvest all available data.</p>
+                  <ul className="space-y-2 text-sm text-muted-foreground">
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> Auto-scrolls and paginates — no manual clicks needed</li>
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> Real-time counter shows leads found as it runs</li>
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> You can pause or stop at any time</li>
+                  </ul>
+                </div>
+                <div className="rounded-2xl border border-border overflow-hidden shadow-2xl shadow-black/60">
+                  <div className="bg-[#3c4043] px-3 py-2 flex items-center gap-2">
+                    <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-[#ff5f57]"/><div className="w-3 h-3 rounded-full bg-[#febc2e]"/><div className="w-3 h-3 rounded-full bg-[#28c840]"/></div>
+                    <div className="flex-1 bg-[#202124] rounded text-[10px] text-[#9aa0a6] px-3 py-1 font-mono">maps.google.com</div>
+                    <div className="w-6 h-6 rounded bg-emerald-500 flex items-center justify-center shadow ring-2 ring-emerald-400">
+                      <Map className="w-3.5 h-3.5 text-white" />
+                    </div>
+                  </div>
+                  <div className="bg-white flex justify-end p-3" style={{height:220}}>
+                    {/* Extension popup */}
+                    <div className="w-52 bg-[#111827] border border-gray-700 rounded-xl overflow-hidden shadow-2xl">
+                      <div className="bg-[#00E676]/10 border-b border-gray-700 px-3 py-2 flex items-center gap-2">
+                        <Map className="w-4 h-4 text-[#00E676]" />
+                        <span className="text-[11px] font-bold text-white">MapLead Extractor</span>
+                        <span className="ml-auto text-[8px] bg-[#00E676]/20 text-[#00E676] px-1.5 py-0.5 rounded font-mono">v1.2.3</span>
+                      </div>
+                      <div className="p-3">
+                        <div className="bg-[#1f2937] rounded-lg p-2 mb-3">
+                          <p className="text-[9px] text-gray-400 mb-0.5">Leads found so far</p>
+                          <p className="text-2xl font-display font-bold text-[#00E676]">47</p>
+                          <div className="w-full bg-gray-700 rounded-full h-1 mt-1">
+                            <div className="bg-[#00E676] h-1 rounded-full" style={{width:"38%"}} />
+                          </div>
+                          <p className="text-[8px] text-gray-500 mt-0.5">Scanning page 3 of 8…</p>
+                        </div>
+                        <button className="w-full bg-[#00E676] text-[#111827] text-[11px] font-bold py-2 rounded-lg flex items-center justify-center gap-1.5">
+                          <Play className="w-3 h-3" /> Start Extracting
+                        </button>
+                        <div className="flex gap-1.5 mt-1.5">
+                          <button className="flex-1 bg-gray-800 text-gray-400 text-[9px] py-1 rounded">Pause</button>
+                          <button className="flex-1 bg-gray-800 text-gray-400 text-[9px] py-1 rounded">Stop</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Step 6 */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="grid md:grid-cols-2 gap-10 items-center">
+                <div className="md:order-2">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-lg shrink-0">6</div>
+                    <p className="font-mono text-xs text-primary uppercase tracking-widest">Step 6</p>
+                  </div>
+                  <h3 className="text-2xl font-display font-bold mb-3">Export Your Leads to CSV or XLSX</h3>
+                  <p className="text-muted-foreground leading-relaxed mb-4">Once the extraction is complete (or even while it's running), click <strong className="text-foreground">"Download CSV"</strong> or <strong className="text-foreground">"Download XLSX"</strong>. The file downloads instantly to your computer with all extracted fields — no cloud upload required.</p>
+                  <ul className="space-y-2 text-sm text-muted-foreground">
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> Clean CSV with headers — opens in Excel or Google Sheets instantly</li>
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> All data stays on your machine — 100% private</li>
+                    <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" /> Import directly into any CRM (HubSpot, Salesforce, Pipedrive…)</li>
+                  </ul>
+                </div>
+                <div className="md:order-1 rounded-2xl border border-border overflow-hidden shadow-2xl shadow-black/60">
+                  <div className="bg-[#3c4043] px-3 py-2 flex items-center gap-2">
+                    <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-[#ff5f57]"/><div className="w-3 h-3 rounded-full bg-[#febc2e]"/><div className="w-3 h-3 rounded-full bg-[#28c840]"/></div>
+                    <div className="flex-1 bg-[#202124] rounded text-[10px] text-[#9aa0a6] px-3 py-1 font-mono">maps.google.com</div>
+                  </div>
+                  <div className="bg-white" style={{height:220}}>
+                    {/* Extension popup with export */}
+                    <div className="flex justify-end p-3 h-full">
+                      <div className="w-52 bg-[#111827] border border-gray-700 rounded-xl overflow-hidden shadow-2xl">
+                        <div className="bg-[#00E676]/10 border-b border-gray-700 px-3 py-2 flex items-center gap-2">
+                          <Map className="w-4 h-4 text-[#00E676]" />
+                          <span className="text-[11px] font-bold text-white">MapLead Extractor</span>
+                        </div>
+                        <div className="p-3">
+                          <div className="bg-[#00E676]/10 border border-[#00E676]/30 rounded-lg p-2 mb-3 flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4 text-[#00E676] shrink-0" />
+                            <div>
+                              <p className="text-[10px] font-bold text-[#00E676]">Done! 312 leads found</p>
+                              <p className="text-[8px] text-gray-400">Plumbers in Houston TX</p>
+                            </div>
+                          </div>
+                          <button className="w-full bg-[#00E676] text-[#111827] text-[10px] font-bold py-1.5 rounded-lg flex items-center justify-center gap-1 mb-1.5">
+                            <Download className="w-3 h-3" /> Download CSV
+                          </button>
+                          <button className="w-full bg-emerald-800 text-emerald-300 text-[10px] font-bold py-1.5 rounded-lg flex items-center justify-center gap-1">
+                            <FileSpreadsheet className="w-3 h-3" /> Download XLSX
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Chrome download bar at bottom */}
+                    <div className="absolute bottom-0 left-0 right-0 bg-[#f2f2f2] border-t border-gray-300 px-3 py-1.5 flex items-center gap-2" style={{position:"relative"}}>
+                      <div className="w-5 h-5 bg-green-100 rounded flex items-center justify-center">
+                        <FileSpreadsheet className="w-3 h-3 text-green-600" />
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-bold text-gray-800">leads_houston_plumbers.csv</p>
+                        <p className="text-[8px] text-gray-500">312 rows · 186 KB · Done</p>
+                      </div>
+                      <div className="ml-auto text-[8px] text-[#1a73e8] font-semibold">Open</div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+
             </div>
 
             {/* Download CTA */}
@@ -381,7 +617,7 @@ export default function Home() {
               whileInView="visible"
               viewport={{ once: true }}
               variants={fadeIn}
-              className="mt-12 max-w-3xl mx-auto rounded-2xl border border-primary/30 bg-primary/5 p-8 flex flex-col md:flex-row items-center justify-between gap-6"
+              className="mt-20 max-w-5xl mx-auto rounded-2xl border border-primary/30 bg-primary/5 p-8 flex flex-col md:flex-row items-center justify-between gap-6"
             >
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/30 flex items-center justify-center shrink-0">
@@ -389,7 +625,7 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="font-display font-bold text-lg">Prefer a direct download?</p>
-                  <p className="text-muted-foreground text-sm mt-0.5">A standalone <code className="font-mono text-primary text-xs bg-primary/10 px-1.5 py-0.5 rounded">.crx</code> installer for the Google Maps Extractor is coming soon.</p>
+                  <p className="text-muted-foreground text-sm mt-0.5">A standalone <code className="font-mono text-primary text-xs bg-primary/10 px-1.5 py-0.5 rounded">.crx</code> installer for the Google Maps Extractor is coming soon — no Chrome Web Store needed.</p>
                 </div>
               </div>
               <Button variant="outline" className="shrink-0 border-primary/50 text-primary hover:bg-primary hover:text-primary-foreground transition-all" disabled>
