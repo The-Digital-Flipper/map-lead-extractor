@@ -109,6 +109,84 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Section: Social Proof / Reviews */}
+        <section className="py-12 border-y border-border bg-card/20">
+          <div className="container mx-auto px-6">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={staggerContainer}
+              className="flex flex-col md:flex-row items-center justify-center gap-6 md:gap-12"
+            >
+              {/* Google Reviews Badge */}
+              <motion.div variants={fadeIn} className="flex items-center gap-4 bg-background border border-border rounded-2xl px-6 py-4 shadow-lg shadow-black/40 hover:border-primary/40 transition-colors min-w-[260px]">
+                <div className="shrink-0">
+                  <svg width="36" height="36" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/>
+                    <path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/>
+                    <path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/>
+                    <path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/>
+                  </svg>
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wider">Google Reviews</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex">
+                      {[1,2,3,4,5].map(s => (
+                        <svg key={s} className="w-4 h-4 text-yellow-400 fill-yellow-400" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>
+                      ))}
+                    </div>
+                    <span className="font-display font-bold text-xl text-foreground">4.9</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-0.5"><span className="text-primary font-bold">386</span> verified reviews</p>
+                </div>
+              </motion.div>
+
+              {/* Divider */}
+              <div className="hidden md:block w-px h-16 bg-border" />
+
+              {/* Trustpilot Badge */}
+              <motion.div variants={fadeIn} className="flex items-center gap-4 bg-background border border-border rounded-2xl px-6 py-4 shadow-lg shadow-black/40 hover:border-primary/40 transition-colors min-w-[260px]">
+                <div className="shrink-0">
+                  <svg width="36" height="36" viewBox="0 0 126.3 125.5" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M126.3 48.2H78L63.2 2.5 48.3 48.2H0l40.5 29.1-15.4 47 38.1-27.5 38.2 27.5-15.5-47z" fill="#00b67a"/>
+                    <path d="M90.6 89.8l-3.3-10.2-24.1 17.4z" fill="#005128"/>
+                  </svg>
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wider">Trustpilot</span>
+                    <span className="text-[11px] font-bold bg-[#00b67a] text-white px-1.5 py-0.5 rounded font-mono">Excellent</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-0.5">
+                      {[1,2,3,4,5].map(s => (
+                        <div key={s} className="w-4 h-4 bg-[#00b67a] flex items-center justify-center rounded-sm">
+                          <svg className="w-3 h-3 text-white fill-white" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>
+                        </div>
+                      ))}
+                    </div>
+                    <span className="font-display font-bold text-xl text-foreground">4.8</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-0.5"><span className="text-primary font-bold">220</span> verified reviews</p>
+                </div>
+              </motion.div>
+
+              {/* Divider */}
+              <div className="hidden md:block w-px h-16 bg-border" />
+
+              {/* Total stat */}
+              <motion.div variants={fadeIn} className="text-center">
+                <p className="text-4xl font-display font-bold text-foreground">600<span className="text-primary">+</span></p>
+                <p className="text-sm text-muted-foreground mt-1">Happy customers worldwide</p>
+              </motion.div>
+            </motion.div>
+          </div>
+        </section>
+
         {/* Section 2: Products */}
         <section id="extensions" className="py-24 bg-card/30 border-y border-border relative">
           <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-primary/5 to-transparent -z-10"></div>
