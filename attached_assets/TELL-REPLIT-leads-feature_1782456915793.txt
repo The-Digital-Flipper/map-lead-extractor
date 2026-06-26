@@ -1,0 +1,369 @@
+================================================================
+ PASTE THIS WHOLE MESSAGE TO THE REPLIT AI AGENT
+================================================================
+
+Add a "leads" feature to my pnpm monorepo: save extracted leads from my Chrome
+extension into the Replit Postgres DB (via the existing @workspace/db Drizzle
+package), plus list + CSV-export endpoints. Follow these steps EXACTLY. Do not
+change any existing routes, tables, or middleware. Use req.log (pino) for
+logging — never console.log. TypeScript strict mode.
+
+
+----------------------------------------------------------------
+STEP 1 — Add the leads table to lib/db/src/schema.ts (keep all existing tables)
+----------------------------------------------------------------
+Make sure these column builders are imported at the top of schema.ts (add any
+that are missing to the existing drizzle import line):
+
+    import {
+      pgTable, serial, text, numeric, integer, jsonb, timestamp,
+    } from "drizzle-orm/pg-core";
+
+Then add this table at the end of schema.ts:
+
+export const leads = pgTable("leads", {
+  id: serial("id").primaryKey(),
+  key: text("key").unique().notNull(),
+  name: text("name"),
+  phone: text("phone"),
+  emails: text("emails"),
+  website: text("website"),
+  social: text("social"),
+  address: text("address"),
+  category: text("category"),
+  rating: numeric("rating"),
+  reviewCount: integer("review_count"),
+  score: integer("score").default(0),
+  gmapsUrl: text("gmaps_url"),
+  plusCode: text("plus_code"),
+  raw: jsonb("raw"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+Make sure the leads table is re-exported from the package's schema entry
+(lib/db usually has `export * from "./schema"` in its index). Then run:
+
+    pnpm --filter @workspace/db run push
+
+
+----------------------------------------------------------------
+STEP 2 — Create the router file: artifacts/api-server/src/routes/leads.ts
+----------------------------------------------------------------
+Create this NEW file with EXACTLY this content. IMPORTANT: the two import lines
+for the db client and the leads table must match how my OTHER route files import
+from @workspace/db — open an existing route and copy its exact import style. If
+my package does not expose a "/schema" subpath, change
+`import { leads } from "@workspace/db/schema";` to whatever my other routes use
+(e.g. `import { db, leads } from "@workspace/db";`). Also verify `req.log` is the
+correct logger type on Request in my setup; if not, match how existing routes log.
+
+----- BEGIN artifacts/api-server/src/routes/leads.ts -----
+// artifacts/api-server/src/routes/leads.ts
+//
+// Lead persistence + retrieval + CSV export for the Google Maps Lead Extractor.
+// Mounted under /api/leads by routes/index.ts.
+// No extra packages: uses Node built-in crypto and plain-string CSV building.
+
+import { Router, type Request, type Response, type NextFunction } from "express";
+import { createHash } from "node:crypto";
+import { and, desc, gte, ilike, inArray, or, sql } from "drizzle-orm";
+import { db } from "@workspace/db";
+import { leads } from "@workspace/db/schema";
+
+const router = Router();
+
+// ---- CORS (Chrome extension calls /save cross-origin) -----------------------
+router.use((_req: Request, res: Response, next: NextFunction) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  next();
+});
+router.options("*", (_req: Request, res: Response) => {
+  res.sendStatus(204);
+});
+
+// ---- Types ------------------------------------------------------------------
+interface IncomingLead {
+  Name?: string;
+  Phone?: string;
+  Emails?: string;
+  Website?: string;
+  "Social Medias"?: string;
+  Address?: string;
+  Category?: string;
+  Rating?: string;
+  "Rating info"?: string;
+  "Google Maps URL"?: string;
+  "Plus Code"?: string;
+  [key: string]: unknown;
+}
+
+type LeadInsert = typeof leads.$inferInsert;
+
+// ---- Helpers ----------------------------------------------------------------
+function str(value: unknown): string {
+  return value == null ? "" : String(value).trim();
+}
+
+function sha256(input: string): string {
+  return createHash("sha256").update(input).digest("hex");
+}
+
+// Pull the review COUNT out of "Rating info". May be a bare count ("1,234") or
+// text ("4.5 stars · 1,234 reviews"). Never grab the rating's digits.
+function parseReviewCount(ratingInfo: string): number | null {
+  const cleaned = ratingInfo.replace(/,/g, "");
+  const near = cleaned.match(/(\d+)\s*reviews?/i);
+  if (near) return parseInt(near[1], 10);
+  const ints = cleaned.replace(/\d+\.\d+/g, " ").match(/\d+/g);
+  if (!ints) return null;
+  return Math.max(...ints.map((n) => parseInt(n, 10)));
+}
+
+function parseRating(rating: string): number | null {
+  const value = parseFloat(rating);
+  return Number.isFinite(value) ? value : null;
+}
+
+// 0–100 lead quality score.
+function computeScore(input: {
+  phone: string;
+  emails: string;
+  website: string;
+  social: string;
+  rating: number | null;
+  reviewCount: number | null;
+  category: string;
+}): number {
+  let score = 0;
+  if (input.phone) score += 20;
+  if (input.emails) score += 20;
+  if (input.website) score += 15;
+  if (input.social) score += 15;
+  if (input.rating != null && input.rating >= 4.0) score += 10;
+  if (input.reviewCount != null && input.reviewCount >= 50) score += 10;
+  if (input.category) score += 10;
+  return score;
+}
+
+function toRecord(lead: IncomingLead): LeadInsert {
+  const name = str(lead.Name);
+  const phone = str(lead.Phone);
+  const emails = str(lead.Emails);
+  const website = str(lead.Website);
+  const social = str(lead["Social Medias"]);
+  const address = str(lead.Address);
+  const category = str(lead.Category);
+  const rating = parseRating(str(lead.Rating));
+  const reviewCount = parseReviewCount(str(lead["Rating info"]));
+  const key = sha256(`${name}${phone}${address}`);
+  const score = computeScore({ phone, emails, website, social, rating, reviewCount, category });
+
+  return {
+    key,
+    name: name || null,
+    phone: phone || null,
+    emails: emails || null,
+    website: website || null,
+    social: social || null,
+    address: address || null,
+    category: category || null,
+    rating: rating != null ? String(rating) : null, // numeric() maps to string in Drizzle
+    reviewCount,
+    score,
+    gmapsUrl: str(lead["Google Maps URL"]) || null,
+    plusCode: str(lead["Plus Code"]) || null,
+    raw: lead as Record<string, unknown>,
+  };
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+// ---- POST /save -------------------------------------------------------------
+router.post("/save", async (req: Request, res: Response) => {
+  const body = req.body;
+  if (!Array.isArray(body)) {
+    return res.status(400).json({ error: "Body must be an array of leads." });
+  }
+
+  const incoming = body.slice(0, 1000) as IncomingLead[];
+
+  const byKey = new Map<string, LeadInsert>();
+  for (const lead of incoming) {
+    const record = toRecord(lead);
+    if (record.key) byKey.set(record.key, record);
+  }
+  const records = [...byKey.values()];
+
+  if (records.length === 0) {
+    return res.json({ saved: 0, duplicates: incoming.length });
+  }
+
+  const keys = records.map((r) => r.key);
+  const existingRows = await db
+    .select({ key: leads.key })
+    .from(leads)
+    .where(inArray(leads.key, keys));
+  const existing = new Set(existingRows.map((r) => r.key));
+
+  for (const part of chunk(records, 500)) {
+    await db
+      .insert(leads)
+      .values(part)
+      .onConflictDoUpdate({
+        target: leads.key,
+        set: {
+          name: sql`excluded.name`,
+          phone: sql`excluded.phone`,
+          emails: sql`excluded.emails`,
+          website: sql`excluded.website`,
+          social: sql`excluded.social`,
+          address: sql`excluded.address`,
+          category: sql`excluded.category`,
+          rating: sql`excluded.rating`,
+          reviewCount: sql`excluded.review_count`,
+          score: sql`excluded.score`,
+          gmapsUrl: sql`excluded.gmaps_url`,
+          plusCode: sql`excluded.plus_code`,
+          raw: sql`excluded.raw`,
+          updatedAt: sql`now()`,
+        },
+      });
+  }
+
+  const saved = records.filter((r) => !existing.has(r.key)).length;
+  const duplicates = incoming.length - saved;
+
+  req.log.info({ saved, duplicates, received: incoming.length }, "leads saved");
+  return res.json({ saved, duplicates });
+});
+
+// ---- GET / (paginated list) -------------------------------------------------
+router.get("/", async (req: Request, res: Response) => {
+  const page = Math.max(1, parseInt(str(req.query.page), 10) || 1);
+  const limit = Math.min(200, Math.max(1, parseInt(str(req.query.limit), 10) || 50));
+  const search = str(req.query.search);
+  const minScore = parseInt(str(req.query.minScore), 10) || 0;
+  const offset = (page - 1) * limit;
+
+  const conditions = [gte(leads.score, minScore)];
+  if (search) {
+    const term = `%${search}%`;
+    const match = or(ilike(leads.name, term), ilike(leads.address, term));
+    if (match) conditions.push(match);
+  }
+  const where = and(...conditions);
+
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(leads)
+    .where(where);
+
+  const rows = await db
+    .select()
+    .from(leads)
+    .where(where)
+    .orderBy(desc(leads.score), desc(leads.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  const total = count ?? 0;
+  req.log.info({ page, limit, total, search, minScore }, "leads listed");
+  return res.json({
+    leads: rows,
+    total,
+    page,
+    pages: Math.max(1, Math.ceil(total / limit)),
+  });
+});
+
+// ---- GET /export.csv --------------------------------------------------------
+function csvCell(value: unknown): string {
+  const s = value == null ? "" : String(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+router.get("/export.csv", async (req: Request, res: Response) => {
+  const search = str(req.query.search);
+  const minScore = parseInt(str(req.query.minScore), 10) || 0;
+
+  const conditions = [gte(leads.score, minScore)];
+  if (search) {
+    const term = `%${search}%`;
+    const match = or(ilike(leads.name, term), ilike(leads.address, term));
+    if (match) conditions.push(match);
+  }
+
+  const rows = await db
+    .select()
+    .from(leads)
+    .where(and(...conditions))
+    .orderBy(desc(leads.score), desc(leads.createdAt));
+
+  const headers = [
+    "Name", "Phone", "Emails", "Website", "Social", "Address", "Category",
+    "Rating", "Reviews", "Score", "Google Maps URL", "Plus Code",
+  ];
+
+  const lines: string[] = [headers.join(",")];
+  for (const r of rows) {
+    lines.push([
+      r.name, r.phone, r.emails, r.website, r.social, r.address, r.category,
+      r.rating, r.reviewCount, r.score, r.gmapsUrl, r.plusCode,
+    ].map(csvCell).join(","));
+  }
+  const csv = lines.join("\r\n");
+
+  const date = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="leads-${date}.csv"`);
+  req.log.info({ rows: rows.length, search, minScore }, "leads exported to csv");
+  return res.send(csv);
+});
+
+export default router;
+----- END artifacts/api-server/src/routes/leads.ts -----
+
+
+----------------------------------------------------------------
+STEP 3 — Register the router in artifacts/api-server/src/routes/index.ts
+----------------------------------------------------------------
+Add these two lines alongside the other route registrations (use the same import
+style as the other routers in this file — if they import without ".js", drop it):
+
+    import leadsRouter from "./leads.js";
+    router.use("/leads", leadsRouter);
+
+
+----------------------------------------------------------------
+STEP 4 — Verify, then restart
+----------------------------------------------------------------
+Run:
+    pnpm --filter @workspace/api-server run typecheck
+
+Fix any type errors by matching my existing route conventions (db/leads import
+path and req.log typing are the only likely issues). Then restart the server.
+
+
+----------------------------------------------------------------
+STEP 5 — Smoke test (run these and show me the output)
+----------------------------------------------------------------
+    curl -X POST https://mapleadextractor.net/api/leads/save \
+      -H "Content-Type: application/json" \
+      -d '[{"Name":"Test Co","Phone":"(212) 555-1212","Address":"NYC","Rating":"4.6","Rating info":"1,234 reviews","Category":"Cafe","Emails":"a@b.com"}]'
+    # expect: {"saved":1,"duplicates":0}   (run a 2nd time -> {"saved":0,"duplicates":1})
+
+    curl "https://mapleadextractor.net/api/leads/?minScore=50"
+    # expect: {"leads":[...],"total":1,"page":1,"pages":1}
+
+    curl -OJ "https://mapleadextractor.net/api/leads/export.csv?minScore=50"
+    # expect: a leads-YYYY-MM-DD.csv download
+
+Report back the exact JSON each command returned.
+================================================================
