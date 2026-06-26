@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Lead Extractor Extensions"
+version = "1.0.0"
+id = "artifacts/lead-extractor-site"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22118
+
+[services.development]
+run = "pnpm --filter @workspace/lead-extractor-site run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/lead-extractor-site", "run", "build" ]
+publicDir = "artifacts/lead-extractor-site/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22118"
+BASE_PATH = "/"

@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a2550"/>
+      <stop offset="1" stop-color="#090f24"/>
+    </linearGradient>
+    <linearGradient id="mapMid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4fcfc"/>
+      <stop offset="1" stop-color="#dcf0f0"/>
+    </linearGradient>
+    <linearGradient id="mapSide" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dcf0f0"/>
+      <stop offset="1" stop-color="#c4e4e4"/>
+    </linearGradient>
+    <linearGradient id="pin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff5a6b"/>
+      <stop offset="1" stop-color="#df2138"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+  </defs>
+
+  <!-- rounded-square background -->
+  <rect x="0" y="0" width="512" height="512" rx="116" fill="url(#bg)"/>
+
+  <!-- folded map, slightly tilted -->
+  <g transform="rotate(-8 256 262)">
+    <polygon points="96,150 200,126 200,398 96,374" fill="url(#mapSide)"/>
+    <polygon points="200,126 312,150 312,398 200,398" fill="url(#mapMid)"/>
+    <polygon points="312,150 416,126 416,374 312,398" fill="url(#mapSide)"/>
+
+    <!-- fold lines -->
+    <g stroke="#a9cfd0" stroke-width="3.5" opacity="0.65">
+      <line x1="200" y1="126" x2="200" y2="398"/>
+      <line x1="312" y1="150" x2="312" y2="398"/>
+    </g>
+
+    <!-- roads -->
+    <g stroke="#bfe0df" stroke-width="5" opacity="0.85" stroke-linecap="round">
+      <line x1="120" y1="250" x2="396" y2="238"/>
+      <line x1="258" y1="150" x2="270" y2="392"/>
+    </g>
+
+    <!-- route -->
+    <path d="M140 350 C 210 318, 232 250, 300 226 S 384 182, 402 160"
+          fill="none" stroke="#3aa7d8" stroke-width="11" stroke-linecap="round"/>
+  </g>
+
+  <!-- soft shadow under the pin -->
+  <ellipse cx="300" cy="344" rx="48" ry="14" fill="#000" opacity="0.32" filter="url(#soft)"/>
+
+  <!-- red location pin -->
+  <g transform="translate(300 332)">
+    <path d="M0,0 C-34,-46 -48,-66 -48,-94 a48,48 0 1,1 96,0 C48,-66 34,-46 0,0 Z" fill="url(#pin)"/>
+    <circle cx="0" cy="-94" r="21" fill="#ffffff"/>
+  </g>
+</svg>

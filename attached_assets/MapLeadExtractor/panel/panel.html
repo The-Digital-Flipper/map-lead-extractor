@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Map Lead Extractor</title>
+    <link rel="stylesheet" href="panel.css">
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Map Lead Extractor</h1>
+        <p id="version" data-version>Ready</p>
+      </div>
+      <div class="header-actions">
+        <button id="toggleTable" class="icon-button" type="button" title="Hide results" data-collapse>▾</button>
+        <button id="closePanel" class="icon-button" type="button" title="Close" data-close>×</button>
+      </div>
+    </header>
+
+    <section class="status">
+      <div class="status-line">
+        <span class="status-dot" data-status-dot data-level="idle"></span>
+        <div id="statusText" data-status>Search Bing Maps, then start extraction.</div>
+      </div>
+      <div id="counts" data-counts>0 loaded / 0 total found</div>
+      <progress id="progress" max="100" value="0" data-progress></progress>
+    </section>
+
+    <section class="controls">
+      <button id="startRun" type="button" data-start>Start Extraction</button>
+      <button id="stopRun" type="button" disabled data-stop>Stop</button>
+      <button id="clearRows" type="button" data-clear>Clear</button>
+    </section>
+
+    <label class="toggle">
+      <input id="enableEnrichment" type="checkbox" data-enrichment>
+      <span>Enrich phone/email/socials from websites (off by default)
+        <small class="toggle-note">⏳ Takes a little longer — it visits each business website to pull the phone, email and social links the map didn't show.</small>
+      </span>
+    </label>
+
+    <section class="exports">
+      <button id="exportCsv" type="button" disabled data-export-csv>Export CSV</button>
+      <button id="exportXlsx" type="button" disabled data-export-xlsx>Export XLSX</button>
+    </section>
+
+    <section class="outreach">
+      <button id="copyEmails" type="button" disabled data-copy-emails>📋 Copy Emails</button>
+      <button id="copyPhones" type="button" disabled data-copy-phones>📞 Copy Phones</button>
+      <button id="emailAll" type="button" disabled data-email-all>📧 Email All</button>
+    </section>
+
+    <section class="helpbar">
+      <button type="button" data-help="how">📖 How it works</button>
+      <button type="button" data-help="ads">📣 Advertise</button>
+      <button type="button" data-help="support">💬 Support</button>
+    </section>
+
+    <section class="infobox" data-infobox hidden></section>
+
+    <section class="review">
+      <a href="https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg/reviews" target="_blank" rel="noopener noreferrer">
+        👉 Click here to leave a review 🙏
+      </a>
+    </section>
+
+    <section class="donate">
+      <div class="donate-title">☕ Donate $1 a day to keep me going!</div>
+      <div class="donate-qrs">
+        <figure>
+          <img class="donate-qr" src="donate-qr.jpg" alt="PayPal donation QR code">
+          <figcaption>PayPal</figcaption>
+        </figure>
+        <figure>
+          <img class="donate-qr" src="donate-cashapp.jpg" alt="Cash App donation QR code">
+          <figcaption>Cash App</figcaption>
+        </figure>
+      </div>
+      <div class="donate-sub">Scan with your phone camera to donate $1. Every dollar keeps this free tool alive. 🙏</div>
+    </section>
+
+    <section class="details" data-details>
+      Enrichment: off
+    </section>
+
+    <section class="debug">
+      <button id="copySample" type="button" data-copy-sample>Copy sample data (for support)</button>
+    </section>
+
+    <section class="usp">
+      ⚡ One-click outreach — tap any 📧 email or social logo below to contact the lead instantly. No other extractor does this.
+    </section>
+
+    <section class="table-wrap">
+      <table>
+        <thead data-preview-head></thead>
+        <tbody id="previewRows" data-preview-body></tbody>
+      </table>
+    </section>
+
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>
