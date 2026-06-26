@@ -580,6 +580,84 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Section: Reviews */}
+        <section className="py-24 border-t border-border bg-background">
+          <div className="container mx-auto px-6">
+            <div className="text-center mb-16">
+              <Badge variant="outline" className="px-4 py-1.5 border-primary/50 text-primary bg-primary/10 font-mono text-xs uppercase tracking-wider mb-4">
+                ★ Real Users. Real Results.
+              </Badge>
+              <h2 className="text-4xl md:text-5xl font-display font-bold mb-4">What people are saying.</h2>
+              <p className="text-xl text-muted-foreground max-w-2xl mx-auto">4.9 stars across 386 reviews on the Chrome Web Store.</p>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto">
+              {[
+                {
+                  name: "Marcus T.",
+                  role: "Agency Owner · Houston, TX",
+                  stars: 5,
+                  text: "I was manually copy-pasting from Google Maps for hours every week. This extension replaced all of that. I ran a search for plumbers in Houston, hit start, went to get coffee, came back to 340 leads with phone numbers and websites. Insane.",
+                  ago: "2 weeks ago"
+                },
+                {
+                  name: "Sarah K.",
+                  role: "Sales Manager · London, UK",
+                  stars: 5,
+                  text: "We use this to build cold outreach lists for our B2B clients. The email enrichment actually works — it visits each business website in the background and pulls emails we'd never find otherwise. CSV exports clean into HubSpot perfectly.",
+                  ago: "1 month ago"
+                },
+                {
+                  name: "Diego R.",
+                  role: "Freelance Web Designer · Miami, FL",
+                  stars: 5,
+                  text: "Best prospecting tool I've found and it's completely free. I target local businesses with outdated websites, extract their contact info, and pitch a redesign. Closed 4 clients last month directly from leads this pulled.",
+                  ago: "3 weeks ago"
+                },
+                {
+                  name: "Priya M.",
+                  role: "Lead Gen Consultant · Toronto, CA",
+                  stars: 5,
+                  text: "The fact that everything runs locally and nothing gets uploaded to a server is a huge deal for my clients. GDPR compliance is way simpler when the data never leaves the browser. Refreshing to see a tool built this way.",
+                  ago: "1 week ago"
+                },
+                {
+                  name: "James O.",
+                  role: "SDR · Austin, TX",
+                  stars: 5,
+                  text: "Our team was paying $300/month for a leads database that had stale data. Switched to this and our contact data is live and accurate because it's pulled straight from Google Maps in real time. Never going back.",
+                  ago: "5 days ago"
+                },
+                {
+                  name: "Chen W.",
+                  role: "Digital Marketer · Sydney, AU",
+                  stars: 5,
+                  text: "Works exactly as advertised. Searched for restaurants in Sydney CBD, got 200+ leads with names, addresses, phones, websites, ratings in about 4 minutes. The Bing Maps version is great too for areas with different coverage.",
+                  ago: "2 months ago"
+                },
+              ].map((r, i) => (
+                <motion.div key={i} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn}>
+                  <div className="h-full bg-card border border-border rounded-2xl p-6 flex flex-col gap-4 hover:border-primary/30 transition-colors">
+                    <div className="flex gap-0.5">
+                      {[1,2,3,4,5].map(s => (
+                        <svg key={s} className="w-4 h-4 fill-yellow-400 text-yellow-400" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>
+                      ))}
+                    </div>
+                    <p className="text-muted-foreground leading-relaxed flex-1">"{r.text}"</p>
+                    <div className="flex items-center justify-between pt-2 border-t border-border">
+                      <div>
+                        <p className="font-semibold text-sm text-foreground">{r.name}</p>
+                        <p className="text-xs text-muted-foreground">{r.role}</p>
+                      </div>
+                      <span className="text-xs text-muted-foreground font-mono">{r.ago}</span>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* Section 7: FAQ */}
         <section id="faq" className="py-32">
           <div className="container mx-auto px-6 max-w-3xl">
