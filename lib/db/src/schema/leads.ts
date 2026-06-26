@@ -21,6 +21,7 @@ export const leads = pgTable("leads", {
   gmapsUrl: text("gmaps_url"),
   plusCode: text("plus_code"),
   raw: jsonb("raw"),
+  status: text("status").default("new"), // new | contacted | converted | not_interested
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

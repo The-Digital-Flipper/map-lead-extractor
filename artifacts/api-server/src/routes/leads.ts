@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { createHash } from "node:crypto";
 import { db, leads } from "@workspace/db";
-import { sql, ilike, or, gte, and, count } from "drizzle-orm";
+import { sql, ilike, or, gte, and, count, eq } from "drizzle-orm";
 
 const router = Router();
 
@@ -58,6 +58,9 @@ function parseReviewCount(ratingInfo: string | undefined | null): number | null 
   return parseInt(m[0].replace(/,/g, ""), 10) || null;
 }
 
+const VALID_STATUSES = ["new", "contacted", "converted", "not_interested"] as const;
+type LeadStatus = typeof VALID_STATUSES[number];
+
 // ---- CORS — extension calls /save cross-origin, must allow * ----------------
 router.options("/save", (_req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -66,7 +69,7 @@ router.options("/save", (_req, res) => {
   res.status(204).end();
 });
 
-// ---- POST /save — no auth, no limits, open to everyone ----------------------
+// ---- POST /save — no auth, no limits ----------------------------------------
 router.post("/save", async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
@@ -75,11 +78,6 @@ router.post("/save", async (req, res) => {
     res.status(400).json({ error: "Expected non-empty array of leads" });
     return;
   }
-
-  // Optionally track which user sent this (for dashboard attribution only, not enforced)
-  const apiKeyHeader = req.headers["x-api-key"];
-  const clerkUserId: string | null = null; // populated by dashboard attribution layer later
-  void clerkUserId; // suppress unused-var warning
 
   const batch = body.slice(0, 1000);
   let saved = 0;
@@ -101,9 +99,7 @@ router.post("/save", async (req, res) => {
     const gmapsUrl = String(lead["Google Maps URL"] ?? lead["gmapsUrl"] ?? "");
     const plusCode = String(lead["Plus Code"] ?? lead["plusCode"] ?? "");
 
-    // Key is a stable hash of name+phone+address (global dedup — not per-user)
     const key = createHash("sha256").update(name + phone + address).digest("hex");
-
     const { social, facebook, instagram, twitter, linkedin } = parseSocials(socialRaw || null);
     const ratingNum = (rating != null && !isNaN(rating)) ? rating : null;
 
@@ -122,7 +118,7 @@ router.post("/save", async (req, res) => {
 
     return {
       key,
-      clerkUserId: String(apiKeyHeader ?? "").slice(0, 4) === "mle_" ? null : null, // future use
+      clerkUserId: null as string | null,
       name: name || null,
       phone: phone || null,
       emails: emails || null,
@@ -178,74 +174,130 @@ router.post("/save", async (req, res) => {
         },
       });
 
-    if (before.length > 0) {
-      duplicates++;
-    } else {
-      saved++;
-    }
+    if (before.length > 0) duplicates++;
+    else saved++;
   }
 
   req.log.info({ saved, duplicates }, "leads saved");
-  res.json({ saved, duplicates });
+  res.json({ saved, duplicates, syncedAt: new Date().toISOString() });
 });
 
-// ---- GET / — paginated list, no auth required -------------------------------
+// ---- GET / — paginated list --------------------------------------------------
 router.get("/", async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10) || 1);
   const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10) || 50));
   const search = String(req.query.search ?? "").trim();
   const minScore = parseInt(String(req.query.minScore ?? "0"), 10) || 0;
+  const category = String(req.query.category ?? "").trim();
+  const status = String(req.query.status ?? "").trim();
   const offset = (page - 1) * limit;
 
   const conditions = [];
   if (search) {
     conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`)));
   }
-  if (minScore > 0) {
-    conditions.push(gte(leads.score, minScore));
+  if (minScore > 0) conditions.push(gte(leads.score, minScore));
+  if (category) conditions.push(ilike(leads.category, `%${category}%`));
+  if (status && VALID_STATUSES.includes(status as LeadStatus)) {
+    conditions.push(eq(leads.status, status));
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [rows, [{ total }]] = await Promise.all([
-    db
-      .select()
-      .from(leads)
-      .where(where)
-      .orderBy(sql`score DESC, created_at DESC`)
-      .limit(limit)
-      .offset(offset),
+    db.select().from(leads).where(where).orderBy(sql`score DESC, created_at DESC`).limit(limit).offset(offset),
     db.select({ total: count() }).from(leads).where(where),
   ]);
 
+  res.json({ leads: rows, total: Number(total), page, pages: Math.ceil(Number(total) / limit) || 1 });
+});
+
+// ---- GET /stats — charts data -----------------------------------------------
+router.get("/stats", async (_req, res) => {
+  const [scoreRows, categoryRows, statusRows, lastRow] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        CASE
+          WHEN score >= 80 THEN 'High (80+)'
+          WHEN score >= 50 THEN 'Medium (50-79)'
+          ELSE 'Low (<50)'
+        END AS bucket,
+        COUNT(*) AS cnt
+      FROM leads
+      GROUP BY bucket
+    `),
+    db.execute(sql`
+      SELECT category, COUNT(*) AS cnt
+      FROM leads
+      WHERE category IS NOT NULL AND category != ''
+      GROUP BY category
+      ORDER BY cnt DESC
+      LIMIT 10
+    `),
+    db.execute(sql`
+      SELECT COALESCE(status, 'new') AS status, COUNT(*) AS cnt
+      FROM leads
+      GROUP BY status
+    `),
+    db.execute(sql`SELECT MAX(updated_at) AS last_synced FROM leads`),
+  ]);
+
   res.json({
-    leads: rows,
-    total: Number(total),
-    page,
-    pages: Math.ceil(Number(total) / limit) || 1,
+    scoreDistribution: (scoreRows.rows as { bucket: string; cnt: string }[]).map(r => ({ bucket: r.bucket, count: Number(r.cnt) })),
+    topCategories: (categoryRows.rows as { category: string; cnt: string }[]).map(r => ({ category: r.category, count: Number(r.cnt) })),
+    statusCounts: (statusRows.rows as { status: string; cnt: string }[]).map(r => ({ status: r.status, count: Number(r.cnt) })),
+    lastSyncedAt: (lastRow.rows[0] as { last_synced: string | null })?.last_synced ?? null,
   });
 });
 
-// ---- GET /export.csv — no auth required -------------------------------------
+// ---- PATCH /:id/status — update lead status ----------------------------------
+router.patch("/:id/status", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const { status } = req.body as { status: string };
+  if (!VALID_STATUSES.includes(status as LeadStatus)) {
+    res.status(400).json({ error: `status must be one of: ${VALID_STATUSES.join(", ")}` });
+    return;
+  }
+
+  await db.update(leads).set({ status, updatedAt: new Date() }).where(eq(leads.id, id));
+  res.json({ ok: true, id, status });
+});
+
+// ---- DELETE /:id — delete a lead --------------------------------------------
+router.delete("/:id", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  await db.delete(leads).where(eq(leads.id, id));
+  res.json({ ok: true, id });
+});
+
+// ---- DELETE /bulk — delete multiple leads -----------------------------------
+router.delete("/bulk", async (req, res) => {
+  const { ids } = req.body as { ids: number[] };
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: "ids must be a non-empty array" });
+    return;
+  }
+  const validIds = ids.map(Number).filter(n => !isNaN(n) && n > 0);
+  await db.execute(sql`DELETE FROM leads WHERE id = ANY(${sql.raw(`ARRAY[${validIds.join(",")}]::int[]`)})`);
+  res.json({ ok: true, deleted: validIds.length });
+});
+
+// ---- GET /export.csv — download CSV -----------------------------------------
 router.get("/export.csv", async (req, res) => {
   const search = String(req.query.search ?? "").trim();
   const minScore = parseInt(String(req.query.minScore ?? "0"), 10) || 0;
+  const status = String(req.query.status ?? "").trim();
 
   const conditions = [];
-  if (search) {
-    conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`)));
-  }
-  if (minScore > 0) {
-    conditions.push(gte(leads.score, minScore));
-  }
+  if (search) conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`)));
+  if (minScore > 0) conditions.push(gte(leads.score, minScore));
+  if (status && VALID_STATUSES.includes(status as LeadStatus)) conditions.push(eq(leads.status, status));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
-
-  const rows = await db
-    .select()
-    .from(leads)
-    .where(where)
-    .orderBy(sql`score DESC, created_at DESC`);
+  const rows = await db.select().from(leads).where(where).orderBy(sql`score DESC, created_at DESC`);
 
   const dateStr = new Date().toISOString().slice(0, 10);
   res.setHeader("Content-Type", "text/csv");
@@ -254,30 +306,17 @@ router.get("/export.csv", async (req, res) => {
   function csvCell(v: unknown): string {
     if (v == null) return "";
     const s = String(v);
-    if (s.includes(",") || s.includes('"') || s.includes("\n")) {
-      return `"${s.replace(/"/g, '""')}"`;
-    }
+    if (s.includes(",") || s.includes('"') || s.includes("\n")) return `"${s.replace(/"/g, '""')}"`;
     return s;
   }
 
-  const headers = [
-    "Name", "Phone", "Emails", "Website",
-    "Facebook", "Instagram", "Twitter", "LinkedIn",
-    "Address", "Category", "Rating", "Reviews", "Score",
-    "Google Maps URL", "Plus Code",
-  ];
-
+  const headers = ["Name","Phone","Emails","Website","Facebook","Instagram","Twitter","LinkedIn","Address","Category","Rating","Reviews","Score","Status","Google Maps URL","Plus Code"];
   let csv = headers.join(",") + "\n";
   for (const row of rows) {
-    csv += [
-      row.name, row.phone, row.emails, row.website,
-      row.facebook, row.instagram, row.twitter, row.linkedin,
-      row.address, row.category, row.rating, row.reviewCount, row.score,
-      row.gmapsUrl, row.plusCode,
-    ].map(csvCell).join(",") + "\n";
+    csv += [row.name,row.phone,row.emails,row.website,row.facebook,row.instagram,row.twitter,row.linkedin,row.address,row.category,row.rating,row.reviewCount,row.score,row.status,row.gmapsUrl,row.plusCode].map(csvCell).join(",") + "\n";
   }
 
-  req.log.info({ rows: rows.length, search, minScore }, "leads exported to csv");
+  req.log.info({ rows: rows.length }, "leads exported to csv");
   res.send(csv);
 });
 
