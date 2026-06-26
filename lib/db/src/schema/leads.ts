@@ -3,6 +3,7 @@ import { pgTable, serial, text, numeric, integer, jsonb, timestamp } from "drizz
 export const leads = pgTable("leads", {
   id: serial("id").primaryKey(),
   key: text("key").unique().notNull(),
+  clerkUserId: text("clerk_user_id"),
   name: text("name"),
   phone: text("phone"),
   emails: text("emails"),

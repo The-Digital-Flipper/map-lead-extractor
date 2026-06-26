@@ -1,9 +1,15 @@
 import { Router } from "express";
 import { createHash } from "node:crypto";
 import { db, leads } from "@workspace/db";
-import { sql, ilike, or, gte, and, count } from "drizzle-orm";
+import { sql, ilike, or, gte, and, count, eq } from "drizzle-orm";
+import { getAuth } from "@clerk/express";
+import { storage } from "../storage";
 
 const router = Router();
+
+const FREE_LEAD_LIMIT = 100;
+
+// ---- Helpers ----------------------------------------------------------------
 
 function extractSocial(socialRaw: string, pattern: RegExp): string | null {
   const m = socialRaw.match(pattern);
@@ -56,13 +62,23 @@ function parseReviewCount(ratingInfo: string | undefined | null): number | null 
   return parseInt(m[0].replace(/,/g, ""), 10) || null;
 }
 
+/** Check whether a clerkUserId has an active Pro subscription */
+async function userIsPro(clerkUserId: string): Promise<boolean> {
+  const user = await storage.getUser(clerkUserId);
+  if (!user?.stripeCustomerId) return false;
+  const sub = await storage.getActiveSubscriptionForCustomer(user.stripeCustomerId);
+  return !!sub;
+}
+
+// ---- CORS (Chrome extension calls /save cross-origin) -----------------------
 router.options("/save", (_req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.status(204).end();
 });
 
+// ---- POST /save -------------------------------------------------------------
 router.post("/save", async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
@@ -70,6 +86,29 @@ router.post("/save", async (req, res) => {
   if (!Array.isArray(body) || body.length === 0) {
     res.status(400).json({ error: "Expected non-empty array of leads" });
     return;
+  }
+
+  // Identify calling user (optional — extension may or may not be authed)
+  const auth = getAuth(req);
+  const clerkUserId = auth.userId ?? null;
+
+  // Enforce 100-lead limit for authenticated free users
+  if (clerkUserId) {
+    const isPro = await userIsPro(clerkUserId);
+    if (!isPro) {
+      const [{ userCount }] = await db
+        .select({ userCount: count() })
+        .from(leads)
+        .where(eq(leads.clerkUserId, clerkUserId));
+      if (Number(userCount) >= FREE_LEAD_LIMIT) {
+        res.status(402).json({
+          error: "free_limit_reached",
+          message: `Free plan limit of ${FREE_LEAD_LIMIT} leads reached. Upgrade to Pro for unlimited saves.`,
+          upgradeUrl: "/pricing",
+        });
+        return;
+      }
+    }
   }
 
   const batch = body.slice(0, 1000);
@@ -92,9 +131,9 @@ router.post("/save", async (req, res) => {
     const gmapsUrl = String(lead["Google Maps URL"] ?? lead["gmapsUrl"] ?? "");
     const plusCode = String(lead["Plus Code"] ?? lead["plusCode"] ?? "");
 
-    const key = createHash("sha256")
-      .update(name + phone + address)
-      .digest("hex");
+    // Key is scoped to user so each user owns their own copy of a lead
+    const keySource = (clerkUserId ?? "") + "|" + name + phone + address;
+    const key = createHash("sha256").update(keySource).digest("hex");
 
     const { social, facebook, instagram, twitter, linkedin } = parseSocials(socialRaw || null);
     const ratingNum = (rating != null && !isNaN(rating)) ? rating : null;
@@ -114,6 +153,7 @@ router.post("/save", async (req, res) => {
 
     return {
       key,
+      clerkUserId,
       name: name || null,
       phone: phone || null,
       emails: emails || null,
@@ -176,11 +216,15 @@ router.post("/save", async (req, res) => {
     }
   }
 
-  req.log.info({ saved, duplicates }, "leads saved");
+  req.log.info({ saved, duplicates, userId: clerkUserId ?? "anon" }, "leads saved");
   res.json({ saved, duplicates });
 });
 
+// ---- GET / (paginated list) — filtered by authenticated user ----------------
 router.get("/", async (req, res) => {
+  const auth = getAuth(req);
+  const clerkUserId = auth.userId ?? null;
+
   const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10) || 1);
   const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10) || 50));
   const search = String(req.query.search ?? "").trim();
@@ -188,6 +232,10 @@ router.get("/", async (req, res) => {
   const offset = (page - 1) * limit;
 
   const conditions = [];
+  // Scope to the calling user (or unscoped anonymous leads)
+  if (clerkUserId) {
+    conditions.push(eq(leads.clerkUserId, clerkUserId));
+  }
   if (search) {
     conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`)));
   }
@@ -212,15 +260,22 @@ router.get("/", async (req, res) => {
     leads: rows,
     total: Number(total),
     page,
-    pages: Math.ceil(Number(total) / limit),
+    pages: Math.ceil(Number(total) / limit) || 1,
   });
 });
 
+// ---- GET /export.csv — filtered by authenticated user -----------------------
 router.get("/export.csv", async (req, res) => {
+  const auth = getAuth(req);
+  const clerkUserId = auth.userId ?? null;
+
   const search = String(req.query.search ?? "").trim();
   const minScore = parseInt(String(req.query.minScore ?? "0"), 10) || 0;
 
   const conditions = [];
+  if (clerkUserId) {
+    conditions.push(eq(leads.clerkUserId, clerkUserId));
+  }
   if (search) {
     conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`)));
   }
@@ -266,6 +321,7 @@ router.get("/export.csv", async (req, res) => {
     ].map(csvCell).join(",") + "\n";
   }
 
+  req.log.info({ rows: rows.length, userId: clerkUserId ?? "anon" }, "leads exported to csv");
   res.send(csv);
 });
 
