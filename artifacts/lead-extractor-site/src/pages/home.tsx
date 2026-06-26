@@ -77,13 +77,14 @@ export default function Home() {
               </a>
             </Show>
             <Show when="signed-out">
-              <a href="/sign-in" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors hidden md:block">
+              <a href="/sign-in" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
                 Sign In
               </a>
             </Show>
             <Button asChild size="sm" className="font-bold">
               <a href={STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-nav-install">
-                <SiGooglechrome className="mr-2" /> Install Free
+                <SiGooglechrome className="md:mr-2" />
+                <span className="hidden md:inline">Install Free</span>
               </a>
             </Button>
           </div>
