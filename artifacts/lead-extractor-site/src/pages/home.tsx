@@ -11,6 +11,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 
 import gmleIcon128 from "@assets/gmle-icon-128.png";
 import gmleIcon512 from "@assets/gmle-icon-512.png";
+import googleExtractorLogo from "@assets/9CC30DDA-8CD4-4C11-8AD7-63951B1FA864_1782498861233.png";
 import mleIcon128 from "@assets/mle-icon-128.png";
 import mleIcon512 from "@assets/mle-icon-512.png";
 import promoScreenshot1 from "@assets/promo-screenshot-1.png";
@@ -233,8 +234,8 @@ export default function Home() {
                     <SiGoogle className="w-48 h-48" />
                   </div>
                   <CardContent className="p-8 relative z-10">
-                    <div className="w-20 h-20 rounded-2xl bg-card border border-border flex items-center justify-center mb-8 shadow-lg shadow-black/50">
-                      <img src={gmleIcon128} alt="Google Maps Lead Extractor" className="w-12 h-12" />
+                    <div className="mb-6 rounded-xl overflow-hidden border border-border shadow-lg shadow-black/50">
+                      <img src={googleExtractorLogo} alt="Google Maps Lead Extractor" className="w-full h-auto object-cover" />
                     </div>
                     <h3 className="text-3xl font-display font-bold mb-3 flex items-center gap-3">
                       Google Maps Extractor
