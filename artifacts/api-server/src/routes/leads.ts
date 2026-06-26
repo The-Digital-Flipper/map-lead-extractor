@@ -5,11 +5,35 @@ import { sql, ilike, or, gte, and, count } from "drizzle-orm";
 
 const router = Router();
 
+function extractSocial(socialRaw: string, pattern: RegExp): string | null {
+  const m = socialRaw.match(pattern);
+  return m ? m[0] : null;
+}
+
+function parseSocials(raw: string | null | undefined): {
+  social: string | null;
+  facebook: string | null;
+  instagram: string | null;
+  twitter: string | null;
+  linkedin: string | null;
+} {
+  if (!raw) return { social: null, facebook: null, instagram: null, twitter: null, linkedin: null };
+  const facebook = extractSocial(raw, /https?:\/\/(?:www\.)?facebook\.com\/[^\s,\n"'<>]+/i);
+  const instagram = extractSocial(raw, /https?:\/\/(?:www\.)?instagram\.com\/[^\s,\n"'<>]+/i);
+  const twitter = extractSocial(raw, /https?:\/\/(?:www\.)?(?:twitter|x)\.com\/[^\s,\n"'<>]+/i);
+  const linkedin = extractSocial(raw, /https?:\/\/(?:www\.)?linkedin\.com\/[^\s,\n"'<>]+/i);
+  const social = [facebook, instagram, twitter, linkedin].filter(Boolean).join(", ") || raw || null;
+  return { social, facebook, instagram, twitter, linkedin };
+}
+
 function computeScore(lead: {
   phone?: string | null;
   emails?: string | null;
   website?: string | null;
-  social?: string | null;
+  facebook?: string | null;
+  instagram?: string | null;
+  twitter?: string | null;
+  linkedin?: string | null;
   rating?: number | null;
   reviewCount?: number | null;
   category?: string | null;
@@ -18,7 +42,7 @@ function computeScore(lead: {
   if (lead.phone) score += 20;
   if (lead.emails) score += 20;
   if (lead.website) score += 15;
-  if (lead.social) score += 15;
+  if (lead.facebook || lead.instagram || lead.twitter || lead.linkedin) score += 15;
   if (lead.rating != null && lead.rating >= 4.0) score += 10;
   if (lead.reviewCount != null && lead.reviewCount >= 50) score += 10;
   if (lead.category) score += 10;
@@ -58,7 +82,7 @@ router.post("/save", async (req, res) => {
     const emailsRaw = lead["Emails"] ?? lead["emails"] ?? "";
     const emails = Array.isArray(emailsRaw) ? emailsRaw.join(", ") : String(emailsRaw ?? "");
     const website = String(lead["Website"] ?? lead["website"] ?? "");
-    const social = String(lead["Social Medias"] ?? lead["social"] ?? "");
+    const socialRaw = String(lead["Social Medias"] ?? lead["social"] ?? "");
     const address = String(lead["Address"] ?? lead["address"] ?? "");
     const category = String(lead["Category"] ?? lead["category"] ?? "");
     const ratingRaw = lead["Rating"] ?? lead["rating"];
@@ -72,7 +96,21 @@ router.post("/save", async (req, res) => {
       .update(name + phone + address)
       .digest("hex");
 
-    const score = computeScore({ phone: phone || null, emails: emails || null, website: website || null, social: social || null, rating: isNaN(rating as number) ? null : rating, reviewCount, category: category || null });
+    const { social, facebook, instagram, twitter, linkedin } = parseSocials(socialRaw || null);
+    const ratingNum = (rating != null && !isNaN(rating)) ? rating : null;
+
+    const score = computeScore({
+      phone: phone || null,
+      emails: emails || null,
+      website: website || null,
+      facebook,
+      instagram,
+      twitter,
+      linkedin,
+      rating: ratingNum,
+      reviewCount,
+      category: category || null,
+    });
 
     return {
       key,
@@ -80,11 +118,15 @@ router.post("/save", async (req, res) => {
       phone: phone || null,
       emails: emails || null,
       website: website || null,
-      social: social || null,
+      social,
+      facebook,
+      instagram,
+      twitter,
+      linkedin,
       address: address || null,
       category: category || null,
-      rating: (rating != null && !isNaN(rating)) ? String(rating) : null,
-      reviewCount: reviewCount,
+      rating: ratingNum != null ? String(ratingNum) : null,
+      reviewCount,
       score,
       gmapsUrl: gmapsUrl || null,
       plusCode: plusCode || null,
@@ -94,7 +136,13 @@ router.post("/save", async (req, res) => {
   });
 
   for (const row of rows) {
-    const result = await db
+    const before = await db
+      .select({ id: leads.id })
+      .from(leads)
+      .where(sql`key = ${row.key}`)
+      .limit(1);
+
+    await db
       .insert(leads)
       .values(row)
       .onConflictDoUpdate({
@@ -105,6 +153,10 @@ router.post("/save", async (req, res) => {
           emails: sql`excluded.emails`,
           website: sql`excluded.website`,
           social: sql`excluded.social`,
+          facebook: sql`excluded.facebook`,
+          instagram: sql`excluded.instagram`,
+          twitter: sql`excluded.twitter`,
+          linkedin: sql`excluded.linkedin`,
           address: sql`excluded.address`,
           category: sql`excluded.category`,
           rating: sql`excluded.rating`,
@@ -115,20 +167,12 @@ router.post("/save", async (req, res) => {
           raw: sql`excluded.raw`,
           updatedAt: sql`excluded.updated_at`,
         },
-      })
-      .returning({ id: leads.id, key: leads.key });
+      });
 
-    if (result.length > 0) {
-      const existing = await db
-        .select({ createdAt: leads.createdAt })
-        .from(leads)
-        .where(sql`key = ${row.key}`)
-        .limit(1);
-      if (existing.length > 0 && existing[0].createdAt && (new Date().getTime() - new Date(existing[0].createdAt).getTime()) > 1000) {
-        duplicates++;
-      } else {
-        saved++;
-      }
+    if (before.length > 0) {
+      duplicates++;
+    } else {
+      saved++;
     }
   }
 
@@ -161,10 +205,7 @@ router.get("/", async (req, res) => {
       .orderBy(sql`score DESC, created_at DESC`)
       .limit(limit)
       .offset(offset),
-    db
-      .select({ total: count() })
-      .from(leads)
-      .where(where),
+    db.select({ total: count() }).from(leads).where(where),
   ]);
 
   res.json({
@@ -199,8 +240,6 @@ router.get("/export.csv", async (req, res) => {
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", `attachment; filename="leads-${dateStr}.csv"`);
 
-  const headers = ["Name", "Phone", "Emails", "Website", "Social", "Address", "Category", "Rating", "Reviews", "Score", "Google Maps URL", "Plus Code"];
-
   function csvCell(v: unknown): string {
     if (v == null) return "";
     const s = String(v);
@@ -210,25 +249,21 @@ router.get("/export.csv", async (req, res) => {
     return s;
   }
 
+  const headers = [
+    "Name", "Phone", "Emails", "Website",
+    "Facebook", "Instagram", "Twitter", "LinkedIn",
+    "Address", "Category", "Rating", "Reviews", "Score",
+    "Google Maps URL", "Plus Code",
+  ];
+
   let csv = headers.join(",") + "\n";
   for (const row of rows) {
-    csv +=
-      [
-        row.name,
-        row.phone,
-        row.emails,
-        row.website,
-        row.social,
-        row.address,
-        row.category,
-        row.rating,
-        row.reviewCount,
-        row.score,
-        row.gmapsUrl,
-        row.plusCode,
-      ]
-        .map(csvCell)
-        .join(",") + "\n";
+    csv += [
+      row.name, row.phone, row.emails, row.website,
+      row.facebook, row.instagram, row.twitter, row.linkedin,
+      row.address, row.category, row.rating, row.reviewCount, row.score,
+      row.gmapsUrl, row.plusCode,
+    ].map(csvCell).join(",") + "\n";
   }
 
   res.send(csv);
