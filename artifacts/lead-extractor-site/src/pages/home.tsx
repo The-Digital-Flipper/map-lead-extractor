@@ -1,7 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Download, Map, Zap, Search, Chrome, FileSpreadsheet, Lock, Shield, Settings2, Code2, Users, Database, Pin, MousePointerClick, Play, CheckCircle2, Package } from "lucide-react";
-import { SiGoogle, SiGooglechrome } from "react-icons/si";
+import { SiGoogle, SiGooglechrome, SiFacebook } from "react-icons/si";
 import { Show } from "@clerk/react";
 
 import { Button } from "@/components/ui/button";
@@ -743,6 +743,15 @@ export default function Home() {
                 <div className="w-10 h-10 rounded bg-background border border-border flex items-center justify-center"><SiGooglechrome className="text-muted-foreground w-5 h-5" /></div>
                 <div className="w-10 h-10 rounded bg-background border border-border flex items-center justify-center"><SiGoogle className="text-muted-foreground w-5 h-5" /></div>
                 <div className="w-10 h-10 rounded bg-background border border-border flex items-center justify-center"><Map className="text-muted-foreground w-5 h-5" /></div>
+                <a
+                  href="https://www.facebook.com/share/1bhu8ciaU8/?mibextid=wwXIfr"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-10 h-10 rounded bg-background border border-border flex items-center justify-center hover:border-primary hover:text-primary transition-colors"
+                  aria-label="Facebook"
+                >
+                  <SiFacebook className="text-muted-foreground hover:text-primary w-5 h-5 transition-colors" />
+                </a>
               </div>
             </div>
             
