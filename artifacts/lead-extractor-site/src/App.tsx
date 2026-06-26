@@ -13,6 +13,7 @@ import Blog from "@/pages/blog";
 import BlogPost from "@/pages/blog-post";
 import Dashboard from "@/pages/dashboard";
 import Admin from "@/pages/admin";
+import AdminLogin from "@/pages/admin-login";
 import Pricing from "@/pages/pricing";
 
 const queryClient = new QueryClient();
@@ -183,6 +184,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/sign-up/*?" component={SignUpPage} />
             <Route path="/dashboard" component={DashboardRoute} />
             <Route path="/admin" component={AdminRoute} />
+            <Route path="/admin-login/*?" component={() => <AdminLogin />} />
             <Route path="/pricing" component={Pricing} />
             <Route path="/blog" component={Blog} />
             <Route path="/blog/:slug" component={BlogPost} />
