@@ -1,0 +1,19 @@
+# Map Lead Extractor
+
+A Chrome extension that extracts business leads from Google Maps and Bing Maps — names, phone numbers, websites, addresses, ratings, and emails — and exports them to CSV with no coding required.
+
+## Primary Pages
+
+- https://mapleadextractor.com/ — Home: product overview, features, and install CTA
+- https://mapleadextractor.com/pricing — Pricing plans and feature comparison
+- https://mapleadextractor.com/connect-extension — How to install and connect the extension
+- https://mapleadextractor.com/blog — Blog index: tutorials, comparisons, and outreach guides
+
+## Blog Articles
+
+- https://mapleadextractor.com/blog/how-to-scrape-google-maps-leads — Step-by-step guide to extracting Google Maps leads with no code
+- https://mapleadextractor.com/blog/google-maps-vs-data-providers — Google Maps vs. ZoomInfo, Apollo, and Hunter: which is better in 2025?
+- https://mapleadextractor.com/blog/bing-maps-lead-generation — Why Bing Maps is an untapped lead source your competitors are ignoring
+- https://mapleadextractor.com/blog/cold-email-from-google-maps-leads — How to write cold emails that convert Google Maps leads
+- https://mapleadextractor.com/blog/lead-generation-for-web-designers — Freelance web designer's guide to finding clients on Google Maps
+- https://mapleadextractor.com/blog/gdpr-google-maps-scraping — Is scraping Google Maps legal? GDPR, ToS, and compliance guide
