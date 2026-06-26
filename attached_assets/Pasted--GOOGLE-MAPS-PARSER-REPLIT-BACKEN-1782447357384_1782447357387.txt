@@ -1,0 +1,128 @@
+================================================================
+ GOOGLE MAPS PARSER — REPLIT BACKEND (Node.js)
+ Decodes Google's /search response the extension captures, so you
+ get phone/website for ALL results (not just the first 20).
+================================================================
+
+SETUP (3 steps)
+---------------
+1. In Replit, create a Node.js repl (or open your existing Node site).
+2. Make TWO files exactly as below: "index.js" and "package.json".
+   (copy each block into the matching file)
+3. Click RUN. Replit gives you a public URL like:
+       https://your-app.username.repl.co
+   Send that URL back, plus confirm it's Node.js, and I'll wire the
+   extension to it.
+
+TEST: open the URL in a browser — it should say "gmaps parser up".
+
+
+================================================================
+ FILE 1 of 2:  index.js
+================================================================
+const express = require("express");
+const app = express();
+
+app.use(express.text({ limit: "25mb", type: "*/*" }));
+
+// Allow the Chrome extension to call this endpoint (CORS)
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(200);
+  next();
+});
+
+// safe nested-array access: sa(arr, 178, 0, 0) === arr[178][0][0] or null
+const sa = (o, ...idx) => {
+  let c = o;
+  for (const i of idx) {
+    if (c == null) return null;
+    try { c = c[i]; } catch { return null; }
+  }
+  return c == null ? null : c;
+};
+
+const tryParse = (t) => {
+  try { return JSON.parse(String(t).replace(/^\)\]\}'\s*/, "")); }
+  catch { return null; }
+};
+
+const isPlace = (a) =>
+  Array.isArray(a) &&
+  typeof a[11] === "string" &&
+  typeof a[10] === "string" &&
+  /0x[0-9a-f]+:0x[0-9a-f]+/i.test(a[10]);
+
+function collect(n, out, d = 0) {
+  if (d > 16 || n == null || out.length > 2000) return;
+  if (typeof n === "string") {
+    if (n.length > 200 && n.includes("0x") && (n[0] === "[" || n.startsWith(")]}'"))) {
+      const p = tryParse(n);
+      if (p) collect(p, out, d + 1);
+    }
+    return;
+  }
+  if (Array.isArray(n)) {
+    if (isPlace(n)) { out.push(n); return; }
+    for (const v of n) collect(v, out, d + 1);
+  } else if (typeof n === "object") {
+    for (const v of Object.values(n)) collect(v, out, d + 1);
+  }
+}
+
+app.post("/parse-gmaps", (req, res) => {
+  const body = req.body || "";
+  console.log("got body length:", body.length, "| starts:", body.slice(0, 40));
+  const root = tryParse(body);
+  const places = [];
+  if (root) collect(root, places);
+  const leads = places
+    .map((z) => ({
+      ftid: String(sa(z, 10) || "").toLowerCase(),
+      name: sa(z, 11),
+      phone: sa(z, 178, 0, 0),
+      website: sa(z, 7, 0),
+      address: sa(z, 39),
+      rating: sa(z, 4, 7),
+      reviews: sa(z, 4, 8),
+      plusCode: sa(z, 183, 2, 2),
+    }))
+    .filter((l) => l.ftid.includes("0x"));
+  console.log("parsed leads:", leads.length);
+  res.json({ count: leads.length, leads });
+});
+
+app.get("/", (_req, res) => res.send("gmaps parser up"));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("server up on port", PORT));
+
+
+================================================================
+ FILE 2 of 2:  package.json
+================================================================
+{
+  "name": "gmaps-parser",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
+
+
+================================================================
+ AFTER IT RUNS
+================================================================
+- Open the public URL → should say "gmaps parser up".
+- Send me: (1) the public URL, (2) confirm it's Node.js.
+- I'll then update the extension to POST Google's captured response
+  to  <your-url>/parse-gmaps  and merge the leads back in.
+- We'll watch the Replit console ("got body length..." lines) to
+  see the real data and lock in full phone/website coverage.
+================================================================
