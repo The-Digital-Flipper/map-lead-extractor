@@ -777,7 +777,10 @@ export default function Home() {
           
           <div className="border-t border-border pt-8 flex flex-col md:flex-row justify-between items-center text-sm text-muted-foreground">
             <div>&copy; {new Date().getFullYear()} MapLeadExtractor. All rights reserved.</div>
-            <div className="mt-4 md:mt-0 font-mono text-xs text-primary">v1.2.3 // v2.5.5 // STABLE</div>
+            <div className="flex items-center gap-6 mt-4 md:mt-0">
+              <a href="/admin-login" className="text-xs text-muted-foreground/40 hover:text-muted-foreground transition-colors">Admin</a>
+              <div className="font-mono text-xs text-primary">v1.2.3 // v2.5.5 // STABLE</div>
+            </div>
           </div>
         </div>
       </footer>
