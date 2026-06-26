@@ -1,0 +1,120 @@
+I have a pnpm monorepo on Replit with an Express 5 API server and a Chrome extension
+(Google Maps Lead Extractor, MV3). I want to save extracted leads to Replit's built-in
+PostgreSQL database using the existing @workspace/db Drizzle ORM package, and add
+endpoints to retrieve and export them.
+
+## Project structure
+- API server: artifacts/api-server/src/ (Express 5, TypeScript)
+- DB package: lib/db/ (Drizzle ORM, already connected to Replit Postgres via DATABASE_URL)
+- Routes are registered in artifacts/api-server/src/routes/index.ts
+- All routes are mounted under /api (so a router exported from routes/leads.ts
+  becomes /api/leads/...)
+- Use req.log for all logging (pino logger, never console.log)
+- Extension source: attached_assets/GoogleMapsLeadExtractor/panel/panel.js
+
+## Step 1 — Add the leads table to lib/db/src/schema.ts
+Add this table (keep all existing tables):
+
+export const leads = pgTable("leads", {
+  id: serial("id").primaryKey(),
+  key: text("key").unique().notNull(),
+  name: text("name"),
+  phone: text("phone"),
+  emails: text("emails"),
+  website: text("website"),
+  social: text("social"),
+  address: text("address"),
+  category: text("category"),
+  rating: numeric("rating"),
+  reviewCount: integer("review_count"),
+  score: integer("score").default(0),
+  gmapsUrl: text("gmaps_url"),
+  plusCode: text("plus_code"),
+  raw: jsonb("raw"),
+  createdAt: timestamptz("created_at").defaultNow(),
+  updatedAt: timestamptz("updated_at").defaultNow(),
+});
+
+After adding the schema run:
+  pnpm --filter @workspace/db run push
+
+## Step 2 — Score function
+Compute score 0–100 for each lead:
+  +20 if phone is not empty
+  +20 if emails is not empty
+  +15 if website is not empty
+  +15 if social is not empty
+  +10 if rating >= 4.0
+  +10 if reviewCount >= 50
+  +10 if category is not empty
+
+## Step 3 — Build artifacts/api-server/src/routes/leads.ts
+Export an Express Router with these endpoints:
+
+POST /save
+- Accept JSON body: array of lead objects (up to 1000)
+- Each lead has: Name, Phone, Emails, Website, "Social Medias", Address,
+  Category, Rating, "Rating info", "Google Maps URL", "Plus Code"
+- Compute key = sha256(name + phone + address) using Node built-in crypto
+- Parse rating as float, parse review count as integer from "Rating info"
+- Compute score, then upsert (insert, on conflict(key) do update)
+- Return { saved: N, duplicates: M }
+- Add header: Access-Control-Allow-Origin: * (needed for Chrome extension)
+- Handle OPTIONS preflight
+
+GET /
+- Params: page (default 1), limit (default 50, max 200),
+  search (ilike on name or address), minScore (integer, default 0)
+- Return { leads: [...], total, page, pages }
+- Sort: score DESC, created_at DESC
+
+GET /export.csv
+- Same search/minScore filters, no pagination
+- Content-Type: text/csv
+- Content-Disposition: attachment; filename="leads-YYYY-MM-DD.csv"
+- Columns: Name, Phone, Emails, Website, Social, Address, Category,
+  Rating, Reviews, Score, Google Maps URL, Plus Code
+
+## Step 4 — Register the router
+In artifacts/api-server/src/routes/index.ts add:
+  import leadsRouter from "./leads.js";
+  router.use("/leads", leadsRouter);
+
+## Step 5 — Update the Chrome extension
+File: attached_assets/GoogleMapsLeadExtractor/panel/panel.js
+
+Find the end of the runHarvest() function where running = false and render()
+are called. After both completion paths (normal finish + stopRequested),
+call: saveLeadsToBackend(getRows());
+
+Add this new function (do not change any existing functions):
+
+async function saveLeadsToBackend(rows) {
+  if (!rows || rows.length === 0) return;
+  const API = "https://mapleadextractor.net/api/leads/save";
+  const attempt = async () => {
+    const res = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rows),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  };
+  try {
+    const result = await attempt();
+    const current = els.status.textContent || "";
+    els.status.textContent = current + " · ☁ " + result.saved + " saved";
+  } catch {
+    await new Promise(r => window.setTimeout(r, 3000));
+    try { await attempt(); } catch { /* silent */ }
+  }
+}
+
+## Constraints
+- TypeScript strict mode
+- Use Node built-in crypto.createHash("sha256") — no extra packages
+- Build CSV with plain string concatenation — no csv library
+- No authentication
+- Do not change any existing routes or middleware
+- Run: pnpm --filter @workspace/api-server run typecheck to verify

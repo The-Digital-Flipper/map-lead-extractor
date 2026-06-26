@@ -2,6 +2,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Download, Map, Zap, Search, Chrome, FileSpreadsheet, Lock, Shield, Settings2, Code2, Users, Database, Pin, MousePointerClick, Play, CheckCircle2, Package } from "lucide-react";
 import { SiGoogle, SiGooglechrome } from "react-icons/si";
+import { Show } from "@clerk/react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -67,11 +68,23 @@ export default function Home() {
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
             <a href="/blog" className="hover:text-foreground transition-colors">Blog</a>
           </nav>
-          <Button asChild size="sm" className="font-bold">
-            <a href={STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-nav-install">
-              <SiGooglechrome className="mr-2" /> Install Free
-            </a>
-          </Button>
+          <div className="flex items-center gap-3">
+            <Show when="signed-in">
+              <a href="/dashboard" className="text-sm font-semibold text-primary hover:opacity-80 transition-opacity">
+                Dashboard
+              </a>
+            </Show>
+            <Show when="signed-out">
+              <a href="/sign-in" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors hidden md:block">
+                Sign In
+              </a>
+            </Show>
+            <Button asChild size="sm" className="font-bold">
+              <a href={STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-nav-install">
+                <SiGooglechrome className="mr-2" /> Install Free
+              </a>
+            </Button>
+          </div>
         </div>
       </header>
 
