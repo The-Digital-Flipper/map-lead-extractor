@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "dGocZJ5c4pYdLlEPobiyR"
+uri = "file://attached_assets/MapLeadExtractor-2.5.5-signed-v2.zip"
+type = "unspecified"
+title = "MapLeadExtractor-2.5.5 (updated with Google sign-in)"

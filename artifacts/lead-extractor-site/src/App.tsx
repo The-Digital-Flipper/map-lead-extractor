@@ -15,6 +15,7 @@ import Dashboard from "@/pages/dashboard";
 import Admin from "@/pages/admin";
 import AdminLogin from "@/pages/admin-login";
 import Pricing from "@/pages/pricing";
+import ConnectExtension from "@/pages/connect-extension";
 
 const queryClient = new QueryClient();
 
@@ -188,6 +189,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/pricing" component={Pricing} />
             <Route path="/blog" component={Blog} />
             <Route path="/blog/:slug" component={BlogPost} />
+            <Route path="/connect-extension" component={ConnectExtension} />
             <Route component={NotFound} />
           </Switch>
           <Toaster />
