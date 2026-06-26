@@ -5,7 +5,7 @@ import {
   Zap, Copy, Check, Download, LogOut, Star, Phone, Mail, Globe,
   Search, Share2, Crown, ArrowUpRight, CreditCard, Trash2,
   RefreshCw, ChevronLeft, ChevronRight, BarChart2, X,
-  CheckSquare, Square, CheckCheck,
+  CheckSquare, Square, CheckCheck, ShieldCheck,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis,
@@ -13,6 +13,7 @@ import {
 } from "recharts";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
+const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL as string;
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FREE_LIMIT = 100;
 
@@ -401,7 +402,12 @@ export default function Dashboard() {
               </span>
             )}
             <span className="text-sm text-muted-foreground hidden md:block">{user?.primaryEmailAddress?.emailAddress}</span>
-            <a href={STORE_URL} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-primary hover:opacity-80 transition-opacity">
+            {user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL?.toLowerCase() && (
+              <a href={`${basePath}/admin`} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-colors">
+                <ShieldCheck className="w-3.5 h-3.5" /> Admin
+              </a>
+            )}
+            <a href={STORE_URL} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-primary hover:opacity-80 transition-opacity hidden md:block">
               Install Extension
             </a>
             <button onClick={() => signOut({ redirectUrl: basePath || "/" })}
