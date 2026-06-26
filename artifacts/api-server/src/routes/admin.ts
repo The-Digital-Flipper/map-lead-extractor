@@ -1,11 +1,9 @@
 import { Router } from "express";
-import { db, leads } from "@workspace/db";
+import { db, leads, users } from "@workspace/db";
 import { sql, count } from "drizzle-orm";
+import { getUncachableStripeClient } from "../stripeClient";
 
 const router = Router();
-
-// Simple admin gate — check header set by frontend or just expose read-only stats
-// (Real auth is enforced on the frontend via Clerk email check)
 
 // ---- GET /stats — headline numbers ------------------------------------------
 router.get("/stats", async (_req, res) => {
@@ -28,9 +26,94 @@ router.get("/stats", async (_req, res) => {
   });
 });
 
+// ---- GET /revenue — Stripe MRR + subscriber data ----------------------------
+router.get("/revenue", async (_req, res) => {
+  try {
+    const stripe = await getUncachableStripeClient();
+
+    const [activeSubs, userCountRow] = await Promise.all([
+      stripe.subscriptions.list({ status: "active", limit: 100, expand: ["data.items.data.price"] }),
+      db.select({ cnt: count() }).from(users),
+    ]);
+
+    let mrr = 0;
+    for (const sub of activeSubs.data) {
+      for (const item of sub.items.data) {
+        const price = item.price as { unit_amount: number | null; recurring: { interval: string } | null };
+        if (price.unit_amount && price.recurring) {
+          const monthly = price.recurring.interval === "year"
+            ? price.unit_amount / 12
+            : price.unit_amount;
+          mrr += monthly * (item.quantity ?? 1);
+        }
+      }
+    }
+
+    const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
+    const recentCharges = await stripe.charges.list({ limit: 100, created: { gte: thirtyDaysAgo } });
+    const monthRevenue = recentCharges.data
+      .filter(c => c.paid && c.amount_captured > 0)
+      .reduce((sum, c) => sum + c.amount_captured, 0);
+
+    res.json({
+      mrr: Math.round(mrr) / 100,
+      subscriberCount: activeSubs.data.length,
+      monthRevenue: Math.round(monthRevenue) / 100,
+      totalUsers: Number(userCountRow[0].cnt),
+      hasMoreSubs: activeSubs.has_more,
+    });
+  } catch {
+    res.json({ mrr: 0, subscriberCount: 0, monthRevenue: 0, totalUsers: 0, hasMoreSubs: false });
+  }
+});
+
+// ---- GET /users — all registered users with plan + lead count ----------------
+router.get("/users", async (req, res) => {
+  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10) || 1);
+  const limit = Math.min(100, parseInt(String(req.query.limit ?? "50"), 10) || 50);
+  const offset = (page - 1) * limit;
+
+  try {
+    const [rows, totalRow] = await Promise.all([
+      db.execute(sql`
+        SELECT
+          u.id,
+          u.email,
+          u.stripe_customer_id,
+          u.created_at,
+          COALESCE(s.sub_status, 'free') AS plan,
+          s.period_end,
+          s.cancel_at,
+          COALESCE(lc.lead_count, 0)::int AS lead_count
+        FROM users u
+        LEFT JOIN (
+          SELECT customer, status AS sub_status,
+                 current_period_end AS period_end,
+                 cancel_at
+          FROM stripe.subscriptions
+          WHERE status = 'active'
+        ) s ON s.customer = u.stripe_customer_id
+        LEFT JOIN (
+          SELECT clerk_user_id, COUNT(*)::int AS lead_count
+          FROM leads
+          WHERE clerk_user_id IS NOT NULL
+          GROUP BY clerk_user_id
+        ) lc ON lc.clerk_user_id = u.id
+        ORDER BY u.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `),
+      db.select({ cnt: count() }).from(users),
+    ]);
+
+    const total = Number(totalRow[0].cnt);
+    res.json({ users: rows.rows, total, page, pages: Math.ceil(total / limit) || 1 });
+  } catch {
+    res.json({ users: [], total: 0, page: 1, pages: 1 });
+  }
+});
+
 // ---- GET /geo — state-level lead counts parsed from addresses ---------------
 router.get("/geo", async (_req, res) => {
-  // Extract 2-letter US state code from addresses like "... Houston, TX 77001"
   const rows = await db.execute(sql`
     SELECT
       UPPER(
@@ -49,14 +132,12 @@ router.get("/geo", async (_req, res) => {
   const byState: Record<string, number> = {};
   for (const row of rows.rows as RawRow[]) {
     if (!row.raw_match) continue;
-    // raw_match is like "TX 77001" — take first 2 chars
     const state = row.raw_match.slice(0, 2).toUpperCase();
     if (/^[A-Z]{2}$/.test(state)) {
       byState[state] = (byState[state] ?? 0) + Number(row.cnt);
     }
   }
 
-  // Also get top city-level (last segment before state)
   const cityRows = await db.execute(sql`
     SELECT
       TRIM(
