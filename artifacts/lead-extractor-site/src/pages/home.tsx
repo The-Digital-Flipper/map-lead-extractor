@@ -65,6 +65,7 @@ export default function Home() {
             <a href="#features" className="hover:text-foreground transition-colors">Engine</a>
             <a href="#install-tutorial" className="hover:text-foreground transition-colors">Install Guide</a>
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
+            <a href="/blog" className="hover:text-foreground transition-colors">Blog</a>
           </nav>
           <Button asChild size="sm" className="font-bold">
             <a href={STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-nav-install">
