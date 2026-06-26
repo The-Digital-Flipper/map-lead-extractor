@@ -44,33 +44,38 @@ router.get("/status", async (req, res) => {
   res.json({ isPro, plan: isPro ? "pro" : "free", freeLimit: FREE_LEAD_LIMIT, periodEnd });
 });
 
-/** GET /api/stripe/products — public, for pricing page */
+/** GET /api/stripe/products — public, for pricing page (fetches directly from Stripe API) */
 router.get("/products", async (_req, res) => {
-  const rows = await storage.listProductsWithPrices();
+  const stripe = await getUncachableStripeClient();
+  const productsRes = await stripe.products.list({ active: true, limit: 20 });
+  const pricesRes = await stripe.prices.list({ active: true, limit: 100 });
+
   const map = new Map<string, {
     id: string; name: string; description: string;
     prices: { id: string; amount: number; currency: string; interval: string | null }[];
   }>();
-  for (const row of rows as Record<string, unknown>[]) {
-    const pid = row.product_id as string;
-    if (!map.has(pid)) {
-      map.set(pid, {
-        id: pid,
-        name: row.product_name as string,
-        description: (row.product_description as string) ?? "",
-        prices: [],
-      });
-    }
-    if (row.price_id) {
-      const recurring = row.recurring as { interval?: string } | null;
-      map.get(pid)!.prices.push({
-        id: row.price_id as string,
-        amount: row.unit_amount as number,
-        currency: row.currency as string,
-        interval: recurring?.interval ?? null,
+
+  for (const product of productsRes.data) {
+    map.set(product.id, {
+      id: product.id,
+      name: product.name,
+      description: product.description ?? "",
+      prices: [],
+    });
+  }
+
+  for (const price of pricesRes.data) {
+    const prod = map.get(price.product as string);
+    if (prod) {
+      prod.prices.push({
+        id: price.id,
+        amount: price.unit_amount ?? 0,
+        currency: price.currency,
+        interval: price.recurring?.interval ?? null,
       });
     }
   }
+
   res.json({ products: Array.from(map.values()) });
 });
 
