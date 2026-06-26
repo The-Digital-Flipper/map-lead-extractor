@@ -156,13 +156,24 @@ export default function Dashboard() {
     } catch {}
   };
 
-  // Fetch plan status
+  // Fetch plan status + ensure user has an API key
   useEffect(() => {
     fetch(`${basePath}/api/stripe/status`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
       .then((data: PlanStatus | null) => { if (data) setPlan(data); })
       .catch(() => {});
-  }, []);
+
+    // Auto-generate an API key for the user if they don't have one yet
+    if (user && !user.publicMetadata?.apiKey) {
+      fetch(`${basePath}/api/user/generate-key`, {
+        method: "POST",
+        credentials: "include",
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(() => { user.reload().catch(() => {}); })
+        .catch(() => {});
+    }
+  }, [user]);
 
   useEffect(() => {
     let cancelled = false;

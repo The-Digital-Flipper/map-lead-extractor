@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16204a"/>
+      <stop offset="1" stop-color="#0a1026"/>
+    </linearGradient>
+    <linearGradient id="pin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2ce8a0"/>
+      <stop offset="1" stop-color="#2aa3ff"/>
+    </linearGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
+  </defs>
+
+  <!-- rounded-square background -->
+  <rect x="0" y="0" width="512" height="512" rx="116" fill="url(#bg)"/>
+
+  <!-- soft drop shadow under the pin -->
+  <ellipse cx="256" cy="436" rx="74" ry="20" fill="#000000" opacity="0.35" filter="url(#soft)"/>
+
+  <!-- bold location pin (brand gradient) with a lead-list inside -->
+  <g transform="translate(256 424) scale(2.4)">
+    <path d="M0,0 C-34,-46 -48,-66 -48,-94 a48,48 0 1,1 96,0 C48,-66 34,-46 0,0 Z" fill="url(#pin)"/>
+    <circle cx="0" cy="-94" r="44" fill="#ffffff"/>
+    <g stroke="#16204a" stroke-width="6.5" stroke-linecap="round">
+      <line x1="-20" y1="-108" x2="20" y2="-108"/>
+      <line x1="-20" y1="-94"  x2="20" y2="-94"/>
+      <line x1="-20" y1="-80"  x2="6"  y2="-80"/>
+    </g>
+  </g>
+</svg>

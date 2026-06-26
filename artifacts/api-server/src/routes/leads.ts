@@ -88,9 +88,16 @@ router.post("/save", async (req, res) => {
     return;
   }
 
-  // Identify calling user (optional — extension may or may not be authed)
+  // Identify calling user — prefer Clerk session auth, fall back to X-Api-Key header
   const auth = getAuth(req);
-  const clerkUserId = auth.userId ?? null;
+  let clerkUserId = auth.userId ?? null;
+  if (!clerkUserId) {
+    const apiKey = req.headers["x-api-key"];
+    if (typeof apiKey === "string" && apiKey) {
+      const userByKey = await storage.getUserByApiKey(apiKey);
+      if (userByKey) clerkUserId = userByKey.id;
+    }
+  }
 
   // Enforce 100-lead limit for authenticated free users
   if (clerkUserId) {

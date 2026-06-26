@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Google Maps Lead Extractor</title>
+    <link rel="stylesheet" href="panel.css">
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Google Maps Lead Extractor</h1>
+        <p id="version" data-version>Ready</p>
+      </div>
+      <div class="header-actions">
+        <button id="toggleTable" class="map-toggle" type="button" title="Shrink the panel so you can see the map" data-collapse>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
+            <path d="M12 2C8.1 2 5 5.1 5 9c0 5 7 13 7 13s7-8 7-13c0-3.9-3.1-7-7-7z"/>
+            <circle cx="12" cy="9" r="2.6" fill="#0d1534"/>
+          </svg>
+          <span data-collapse-label>See Map</span>
+        </button>
+        <button id="closePanel" class="icon-button" type="button" title="Close" data-close>×</button>
+      </div>
+    </header>
+
+    <section class="status">
+      <div class="status-line">
+        <span class="status-dot" data-status-dot data-level="idle"></span>
+        <div id="statusText" data-status>Search Google Maps, then start extraction.</div>
+      </div>
+      <div id="counts" data-counts>0 loaded / 0 total found</div>
+      <progress id="progress" max="100" value="0" data-progress></progress>
+    </section>
+
+    <section class="controls">
+      <button id="startRun" type="button" data-start>Start Extraction</button>
+      <button id="stopRun" type="button" disabled data-stop>Stop</button>
+      <button id="clearRows" type="button" data-clear>Clear</button>
+    </section>
+
+    <label class="toggle">
+      <input id="autoScroll" type="checkbox" data-autoscroll checked>
+      <span>Auto-scroll the list (on by default)
+        <small class="toggle-note">🖱️ The tool scrolls the Google Maps list for you. Turn OFF to scroll it yourself — it still captures every business as you scroll.</small>
+      </span>
+    </label>
+
+    <label class="toggle">
+      <input id="enableEnrichment" type="checkbox" data-enrichment checked>
+      <span>Enrich phone/email/socials from websites (on by default)
+        <small class="toggle-note">⏳ Takes a little longer — it visits each business website to pull the phone, email and social links Google didn't show.</small>
+      </span>
+    </label>
+
+    <section class="exports">
+      <button id="exportCsv" type="button" disabled data-export-csv>Export CSV</button>
+      <button id="exportXlsx" type="button" disabled data-export-xlsx>Export XLSX</button>
+    </section>
+
+
+    <section class="api-key-settings" style="margin:8px 0;padding:8px 10px;background:#0d1534;border:1px solid #00E676;border-radius:6px;font-size:12px;">
+      <div style="font-weight:600;color:#00E676;margin-bottom:5px;">☁ Save to Dashboard</div>
+      <div style="color:#8892b0;margin-bottom:6px;line-height:1.4;">Enter your API key from <a href="https://mapleadextractor.net/dashboard" target="_blank" style="color:#00E676">mapleadextractor.net/dashboard</a> to automatically sync leads to your account.</div>
+      <div style="display:flex;gap:5px;align-items:center;">
+        <input id="apiKeyInput" type="text" placeholder="mle_…" style="flex:1;background:#020c1b;border:1px solid #304060;border-radius:4px;color:#ccd6f6;padding:4px 7px;font-family:monospace;font-size:11px;min-width:0;" />
+        <button id="apiKeySave" type="button" style="background:#00E676;color:#020c1b;border:none;border-radius:4px;padding:4px 10px;font-weight:700;cursor:pointer;white-space:nowrap;font-size:11px;">Save</button>
+      </div>
+      <div id="apiKeyStatus" style="color:#00E676;font-size:11px;margin-top:4px;height:14px;"></div>
+    </section>
+    <section class="helpbar">
+      <button type="button" data-help="how">📖 How it works</button>
+      <button type="button" data-help="ads">📣 Advertise</button>
+      <button type="button" data-help="support">💬 Support</button>
+    </section>
+
+    <section class="infobox" data-infobox hidden></section>
+
+    <section class="review">
+      <a href="https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg/reviews" target="_blank" rel="noopener noreferrer">
+        👉 Click here to leave a review 🙏
+      </a>
+    </section>
+
+    <section class="donate">
+      <div class="donate-title">☕ Donate $1 a day to keep me going!</div>
+      <div class="donate-qrs">
+        <figure>
+          <img class="donate-qr" src="donate-qr.jpg" alt="PayPal donation QR code">
+          <figcaption>PayPal</figcaption>
+        </figure>
+        <figure>
+          <img class="donate-qr" src="donate-cashapp.jpg" alt="Cash App donation QR code">
+          <figcaption>Cash App</figcaption>
+        </figure>
+      </div>
+      <div class="donate-sub">Scan with your phone camera to donate $1. Every dollar keeps this free tool alive. 🙏</div>
+    </section>
+
+    <section class="details" data-details>
+      Enrichment: off
+    </section>
+
+    <section class="debug">
+      <button id="diagnose" type="button" data-diagnose>🩺 Diagnose (save file for support)</button>
+      <button id="dumpCapture" type="button" data-dump-capture>🐞 Dump capture (debug)</button>
+      <button id="copySample" type="button" data-copy-sample>Copy sample data (for support)</button>
+    </section>
+
+    <section class="usp">
+      ⚡ One-click outreach — tap any 📧 email or social logo below to contact the lead instantly. No other extractor does this.
+    </section>
+
+    <section class="table-wrap">
+      <table>
+        <thead data-preview-head></thead>
+        <tbody id="previewRows" data-preview-body></tbody>
+      </table>
+    </section>
+
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>
