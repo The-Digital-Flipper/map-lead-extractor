@@ -54,10 +54,10 @@ export default function Home() {
       {/* Navbar */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-border">
         <div className="container mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2 font-display font-bold text-xl tracking-tight">
+          <a href="/" className="flex items-center gap-2 font-display font-bold text-xl tracking-tight hover:opacity-90 transition-opacity">
             <Zap className="w-5 h-5 text-primary" />
             <span>Map<span className="text-primary">Lead</span>Extractor</span>
-          </div>
+          </a>
           <nav className="hidden md:flex gap-8 text-sm font-medium text-muted-foreground">
             <a href="#extensions" className="hover:text-foreground transition-colors">Products</a>
             <a href="#how-it-works" className="hover:text-foreground transition-colors">How it Works</a>
