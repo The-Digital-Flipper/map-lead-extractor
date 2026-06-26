@@ -1,13 +1,9 @@
 import { Router } from "express";
 import { createHash } from "node:crypto";
 import { db, leads } from "@workspace/db";
-import { sql, ilike, or, gte, and, count, eq } from "drizzle-orm";
-import { getAuth } from "@clerk/express";
-import { storage } from "../storage";
+import { sql, ilike, or, gte, and, count } from "drizzle-orm";
 
 const router = Router();
-
-const FREE_LEAD_LIMIT = 100;
 
 // ---- Helpers ----------------------------------------------------------------
 
@@ -62,23 +58,15 @@ function parseReviewCount(ratingInfo: string | undefined | null): number | null 
   return parseInt(m[0].replace(/,/g, ""), 10) || null;
 }
 
-/** Check whether a clerkUserId has an active Pro subscription */
-async function userIsPro(clerkUserId: string): Promise<boolean> {
-  const user = await storage.getUser(clerkUserId);
-  if (!user?.stripeCustomerId) return false;
-  const sub = await storage.getActiveSubscriptionForCustomer(user.stripeCustomerId);
-  return !!sub;
-}
-
-// ---- CORS (Chrome extension calls /save cross-origin) -----------------------
+// ---- CORS — extension calls /save cross-origin, must allow * ----------------
 router.options("/save", (_req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Api-Key");
   res.status(204).end();
 });
 
-// ---- POST /save -------------------------------------------------------------
+// ---- POST /save — no auth, no limits, open to everyone ----------------------
 router.post("/save", async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
@@ -88,35 +76,10 @@ router.post("/save", async (req, res) => {
     return;
   }
 
-  // Identify calling user — prefer Clerk session auth, fall back to X-Api-Key header
-  const auth = getAuth(req);
-  let clerkUserId = auth.userId ?? null;
-  if (!clerkUserId) {
-    const apiKey = req.headers["x-api-key"];
-    if (typeof apiKey === "string" && apiKey) {
-      const userByKey = await storage.getUserByApiKey(apiKey);
-      if (userByKey) clerkUserId = userByKey.id;
-    }
-  }
-
-  // Enforce 100-lead limit for authenticated free users
-  if (clerkUserId) {
-    const isPro = await userIsPro(clerkUserId);
-    if (!isPro) {
-      const [{ userCount }] = await db
-        .select({ userCount: count() })
-        .from(leads)
-        .where(eq(leads.clerkUserId, clerkUserId));
-      if (Number(userCount) >= FREE_LEAD_LIMIT) {
-        res.status(402).json({
-          error: "free_limit_reached",
-          message: `Free plan limit of ${FREE_LEAD_LIMIT} leads reached. Upgrade to Pro for unlimited saves.`,
-          upgradeUrl: "/pricing",
-        });
-        return;
-      }
-    }
-  }
+  // Optionally track which user sent this (for dashboard attribution only, not enforced)
+  const apiKeyHeader = req.headers["x-api-key"];
+  const clerkUserId: string | null = null; // populated by dashboard attribution layer later
+  void clerkUserId; // suppress unused-var warning
 
   const batch = body.slice(0, 1000);
   let saved = 0;
@@ -138,9 +101,8 @@ router.post("/save", async (req, res) => {
     const gmapsUrl = String(lead["Google Maps URL"] ?? lead["gmapsUrl"] ?? "");
     const plusCode = String(lead["Plus Code"] ?? lead["plusCode"] ?? "");
 
-    // Key is scoped to user so each user owns their own copy of a lead
-    const keySource = (clerkUserId ?? "") + "|" + name + phone + address;
-    const key = createHash("sha256").update(keySource).digest("hex");
+    // Key is a stable hash of name+phone+address (global dedup — not per-user)
+    const key = createHash("sha256").update(name + phone + address).digest("hex");
 
     const { social, facebook, instagram, twitter, linkedin } = parseSocials(socialRaw || null);
     const ratingNum = (rating != null && !isNaN(rating)) ? rating : null;
@@ -160,7 +122,7 @@ router.post("/save", async (req, res) => {
 
     return {
       key,
-      clerkUserId,
+      clerkUserId: String(apiKeyHeader ?? "").slice(0, 4) === "mle_" ? null : null, // future use
       name: name || null,
       phone: phone || null,
       emails: emails || null,
@@ -223,15 +185,12 @@ router.post("/save", async (req, res) => {
     }
   }
 
-  req.log.info({ saved, duplicates, userId: clerkUserId ?? "anon" }, "leads saved");
+  req.log.info({ saved, duplicates }, "leads saved");
   res.json({ saved, duplicates });
 });
 
-// ---- GET / (paginated list) — filtered by authenticated user ----------------
+// ---- GET / — paginated list, no auth required -------------------------------
 router.get("/", async (req, res) => {
-  const auth = getAuth(req);
-  const clerkUserId = auth.userId ?? null;
-
   const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10) || 1);
   const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10) || 50));
   const search = String(req.query.search ?? "").trim();
@@ -239,10 +198,6 @@ router.get("/", async (req, res) => {
   const offset = (page - 1) * limit;
 
   const conditions = [];
-  // Scope to the calling user (or unscoped anonymous leads)
-  if (clerkUserId) {
-    conditions.push(eq(leads.clerkUserId, clerkUserId));
-  }
   if (search) {
     conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`)));
   }
@@ -271,18 +226,12 @@ router.get("/", async (req, res) => {
   });
 });
 
-// ---- GET /export.csv — filtered by authenticated user -----------------------
+// ---- GET /export.csv — no auth required -------------------------------------
 router.get("/export.csv", async (req, res) => {
-  const auth = getAuth(req);
-  const clerkUserId = auth.userId ?? null;
-
   const search = String(req.query.search ?? "").trim();
   const minScore = parseInt(String(req.query.minScore ?? "0"), 10) || 0;
 
   const conditions = [];
-  if (clerkUserId) {
-    conditions.push(eq(leads.clerkUserId, clerkUserId));
-  }
   if (search) {
     conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`)));
   }
@@ -328,7 +277,7 @@ router.get("/export.csv", async (req, res) => {
     ].map(csvCell).join(",") + "\n";
   }
 
-  req.log.info({ rows: rows.length, userId: clerkUserId ?? "anon" }, "leads exported to csv");
+  req.log.info({ rows: rows.length, search, minScore }, "leads exported to csv");
   res.send(csv);
 });
 

@@ -1,0 +1,51 @@
+================================================================
+ PASTE THIS WHOLE MESSAGE TO THE REPLIT AI AGENT
+================================================================
+
+STOP — the /api/leads routes are NOT actually live. They were tested only on the
+local dev server. On the PUBLISHED deployment at https://mapleadextractor.net all
+three still return HTTP 404:
+
+    GET  /api/leads/            -> 404  "Cannot GET /api/leads/"
+    POST /api/leads/save        -> 404  "Cannot POST /api/leads/save"
+    GET  /api/leads/export.csv  -> 404
+
+(Proof the old build is still live: GET https://mapleadextractor.net/api/healthz
+returns 200 — that's the OLD published code, before the leads routes existed.)
+
+WHAT I NEED YOU TO DO
+---------------------
+1. REDEPLOY / REPUBLISH the Autoscale deployment that serves
+   https://mapleadextractor.net so the new /api/leads routes actually go live.
+   Editing the code in the workspace is NOT the same as publishing it.
+
+2. Confirm the leads router is registered in
+   artifacts/api-server/src/routes/index.ts with:
+       import leadsRouter from "./leads.js";
+       router.use("/leads", leadsRouter);
+
+3. IMPORTANT — NO AUTHENTICATION on these routes. My Chrome extension posts to
+   /api/leads/save anonymously (no login, no auth header, no cookies). Do NOT
+   gate /save, GET /, or /export.csv behind a "logged-in user" or session. If
+   you added any auth/user filtering, REMOVE it from the leads routes. CORS must
+   allow Access-Control-Allow-Origin: * (the extension is cross-origin).
+
+4. Do NOT enforce any free/paid limit on the server yet — just store and return
+   the leads. (We'll add licensing separately.)
+
+VERIFY AGAINST THE PUBLIC URL (not localhost) AND PASTE THE EXACT OUTPUT
+------------------------------------------------------------------------
+    curl -X POST https://mapleadextractor.net/api/leads/save \
+      -H "Content-Type: application/json" \
+      -d '[{"Name":"Test Co","Phone":"(212) 555-1212","Address":"NYC","Rating":"4.6","Rating info":"1,234 reviews","Category":"Cafe","Emails":"a@b.com"}]'
+    # MUST return: {"saved":1,"duplicates":0}   (2nd run: {"saved":0,"duplicates":1})
+
+    curl "https://mapleadextractor.net/api/leads/?limit=2"
+    # MUST return JSON: {"leads":[...],"total":...,"page":1,"pages":...}
+
+    curl "https://mapleadextractor.net/api/leads/export.csv?minScore=0" | head -3
+    # MUST return CSV header row starting with: Name,Phone,Emails,Website,Social,...
+
+Every URL above MUST be https://mapleadextractor.net — NOT localhost and NOT the
+dev preview URL. Paste the real responses back so I can confirm it's live.
+================================================================
