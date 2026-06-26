@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Download, Map, Zap, Search, Chrome, FileSpreadsheet, Lock, Shield, Settings2, Code2, Users, Database } from "lucide-react";
+import { ArrowRight, Download, Map, Zap, Search, Chrome, FileSpreadsheet, Lock, Shield, Settings2, Code2, Users, Database, Pin, MousePointerClick, Play, CheckCircle2, Package } from "lucide-react";
 import { SiGoogle, SiGooglechrome } from "react-icons/si";
 
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,7 @@ export default function Home() {
             <a href="#how-it-works" className="hover:text-foreground transition-colors">How it Works</a>
             <a href="#data" className="hover:text-foreground transition-colors">Data Fields</a>
             <a href="#features" className="hover:text-foreground transition-colors">Engine</a>
+            <a href="#install-tutorial" className="hover:text-foreground transition-colors">Install Guide</a>
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
           </nav>
           <Button asChild size="sm" className="font-bold">
@@ -281,6 +282,120 @@ export default function Home() {
                 </motion.div>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* Section: Install Tutorial */}
+        <section id="install-tutorial" className="py-24 bg-card/30 border-y border-border relative overflow-hidden">
+          <div className="absolute -left-32 top-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl -z-10" />
+          <div className="absolute -right-32 bottom-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl -z-10" />
+          <div className="container mx-auto px-6">
+            <div className="text-center mb-16">
+              <Badge variant="outline" className="px-4 py-1.5 border-primary/50 text-primary bg-primary/10 font-mono text-xs uppercase tracking-wider mb-4">
+                <Chrome className="w-3.5 h-3.5 mr-2 inline" /> Installation Guide
+              </Badge>
+              <h2 className="text-4xl md:text-5xl font-display font-bold mb-4 tracking-tight">
+                How to Install the<br /><span className="text-primary">Google Maps Extractor</span>
+              </h2>
+              <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+                Up and running in under 60 seconds. No account. No credit card.
+              </p>
+            </div>
+
+            <div className="max-w-3xl mx-auto space-y-4">
+              {[
+                {
+                  icon: <Search className="w-6 h-6" />,
+                  step: "Step 1",
+                  title: "Open the Chrome Web Store page",
+                  desc: "Click the button below to go directly to the extension's listing on the official Chrome Web Store.",
+                  action: { label: "Open Chrome Web Store →", href: STORE_URL }
+                },
+                {
+                  icon: <MousePointerClick className="w-6 h-6" />,
+                  step: "Step 2",
+                  title: 'Click "Add to Chrome"',
+                  desc: 'On the store page, click the blue "Add to Chrome" button in the top-right corner. A confirmation popup will appear — click "Add extension" to confirm.'
+                },
+                {
+                  icon: <Pin className="w-6 h-6" />,
+                  step: "Step 3",
+                  title: "Pin it to your toolbar",
+                  desc: 'Click the puzzle piece icon (🧩) in the top-right of Chrome to open your extensions list. Find "Google Maps Lead Extractor" and click the pin icon to keep it visible in your toolbar.'
+                },
+                {
+                  icon: <Search className="w-6 h-6" />,
+                  step: "Step 4",
+                  title: "Search on Google Maps",
+                  desc: 'Go to google.com/maps and type any business search — for example "Plumbers in Houston" or "Dentists in London". Wait for the results list to load on the left side.'
+                },
+                {
+                  icon: <Play className="w-6 h-6" />,
+                  step: "Step 5",
+                  title: "Click the extension & press Start",
+                  desc: 'Click the MapLeadExtractor icon in your toolbar to open the panel. Hit the green "Start Extracting" button. It will auto-scroll, paginate, and harvest every listing automatically.'
+                },
+                {
+                  icon: <Download className="w-6 h-6" />,
+                  step: "Step 6",
+                  title: "Export your leads to CSV",
+                  desc: 'Once finished, click "Download CSV" or "Download XLSX" to save the full lead list directly to your computer — ready to drop into any CRM or outreach tool.'
+                },
+              ].map((item, i) => (
+                <motion.div
+                  key={i}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true, margin: "-60px" }}
+                  variants={fadeIn}
+                  className="flex gap-5 bg-background border border-border rounded-2xl p-6 hover:border-primary/40 transition-colors group"
+                >
+                  <div className="shrink-0 flex flex-col items-center gap-2">
+                    <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/30 text-primary flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-all">
+                      {item.icon}
+                    </div>
+                    {i < 5 && <div className="w-px flex-1 bg-border min-h-[16px]" />}
+                  </div>
+                  <div className="flex-1 pb-1">
+                    <p className="text-xs font-mono text-primary uppercase tracking-wider mb-1">{item.step}</p>
+                    <h3 className="text-lg font-display font-bold mb-2">{item.title}</h3>
+                    <p className="text-muted-foreground leading-relaxed">{item.desc}</p>
+                    {item.action && (
+                      <a
+                        href={item.action.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center mt-3 text-sm font-semibold text-primary hover:underline"
+                      >
+                        {item.action.label}
+                      </a>
+                    )}
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+
+            {/* Download CTA */}
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={fadeIn}
+              className="mt-12 max-w-3xl mx-auto rounded-2xl border border-primary/30 bg-primary/5 p-8 flex flex-col md:flex-row items-center justify-between gap-6"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/30 flex items-center justify-center shrink-0">
+                  <Package className="w-7 h-7 text-primary" />
+                </div>
+                <div>
+                  <p className="font-display font-bold text-lg">Prefer a direct download?</p>
+                  <p className="text-muted-foreground text-sm mt-0.5">A standalone <code className="font-mono text-primary text-xs bg-primary/10 px-1.5 py-0.5 rounded">.crx</code> installer for the Google Maps Extractor is coming soon.</p>
+                </div>
+              </div>
+              <Button variant="outline" className="shrink-0 border-primary/50 text-primary hover:bg-primary hover:text-primary-foreground transition-all" disabled>
+                <Download className="w-4 h-4 mr-2" /> Download Coming Soon
+              </Button>
+            </motion.div>
           </div>
         </section>
 
