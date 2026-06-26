@@ -77,6 +77,8 @@
   "dependencies": {
     "@clerk/react": "^6.11.0",
     "@clerk/themes": "^2.4.57",
-    "internal": "link:@clerk/react/internal"
+    "internal": "link:@clerk/react/internal",
+    "react-simple-maps": "^3.0.0",
+    "react-tooltip": "^6.0.8"
   }
 }
