@@ -365,6 +365,10 @@ export default function Dashboard() {
   const [emailCopied, setEmailCopied] = useState(false);
   const [showTextModal, setShowTextModal] = useState(false);
   const [textCopied, setTextCopied] = useState(false);
+  const [smsMessage, setSmsMessage] = useState("");
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsResult, setSmsResult] = useState<{ sent: number; failed: number } | null>(null);
+  const [twilioAvailable, setTwilioAvailable] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   // Money mode: rank by opportunity (weakest businesses first) — the leads
@@ -531,6 +535,14 @@ export default function Dashboard() {
 
   // Load the member's open follow-up reminders once on mount.
   useEffect(() => { fetchReminders(); }, [fetchReminders]);
+
+  // Check whether Twilio SMS is configured on the server.
+  useEffect(() => {
+    fetch(`${basePath}/api/sms/config`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.available) setTwilioAvailable(true); })
+      .catch(() => {});
+  }, []);
 
   // Silently ping the extension on load — if it responds as connected, hide the card.
   useEffect(() => {
@@ -1476,12 +1488,35 @@ export default function Dashboard() {
       {/* Bulk text / SMS modal */}
       <AnimatePresence>
         {showTextModal && (() => {
-          const smsHref = `sms:${selPhones.join(",")}`;
+          const smsHref = `sms:${selPhones.join(",")}${smsMessage.trim() ? `?body=${encodeURIComponent(smsMessage.trim())}` : ""}`;
+          const handleSendNow = async () => {
+            if (!smsMessage.trim() || smsSending) return;
+            setSmsSending(true);
+            setSmsResult(null);
+            try {
+              const token = await session?.getToken().catch(() => null);
+              const headers: Record<string, string> = { "Content-Type": "application/json" };
+              if (token) headers["Authorization"] = `Bearer ${token}`;
+              const r = await fetch(`${basePath}/api/sms/send`, {
+                method: "POST",
+                credentials: "include",
+                headers,
+                body: JSON.stringify({ phones: selPhones, message: smsMessage.trim() }),
+              });
+              const d = await r.json();
+              setSmsResult({ sent: d.sent ?? 0, failed: d.failed ?? 0 });
+            } catch {
+              setSmsResult({ sent: 0, failed: selPhones.length });
+            } finally {
+              setSmsSending(false);
+            }
+          };
+
           return (
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-              onClick={() => setShowTextModal(false)}
+              onClick={() => { setShowTextModal(false); setSmsResult(null); }}
             >
               <motion.div
                 initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
@@ -1492,13 +1527,13 @@ export default function Dashboard() {
                   <Phone className="w-4 h-4 text-blue-400" />
                   <h3 className="font-display font-bold">Bulk Text</h3>
                   <span className="ml-1 text-xs text-muted-foreground">{selPhones.length} number{selPhones.length !== 1 ? "s" : ""}</span>
-                  <button onClick={() => setShowTextModal(false)} className="ml-auto text-muted-foreground hover:text-foreground">
+                  <button onClick={() => { setShowTextModal(false); setSmsResult(null); }} className="ml-auto text-muted-foreground hover:text-foreground">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
 
                 {/* Phone number chips */}
-                <div className="mb-5 max-h-36 overflow-y-auto flex flex-wrap gap-1.5 p-3 bg-background border border-border rounded-lg">
+                <div className="mb-4 max-h-28 overflow-y-auto flex flex-wrap gap-1.5 p-3 bg-background border border-border rounded-lg">
                   {selPhones.map(ph => (
                     <span key={ph} className="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-mono">
                       {ph}
@@ -1506,25 +1541,82 @@ export default function Dashboard() {
                   ))}
                 </div>
 
-                <p className="text-xs text-muted-foreground mb-5 leading-relaxed">
-                  Use <strong className="text-foreground">Copy phones</strong> to paste numbers into your bulk SMS tool (e.g. SimpleTexting, EZTexting, Podium), or hit <strong className="text-foreground">Open SMS</strong> to text all of them directly from your phone.
-                </p>
-
-                <div className="flex flex-wrap gap-2 justify-between">
-                  <button
-                    onClick={async () => {
-                      try { await navigator.clipboard.writeText(selPhones.join(", ")); setTextCopied(true); setTimeout(() => setTextCopied(false), 2000); } catch {}
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {textCopied ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
-                    {textCopied ? "Copied!" : "Copy phones"}
-                  </button>
-                  <a href={smsHref}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:opacity-90 transition-opacity">
-                    <Phone className="w-3.5 h-3.5" /> Open SMS app
-                  </a>
+                {/* Message compose */}
+                <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Message</label>
+                <div className="relative mb-1">
+                  <textarea
+                    value={smsMessage} onChange={e => { setSmsMessage(e.target.value); setSmsResult(null); }}
+                    rows={4}
+                    placeholder="Hi, I noticed your business on Google Maps and wanted to reach out…"
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-none"
+                  />
                 </div>
+                <div className="flex justify-between items-center mb-4">
+                  <span className="text-[10px] text-muted-foreground">{smsMessage.length} chars · ~{Math.ceil(smsMessage.length / 160)} SMS segment{Math.ceil(smsMessage.length / 160) !== 1 ? "s" : ""} per recipient</span>
+                </div>
+
+                {/* Send result banner */}
+                {smsResult && (
+                  <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold mb-4 ${smsResult.failed === 0 ? "bg-primary/10 border border-primary/30 text-primary" : "bg-yellow-500/10 border border-yellow-500/30 text-yellow-400"}`}>
+                    {smsResult.failed === 0
+                      ? <><Check className="w-3.5 h-3.5" /> {smsResult.sent} message{smsResult.sent !== 1 ? "s" : ""} sent successfully!</>
+                      : <>{smsResult.sent} sent, {smsResult.failed} failed — check numbers are in E.164 format (+15551234567)</>
+                    }
+                  </div>
+                )}
+
+                {/* Twilio send OR setup notice */}
+                {twilioAvailable ? (
+                  <div className="flex flex-wrap gap-2 justify-between items-center">
+                    <button
+                      onClick={async () => { try { await navigator.clipboard.writeText(selPhones.join(", ")); setTextCopied(true); setTimeout(() => setTextCopied(false), 2000); } catch {} }}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {textCopied ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+                      {textCopied ? "Copied!" : "Copy phones"}
+                    </button>
+                    <div className="flex gap-2">
+                      <a href={smsHref} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
+                        <Phone className="w-3.5 h-3.5" /> SMS app
+                      </a>
+                      <button
+                        onClick={handleSendNow}
+                        disabled={!smsMessage.trim() || smsSending}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-40"
+                      >
+                        {smsSending
+                          ? <><div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Sending…</>
+                          : <><Phone className="w-3.5 h-3.5" /> Send {selPhones.length} text{selPhones.length !== 1 ? "s" : ""}</>
+                        }
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap gap-2 justify-between items-center">
+                      <button
+                        onClick={async () => { try { await navigator.clipboard.writeText(selPhones.join(", ")); setTextCopied(true); setTimeout(() => setTextCopied(false), 2000); } catch {} }}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {textCopied ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+                        {textCopied ? "Copied!" : "Copy phones"}
+                      </button>
+                      <a href={smsHref}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:opacity-90 transition-opacity">
+                        <Phone className="w-3.5 h-3.5" /> Open SMS app
+                      </a>
+                    </div>
+                    <div className="p-3 bg-background border border-border rounded-lg text-xs text-muted-foreground leading-relaxed">
+                      <strong className="text-foreground block mb-1">🔌 Enable in-app sending</strong>
+                      Add 3 secrets to unlock direct texting without leaving the dashboard:
+                      <ul className="mt-1.5 space-y-0.5 list-disc list-inside">
+                        <li><code className="text-foreground">TWILIO_ACCOUNT_SID</code></li>
+                        <li><code className="text-foreground">TWILIO_AUTH_TOKEN</code></li>
+                        <li><code className="text-foreground">TWILIO_FROM_NUMBER</code> <span className="text-[10px]">(e.g. +15551234567)</span></li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             </motion.div>
           );
