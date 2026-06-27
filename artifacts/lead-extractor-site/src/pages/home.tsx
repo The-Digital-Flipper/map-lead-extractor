@@ -1,7 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Download, Map, Zap, Search, Chrome, FileSpreadsheet, Lock, Shield, Settings2, Code2, Users, Database, Pin, MousePointerClick, Play, CheckCircle2, Package, Globe, Star, MapPin, Building2, Calendar, Share2, TrendingUp } from "lucide-react";
-import { SiGoogle, SiGooglechrome, SiFacebook } from "react-icons/si";
+import { SiGoogle, SiGooglechrome, SiFacebook, SiYelp } from "react-icons/si";
 import { Show } from "@clerk/react";
 
 import { Button } from "@/components/ui/button";
@@ -220,11 +220,11 @@ export default function Home() {
           <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-primary/5 to-transparent -z-10"></div>
           <div className="container mx-auto px-6">
             <div className="mb-16">
-              <h2 className="text-4xl md:text-5xl font-display font-bold mb-6 tracking-tight">Two Architectures.<br/>One Purpose.</h2>
-              <p className="text-xl text-muted-foreground max-w-2xl">Choose your target. Both extensions are optimized for raw extraction speed and deep data discovery.</p>
+              <h2 className="text-4xl md:text-5xl font-display font-bold mb-6 tracking-tight">Three Platforms.<br/>One Purpose.</h2>
+              <p className="text-xl text-muted-foreground max-w-2xl">Choose your target. Every extension is optimized for raw extraction speed and deep data discovery.</p>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-8 max-w-6xl">
+            <div className="grid md:grid-cols-3 gap-8 max-w-6xl">
               {/* Google Maps Product */}
               <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-100px" }} variants={fadeIn}>
                 <Card className="h-full bg-background border-border hover:border-primary/50 transition-colors group relative overflow-hidden">
@@ -276,6 +276,34 @@ export default function Home() {
                     </ul>
                     <Button variant="outline" className="w-full h-12 text-md group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary transition-all" asChild>
                       <a href={STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-bing-install">Install Extractor</a>
+                    </Button>
+                  </CardContent>
+                </Card>
+              </motion.div>
+
+              {/* Yelp Product */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-100px" }} variants={fadeIn}>
+                <Card className="h-full bg-background border-border hover:border-primary/50 transition-colors group relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+                    <SiYelp className="w-48 h-48 text-[#d32323]" />
+                  </div>
+                  <CardContent className="p-8 relative z-10">
+                    <div className="w-20 h-20 rounded-2xl bg-[#d32323]/10 border border-[#d32323]/30 flex items-center justify-center mb-8 shadow-lg shadow-black/50">
+                      <SiYelp className="w-10 h-10 text-[#d32323]" />
+                    </div>
+                    <h3 className="text-3xl font-display font-bold mb-3 flex items-center gap-3">
+                      Yelp Extractor
+                    </h3>
+                    <div className="inline-block px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-xs font-mono mb-8 border border-border">v0.3.0 New</div>
+                    
+                    <ul className="space-y-4 mb-10 text-muted-foreground">
+                      <li className="flex gap-4"><ArrowRight className="w-6 h-6 text-primary shrink-0" /> <span className="text-lg">Extracts name, phone, website, email & rating</span></li>
+                      <li className="flex gap-4"><ArrowRight className="w-6 h-6 text-primary shrink-0" /> <span className="text-lg">Auto-paginates through every Yelp search page</span></li>
+                      <li className="flex gap-4"><ArrowRight className="w-6 h-6 text-primary shrink-0" /> <span className="text-lg">Fetches emails & socials from business sites</span></li>
+                      <li className="flex gap-4"><ArrowRight className="w-6 h-6 text-primary shrink-0" /> <span className="text-lg">Syncs directly to your lead dashboard</span></li>
+                    </ul>
+                    <Button variant="outline" className="w-full h-12 text-md group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary transition-all" asChild>
+                      <a href={STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-yelp-install">Install Extractor</a>
                     </Button>
                   </CardContent>
                 </Card>

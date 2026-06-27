@@ -38,6 +38,30 @@ function smsConfigured(): boolean {
     && process.env.TWILIO_FROM_NUMBER && process.env.ALERT_PHONE_NUMBER);
 }
 
+function emailConfigured(): boolean {
+  return !!(process.env.RESEND_API_KEY && (process.env.ALERT_EMAIL || process.env.OWNER_EMAIL));
+}
+
+// Email the owner when someone starts chatting, via Resend. Fire-and-forget;
+// silent no-op if not configured. Uses Resend's shared sender by default so it
+// works before you've verified your own domain.
+async function notifyOwnerEmail(subject: string, text: string): Promise<void> {
+  const key = process.env.RESEND_API_KEY;
+  const to = process.env.ALERT_EMAIL || process.env.OWNER_EMAIL;
+  const from = process.env.ALERT_FROM_EMAIL || "MapLeadExtractor <onboarding@resend.dev>";
+  if (!key || !to) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to, subject, text }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch {
+    /* best-effort; the chat still works without it */
+  }
+}
+
 // Text the owner via Twilio when someone starts chatting. Fire-and-forget —
 // never blocks or breaks the chat reply. Silent no-op if Twilio isn't set up.
 async function notifyOwnerSms(body: string): Promise<void> {
@@ -79,7 +103,11 @@ router.get("/health", async (_req, res) => {
       body: JSON.stringify({ model, messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
       signal: AbortSignal.timeout(15000),
     });
-    if (r.ok) { res.json({ configured: true, ok: true, model, smsAlerts: smsConfigured(), hint: `✅ ChatGPT is connected and working.${smsConfigured() ? " 📱 SMS alerts are ON." : " (SMS alerts OFF — add Twilio secrets to text your phone.)"}` }); return; }
+    if (r.ok) {
+      const alerts = [emailConfigured() ? "✉️ email" : null, smsConfigured() ? "📱 SMS" : null].filter(Boolean);
+      res.json({ configured: true, ok: true, model, emailAlerts: emailConfigured(), smsAlerts: smsConfigured(), hint: `✅ ChatGPT is connected and working.${alerts.length ? ` Alerts ON: ${alerts.join(" + ")}.` : " (No alerts set up yet.)"}` });
+      return;
+    }
     const detail = (await r.text().catch(() => "")).slice(0, 300);
     let hint = `OpenAI returned ${r.status}.`;
     if (r.status === 401) hint = "Invalid API key (401) — the key value is wrong or revoked.";
@@ -116,6 +144,9 @@ router.post("/", async (req, res) => {
   if (userTurns === 1) {
     const firstMsg = history[history.length - 1].content;
     notifyOwnerSms(`🟢 New lead chat on MapLeadExtractor:\n"${firstMsg}"\n\nReply on the site to close them.`)
+      .catch(() => {});
+    notifyOwnerEmail("🟢 New lead chat on MapLeadExtractor",
+      `Someone just started chatting on your site:\n\n"${firstMsg}"\n\nOpen your site's chat to reply and close them.`)
       .catch(() => {});
   }
 

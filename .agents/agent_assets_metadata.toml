@@ -18,3 +18,9 @@ id = "k_R-c8BxxlCs0jR_TCygZ"
 uri = "file://attached_assets/extension-with-sync/MapLeadExtractor-Bing-2.5.6-sync.zip"
 type = "unspecified"
 title = "Bing Maps Extension v2.5.6 (with sync)"
+
+[[outputs]]
+id = "0Mrh-VA3AOHH2EobOYP4S"
+uri = "file://attached_assets/extension-with-sync/YelpLeadExtractor-0.3.0-sync.zip"
+type = "unspecified"
+title = "Yelp Lead Extractor v0.3.0 — with Google sign-in + backend sync"
