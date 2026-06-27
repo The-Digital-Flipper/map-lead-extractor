@@ -1,4 +1,4 @@
-import { pgTable, serial, text, numeric, integer, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, numeric, integer, jsonb, timestamp, boolean } from "drizzle-orm/pg-core";
 
 export const leads = pgTable("leads", {
   id: serial("id").primaryKey(),
@@ -25,6 +25,17 @@ export const leads = pgTable("leads", {
   // Human-readable weakness tags backing the opportunity score, e.g.
   // ["No website", "Few reviews", "No social"]. Drives the sales pitch.
   needs: jsonb("needs").$type<string[]>().default([]),
+  // ── Demand signals (how much members want this lead) ──────────────────────
+  // Total number of times any member extracted/saved this business.
+  timesExtracted: integer("times_extracted").default(1),
+  // Distinct member (clerk user) ids that have extracted this business.
+  // Length = how many different members independently wanted it.
+  extractedBy: jsonb("extracted_by").$type<string[]>().default([]),
+  // Demand score 0-100 derived from the two signals above.
+  demandScore: integer("demand_score").default(0),
+  // Composite value 0-100 = need (opportunity) blended with demand. The single
+  // "which leads are most valuable" ranking number.
+  valueScore: integer("value_score").default(0),
   gmapsUrl: text("gmaps_url"),
   plusCode: text("plus_code"),
   raw: jsonb("raw"),

@@ -1,7 +1,10 @@
 import { Router } from "express";
+import { getAuth } from "@clerk/express";
 import { createHash } from "node:crypto";
-import { db, leads, computeScore, computeOpportunity } from "@workspace/db";
-import { sql, ilike, or, gte, and, count, eq } from "drizzle-orm";
+import { db, leads, leadNotes, computeScore, computeOpportunity, computeDemand, computeValue } from "@workspace/db";
+import { sql, ilike, or, gte, and, count, eq, inArray } from "drizzle-orm";
+import { storage } from "../storage";
+import { getUncachableStripeClient } from "../stripeClient";
 
 const router = Router();
 
@@ -38,6 +41,18 @@ function parseReviewCount(ratingInfo: string | undefined | null): number | null 
 const VALID_STATUSES = ["new", "contacted", "converted", "not_interested"] as const;
 type LeadStatus = typeof VALID_STATUSES[number];
 
+// Whitelisted sort columns (avoids SQL injection from the `sort` query param).
+const SORT_COLUMNS: Record<string, string> = {
+  value: "value_score",            // most valuable = need × demand
+  demand: "demand_score",          // most wanted by members
+  opportunity: "opportunity_score", // weakest businesses (most need)
+  score: "score",                  // profile completeness (default)
+};
+function orderForSort(sort: string) {
+  const col = SORT_COLUMNS[sort] ?? "score";
+  return sql.raw(`${col} DESC, created_at DESC`);
+}
+
 // ---- CORS — extension calls /save cross-origin, must allow * ----------------
 router.options("/save", (_req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -59,6 +74,12 @@ router.post("/save", async (req, res) => {
   const batch = body.slice(0, 1000);
   let saved = 0;
   let duplicates = 0;
+
+  // Resolve which member is extracting (extension sends their API key). This is
+  // what lets us track member activity + per-lead demand. Anonymous if absent.
+  const apiKey = String(req.headers["x-api-key"] ?? "").trim();
+  const member = apiKey ? await storage.getUserByApiKey(apiKey) : null;
+  const memberId = member?.id ?? null;
 
   const rows = batch.map((lead: Record<string, unknown>) => {
     const name = String(lead["Name"] ?? lead["name"] ?? "");
@@ -97,7 +118,7 @@ router.post("/save", async (req, res) => {
 
     return {
       key,
-      clerkUserId: null as string | null,
+      clerkUserId: memberId,
       name: name || null,
       phone: phone || null,
       emails: emails || null,
@@ -122,15 +143,34 @@ router.post("/save", async (req, res) => {
   });
 
   for (const row of rows) {
-    const before = await db
-      .select({ id: leads.id })
+    const [before] = await db
+      .select({
+        id: leads.id,
+        extractedBy: leads.extractedBy,
+        timesExtracted: leads.timesExtracted,
+        clerkUserId: leads.clerkUserId,
+      })
       .from(leads)
       .where(sql`key = ${row.key}`)
       .limit(1);
 
+    // Merge demand: distinct members who've extracted this business + a running
+    // count of total extractions. Recompute demand + value from the new totals.
+    const prevMembers = (before?.extractedBy ?? []) as string[];
+    const extractedBy = memberId && !prevMembers.includes(memberId)
+      ? [...prevMembers, memberId]
+      : prevMembers;
+    const timesExtracted = (before?.timesExtracted ?? 0) + 1;
+    const demandScore = computeDemand({ timesExtracted, distinctMembers: extractedBy.length });
+    const valueScore = computeValue(row.opportunityScore, demandScore);
+    // Preserve the original extractor; only fall back to current member if none.
+    const clerkUserId = before?.clerkUserId ?? memberId;
+
+    const values = { ...row, clerkUserId, extractedBy, timesExtracted, demandScore, valueScore };
+
     await db
       .insert(leads)
-      .values(row)
+      .values(values)
       .onConflictDoUpdate({
         target: leads.key,
         set: {
@@ -150,6 +190,11 @@ router.post("/save", async (req, res) => {
           score: sql`excluded.score`,
           opportunityScore: sql`excluded.opportunity_score`,
           needs: sql`excluded.needs`,
+          clerkUserId: sql`excluded.clerk_user_id`,
+          extractedBy: sql`excluded.extracted_by`,
+          timesExtracted: sql`excluded.times_extracted`,
+          demandScore: sql`excluded.demand_score`,
+          valueScore: sql`excluded.value_score`,
           gmapsUrl: sql`excluded.gmaps_url`,
           plusCode: sql`excluded.plus_code`,
           raw: sql`excluded.raw`,
@@ -157,7 +202,7 @@ router.post("/save", async (req, res) => {
         },
       });
 
-    if (before.length > 0) duplicates++;
+    if (before) duplicates++;
     else saved++;
   }
 
@@ -174,8 +219,8 @@ router.get("/", async (req, res) => {
   const minOpportunity = parseInt(String(req.query.minOpportunity ?? "0"), 10) || 0;
   const category = String(req.query.category ?? "").trim();
   const status = String(req.query.status ?? "").trim();
-  // sort=opportunity ranks by "money" potential; default ranks by completeness.
-  const sortByOpportunity = String(req.query.sort ?? "") === "opportunity";
+  // sort = value | demand | opportunity | score (default). value = need × demand.
+  const sort = String(req.query.sort ?? "");
   const offset = (page - 1) * limit;
 
   const conditions = [];
@@ -190,12 +235,9 @@ router.get("/", async (req, res) => {
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
-  const orderBy = sortByOpportunity
-    ? sql`opportunity_score DESC, created_at DESC`
-    : sql`score DESC, created_at DESC`;
 
   const [rows, [{ total }]] = await Promise.all([
-    db.select().from(leads).where(where).orderBy(orderBy).limit(limit).offset(offset),
+    db.select().from(leads).where(where).orderBy(orderForSort(sort)).limit(limit).offset(offset),
     db.select({ total: count() }).from(leads).where(where),
   ]);
 
@@ -263,6 +305,89 @@ router.get("/stats", async (_req, res) => {
   });
 });
 
+// ---- GET /notes?ids=1,2,3 — the current member's private notes + tags --------
+router.get("/notes", async (req, res) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.json({ notes: {} }); return; }
+
+  const ids = String(req.query.ids ?? "")
+    .split(",").map(s => parseInt(s, 10)).filter(n => !isNaN(n) && n > 0);
+  if (ids.length === 0) { res.json({ notes: {} }); return; }
+
+  const rows = await db
+    .select({ leadId: leadNotes.leadId, note: leadNotes.note, tags: leadNotes.tags, reminderAt: leadNotes.reminderAt, reminderDone: leadNotes.reminderDone })
+    .from(leadNotes)
+    .where(and(eq(leadNotes.clerkUserId, userId), inArray(leadNotes.leadId, ids)));
+
+  const notes: Record<number, { note: string | null; tags: string[]; reminderAt: string | null; reminderDone: boolean }> = {};
+  for (const r of rows) notes[r.leadId] = {
+    note: r.note, tags: (r.tags ?? []) as string[],
+    reminderAt: r.reminderAt ? new Date(r.reminderAt).toISOString() : null,
+    reminderDone: !!r.reminderDone,
+  };
+  res.json({ notes });
+});
+
+// ---- GET /reminders — the member's open follow-ups (with lead info) ----------
+router.get("/reminders", async (req, res) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.json({ reminders: [] }); return; }
+
+  const rows = await db
+    .select({
+      leadId: leadNotes.leadId, reminderAt: leadNotes.reminderAt, note: leadNotes.note,
+      name: leads.name, phone: leads.phone, emails: leads.emails,
+    })
+    .from(leadNotes)
+    .innerJoin(leads, eq(leads.id, leadNotes.leadId))
+    .where(and(
+      eq(leadNotes.clerkUserId, userId),
+      eq(leadNotes.reminderDone, false),
+      sql`${leadNotes.reminderAt} IS NOT NULL`,
+    ))
+    .orderBy(sql`reminder_at ASC`)
+    .limit(100);
+
+  res.json({
+    reminders: rows.map(r => ({
+      leadId: r.leadId,
+      reminderAt: r.reminderAt ? new Date(r.reminderAt).toISOString() : null,
+      note: r.note, name: r.name, phone: r.phone, emails: r.emails,
+    })),
+  });
+});
+
+// ---- PUT /:id/note — upsert the current member's note + tags on a lead -------
+router.put("/:id/note", async (req, res) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Sign in to save notes" }); return; }
+
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const body = req.body as { note?: string; tags?: unknown; reminderAt?: string | null; reminderDone?: boolean };
+  const note = typeof body.note === "string" ? body.note.slice(0, 5000) : null;
+  const tags = Array.isArray(body.tags)
+    ? [...new Set(body.tags.map(t => String(t).trim()).filter(Boolean).slice(0, 20))]
+    : [];
+  const reminderAt = body.reminderAt ? new Date(body.reminderAt) : null;
+  const reminderDone = !!body.reminderDone;
+
+  await db
+    .insert(leadNotes)
+    .values({ leadId: id, clerkUserId: userId, note, tags, reminderAt, reminderDone, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: [leadNotes.leadId, leadNotes.clerkUserId],
+      set: {
+        note: sql`excluded.note`, tags: sql`excluded.tags`,
+        reminderAt: sql`excluded.reminder_at`, reminderDone: sql`excluded.reminder_done`,
+        updatedAt: sql`excluded.updated_at`,
+      },
+    });
+
+  res.json({ ok: true, id, note, tags, reminderAt: reminderAt?.toISOString() ?? null, reminderDone });
+});
+
 // ---- PATCH /:id/status — update lead status ----------------------------------
 router.patch("/:id/status", async (req, res) => {
   const id = parseInt(req.params.id, 10);
@@ -305,24 +430,26 @@ router.get("/export.csv", async (req, res) => {
   const minOpportunity = parseInt(String(req.query.minOpportunity ?? "0"), 10) || 0;
   const category = String(req.query.category ?? "").trim();
   const status = String(req.query.status ?? "").trim();
-  const sortByOpportunity = String(req.query.sort ?? "") === "opportunity";
+  const state = String(req.query.state ?? "").trim().toUpperCase();
+  const sort = String(req.query.sort ?? "");
 
   const conditions = [];
   if (search) conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`)));
   if (minScore > 0) conditions.push(gte(leads.score, minScore));
   if (minOpportunity > 0) conditions.push(gte(leads.opportunityScore, minOpportunity));
   if (category) conditions.push(ilike(leads.category, `%${category}%`));
+  // Territory filter: match "<STATE> <ZIP>" inside the address (word-boundary).
+  if (/^[A-Z]{2}$/.test(state)) conditions.push(sql`address ~ ${"\\y" + state + "\\s+\\d{5}"}`);
   if (status && VALID_STATUSES.includes(status as LeadStatus)) conditions.push(eq(leads.status, status));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
-  const orderBy = sortByOpportunity
-    ? sql`opportunity_score DESC, created_at DESC`
-    : sql`score DESC, created_at DESC`;
-  const rows = await db.select().from(leads).where(where).orderBy(orderBy);
+  const rows = await db.select().from(leads).where(where).orderBy(orderForSort(sort));
 
   const dateStr = new Date().toISOString().slice(0, 10);
-  const isMoney = sortByOpportunity || minOpportunity > 0;
-  const slug = category ? category.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : "";
+  const isMoney = sort === "opportunity" || sort === "value" || sort === "demand" || minOpportunity > 0;
+  const catSlug = category ? category.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : "";
+  const stateSlug = /^[A-Z]{2}$/.test(state) ? state.toLowerCase() : "";
+  const slug = [catSlug, stateSlug].filter(Boolean).join("-");
   const filename = isMoney
     ? `money-leads${slug ? `-${slug}` : ""}-${dateStr}.csv`
     : `leads${slug ? `-${slug}` : ""}-${dateStr}.csv`;
@@ -336,13 +463,79 @@ router.get("/export.csv", async (req, res) => {
     return s;
   }
 
-  const headers = ["Name","Phone","Emails","Website","Facebook","Instagram","Twitter","LinkedIn","Address","Category","Rating","Reviews","Score","Opportunity","Needs","Status","Google Maps URL","Plus Code"];
+  const headers = ["Name","Phone","Emails","Website","Facebook","Instagram","Twitter","LinkedIn","Address","Category","Rating","Reviews","Score","Opportunity","Value","Demand","Members","Times Extracted","Needs","Status","Google Maps URL","Plus Code"];
   let csv = headers.join(",") + "\n";
   for (const row of rows) {
-    csv += [row.name,row.phone,row.emails,row.website,row.facebook,row.instagram,row.twitter,row.linkedin,row.address,row.category,row.rating,row.reviewCount,row.score,row.opportunityScore,row.needs,row.status,row.gmapsUrl,row.plusCode].map(csvCell).join(",") + "\n";
+    const members = Array.isArray(row.extractedBy) ? row.extractedBy.length : 0;
+    csv += [row.name,row.phone,row.emails,row.website,row.facebook,row.instagram,row.twitter,row.linkedin,row.address,row.category,row.rating,row.reviewCount,row.score,row.opportunityScore,row.valueScore,row.demandScore,members,row.timesExtracted,row.needs,row.status,row.gmapsUrl,row.plusCode].map(csvCell).join(",") + "\n";
   }
 
-  req.log.info({ rows: rows.length, money: sortByOpportunity || minOpportunity > 0 }, "leads exported to csv");
+  req.log.info({ rows: rows.length, money: isMoney }, "leads exported to csv");
+  res.send(csv);
+});
+
+// ---- Sell packs: paid CSV download gated by a Stripe Checkout session --------
+function csvCellSafe(v: unknown): string {
+  if (v == null) return "";
+  const s = Array.isArray(v) ? v.join("; ") : String(v);
+  return (s.includes(",") || s.includes('"') || s.includes("\n")) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+// GET /pack-success — friendly page Stripe redirects to after payment.
+router.get("/pack-success", (req, res) => {
+  const sessionId = String(req.query.session_id ?? "");
+  const dl = `/api/leads/pack-download?session_id=${encodeURIComponent(sessionId)}`;
+  res.setHeader("Content-Type", "text/html");
+  res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Your leads are ready</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{background:#0b0f14;color:#e6edf3;font-family:system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
+.card{background:#111722;border:1px solid #21262d;border-radius:16px;padding:40px;text-align:center;max-width:420px}
+.btn{display:inline-block;margin-top:20px;background:#00e676;color:#0b0f14;font-weight:700;padding:14px 28px;border-radius:10px;text-decoration:none}
+h1{font-size:22px}p{color:#8b949e}</style></head>
+<body><div class="card"><div style="font-size:42px">✅</div><h1>Payment received</h1>
+<p>Thanks! Your lead pack is ready to download.</p>
+<a class="btn" href="${dl}">⬇ Download leads CSV</a>
+<p style="font-size:12px;margin-top:18px">Keep this page — you can re-download anytime from this link.</p></div></body></html>`);
+});
+
+// GET /pack-download — verifies the session is paid, then streams the pack CSV.
+router.get("/pack-download", async (req, res) => {
+  const sessionId = String(req.query.session_id ?? "");
+  if (!sessionId) { res.status(400).send("Missing session_id"); return; }
+
+  let paid = false;
+  let meta: Record<string, string> = {};
+  try {
+    const stripe = await getUncachableStripeClient();
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    paid = session.payment_status === "paid";
+    meta = (session.metadata ?? {}) as Record<string, string>;
+  } catch {
+    res.status(400).send("Could not verify payment.");
+    return;
+  }
+  if (!paid) { res.status(402).send("Payment not completed."); return; }
+
+  const category = meta.pack_category ?? "";
+  const state = (meta.pack_state ?? "").toUpperCase();
+  const minOpp = parseInt(meta.pack_min_opp ?? "0", 10) || 0;
+
+  const conditions = [];
+  if (category) conditions.push(ilike(leads.category, `%${category}%`));
+  if (/^[A-Z]{2}$/.test(state)) conditions.push(sql`address ~ ${"\\y" + state + "\\s+\\d{5}"}`);
+  if (minOpp > 0) conditions.push(gte(leads.opportunityScore, minOpp));
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const rows = await db.select().from(leads).where(where).orderBy(sql`value_score DESC, opportunity_score DESC`);
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="lead-pack-${dateStr}.csv"`);
+  const headers = ["Name", "Phone", "Emails", "Website", "Facebook", "Instagram", "Twitter", "LinkedIn", "Address", "Category", "Rating", "Reviews", "Opportunity", "Value", "Needs", "Google Maps URL"];
+  let csv = headers.join(",") + "\n";
+  for (const r of rows) {
+    csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, r.gmapsUrl].map(csvCellSafe).join(",") + "\n";
+  }
+  req.log.info({ rows: rows.length, category, state }, "paid pack downloaded");
   res.send(csv);
 });
 

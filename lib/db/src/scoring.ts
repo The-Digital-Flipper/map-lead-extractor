@@ -104,3 +104,25 @@ export function computeOpportunity(lead: ScoreableLead): OpportunityResult {
 
   return { opportunityScore, needs };
 }
+
+// ---- Demand score (0-100) ---------------------------------------------------
+// "How much do members actually want this lead?" The number of DISTINCT members
+// who independently extracted a business is the strongest demand signal — it
+// means several people are chasing the same opportunity. Repeat extractions
+// (same business pulled again) add a smaller bump.
+export interface DemandInput {
+  timesExtracted: number;   // total saves of this business
+  distinctMembers: number;  // distinct members who extracted it
+}
+export function computeDemand({ timesExtracted, distinctMembers }: DemandInput): number {
+  const repeats = Math.max(0, timesExtracted - distinctMembers);
+  return Math.max(0, Math.min(100, distinctMembers * 30 + repeats * 5));
+}
+
+// ---- Value score (0-100) ----------------------------------------------------
+// The single "most valuable lead" ranking: a lead is valuable when it both
+// NEEDS your services (opportunity) AND is in DEMAND (members want it). Need is
+// weighted a little higher because demand is sparse until members pile up.
+export function computeValue(opportunityScore: number, demandScore: number): number {
+  return Math.round(opportunityScore * 0.6 + demandScore * 0.4);
+}

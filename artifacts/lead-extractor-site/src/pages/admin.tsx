@@ -49,20 +49,24 @@ interface Lead {
   id: number; name: string | null; phone: string | null; emails: string | null;
   website: string | null; address: string | null; category: string | null;
   score: number | null; opportunityScore: number | null; needs: string[] | null;
+  valueScore: number | null; demandScore: number | null;
+  timesExtracted: number | null; extractedBy: string[] | null;
   status: string | null; createdAt: string | null;
 }
 interface AdminUser {
   id: string; email: string | null; plan: string;
-  lead_count: number; created_at: string | null; period_end: number | null;
+  lead_count: number; money_lead_count: number; hot_lead_count: number;
+  last_active: string | null; created_at: string | null; period_end: number | null;
 }
 interface CategoryMoney {
   category: string; total: number; hot: number; warm: number;
   avgOpportunity: number; noWebsite: number; reachable: number;
 }
-interface LeadStats {
-  opportunityDistribution: { bucket: string; count: number }[];
-  needsCounts: { need: string; count: number }[];
+interface MoneySummary {
+  total: number; hot: number; warm: number; cold: number;
+  noWebsite: number; reachable: number;
 }
+interface NeedCount { need: string; count: number }
 
 // Each weakness maps to a service you sell — drives the "What to sell" panel.
 const NEED_TO_SERVICE: Record<string, string> = {
@@ -73,6 +77,27 @@ const NEED_TO_SERVICE: Record<string, string> = {
   "Hard to reach": "Enrichment needed",
 };
 
+// Vertical pricing tiers — high-LTV verticals resell for more per lead.
+// Edit these keyword lists / prices to match what buyers actually pay you.
+const PREMIUM_KEYWORDS = ["law", "attorney", "lawyer", "dentist", "dental", "orthodont", "med spa", "medspa", "cosmetic", "plastic", "surgeon", "chiropract", "roof", "hvac", "plumb", "electric", "contractor", "remodel", "real estate", "realtor", "insurance", "accountant", "cpa", "veterinar", "dermatolog", "injury", "clinic", "mortgage", "solar"];
+const STANDARD_KEYWORDS = ["restaurant", "cafe", "coffee", "bakery", "salon", "spa", "barber", "gym", "fitness", "yoga", "auto", "mechanic", "repair", "landscap", "cleaning", "photograph", "dealership", "hotel", "catering", "florist", "pet", "tattoo", "daycare"];
+
+type Tier = "premium" | "standard" | "bulk";
+const TIER_META: Record<Tier, { label: string; cls: string }> = {
+  premium: { label: "Premium", cls: "bg-primary/15 text-primary border-primary/40" },
+  standard: { label: "Standard", cls: "bg-yellow-500/15 text-yellow-400 border-yellow-500/40" },
+  bulk: { label: "Bulk", cls: "bg-muted text-muted-foreground border-border" },
+};
+const TIER_ORDER: Tier[] = ["premium", "standard", "bulk"];
+const DEFAULT_PRICES: Record<Tier, number> = { premium: 5, standard: 2, bulk: 0.5 };
+
+function categoryTier(category: string): Tier {
+  const c = category.toLowerCase();
+  if (PREMIUM_KEYWORDS.some(k => c.includes(k))) return "premium";
+  if (STANDARD_KEYWORDS.some(k => c.includes(k))) return "standard";
+  return "bulk";
+}
+
 function colorForCount(count: number, max: number): string {
   if (count === 0 || max === 0) return "#1a2332";
   const t = Math.min(1, count / max);
@@ -82,7 +107,11 @@ function colorForCount(count: number, max: number): string {
   return `rgba(0,${g},${b},${alpha})`;
 }
 
-function GeoHeatmap({ byState }: { byState: Record<string, number> }) {
+function GeoHeatmap({ byState, selected, onSelect }: {
+  byState: Record<string, number>;
+  selected?: string;
+  onSelect?: (state: string) => void;
+}) {
   const [tooltipContent, setTooltipContent] = useState("");
   const maxCount = Math.max(1, ...Object.values(byState));
   return (
@@ -94,12 +123,19 @@ function GeoHeatmap({ byState }: { byState: Record<string, number> }) {
               const fips = geo.id as string;
               const abbr = FIPS_TO_STATE[fips.padStart(2, "0")] ?? "";
               const count = byState[abbr] ?? 0;
+              const isSelected = !!selected && abbr === selected;
               return (
                 <Geography key={geo.rsmKey} geography={geo}
-                  fill={colorForCount(count, maxCount)} stroke="#0d1117" strokeWidth={0.8}
-                  onMouseEnter={() => setTooltipContent(`${STATE_NAMES[abbr] ?? abbr}: ${count.toLocaleString()} lead${count !== 1 ? "s" : ""}`)}
+                  fill={isSelected ? "#00E676" : colorForCount(count, maxCount)}
+                  stroke={isSelected ? "#00E676" : "#0d1117"} strokeWidth={isSelected ? 1.6 : 0.8}
+                  onClick={onSelect ? () => onSelect(abbr) : undefined}
+                  onMouseEnter={() => setTooltipContent(`${STATE_NAMES[abbr] ?? abbr}: ${count.toLocaleString()} lead${count !== 1 ? "s" : ""}${onSelect ? " — click to filter" : ""}`)}
                   onMouseLeave={() => setTooltipContent("")}
-                  style={{ default: { outline: "none" }, hover: { outline: "none", fill: "#00E676", opacity: 0.85 }, pressed: { outline: "none" } }}
+                  style={{
+                    default: { outline: "none", cursor: onSelect ? "pointer" : "default" },
+                    hover: { outline: "none", fill: "#00E676", opacity: 0.85, cursor: onSelect ? "pointer" : "default" },
+                    pressed: { outline: "none" },
+                  }}
                 />
               );
             })}
@@ -140,12 +176,57 @@ export default function Admin() {
   const [usersPages, setUsersPages] = useState(1);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [categoryMoney, setCategoryMoney] = useState<CategoryMoney[]>([]);
-  const [leadStats, setLeadStats] = useState<LeadStats | null>(null);
+  const [summary, setSummary] = useState<MoneySummary | null>(null);
+  const [needs, setNeeds] = useState<NeedCount[]>([]);
+  const [moneyGeo, setMoneyGeo] = useState<GeoData | null>(null);
+  // Clicking a state on the heatmap re-filters the whole Command Center.
+  const [selectedState, setSelectedState] = useState<string>("");
+  // Editable per-lead resale prices by tier, persisted to localStorage.
+  const [prices, setPrices] = useState<Record<Tier, number>>(() => {
+    try {
+      const saved = localStorage.getItem("mle_tier_prices");
+      if (saved) return { ...DEFAULT_PRICES, ...JSON.parse(saved) };
+    } catch { /* ignore */ }
+    return DEFAULT_PRICES;
+  });
+  const setPrice = (tier: Tier, value: number) => {
+    setPrices(prev => {
+      const next = { ...prev, [tier]: isNaN(value) ? 0 : value };
+      try { localStorage.setItem("mle_tier_prices", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
   const [activeTab, setActiveTab] = useState<"command" | "overview" | "users" | "leads" | "money">("command");
+
+  // Sell-pack modal: owner sets a price for a category/territory pack and gets a
+  // shareable Stripe checkout link to send a buyer.
+  const [sellPack, setSellPack] = useState<{ category: string; state: string } | null>(null);
+  const [sellPrice, setSellPrice] = useState("49");
+  const [sellLoading, setSellLoading] = useState(false);
+  const [sellResult, setSellResult] = useState<{ url: string; leadCount: number } | null>(null);
+  const [sellError, setSellError] = useState("");
+  const [copiedLink, setCopiedLink] = useState(false);
+  const generateSaleLink = async () => {
+    if (!sellPack) return;
+    setSellLoading(true); setSellError(""); setSellResult(null);
+    try {
+      const r = await fetch(`${basePath}/api/admin/packs/checkout`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: sellPack.category, state: sellPack.state,
+          minOpportunity: 40, priceCents: Math.round((parseFloat(sellPrice) || 0) * 100),
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) setSellError(d.error ?? "Could not create link");
+      else setSellResult({ url: d.url, leadCount: d.leadCount });
+    } catch { setSellError("Network error"); }
+    setSellLoading(false);
+  };
 
   const fetchLeads = useCallback(async () => {
     setLoadingLeads(true);
-    const sort = activeTab === "money" ? "&sort=opportunity" : "";
+    const sort = activeTab === "money" ? "&sort=value" : "";
     try {
       const r = await fetch(`${basePath}/api/admin/leads?page=${page}&limit=50${sort}`);
       const data = await r.json();
@@ -171,9 +252,19 @@ export default function Admin() {
   useEffect(() => {
     fetch(`${basePath}/api/admin/stats`).then(r => r.json()).then(setStats).catch(() => {});
     fetch(`${basePath}/api/admin/geo`).then(r => r.json()).then(setGeo).catch(() => {});
+    fetch(`${basePath}/api/admin/geo?minOpportunity=40`).then(r => r.json()).then(setMoneyGeo).catch(() => {});
     setRevenueLoading(true);
     fetch(`${basePath}/api/admin/revenue`).then(r => r.json()).then(data => { setRevenue(data); setRevenueLoading(false); }).catch(() => setRevenueLoading(false));
   }, []);
+
+  // Money intelligence — refetches whenever the selected state changes.
+  useEffect(() => {
+    const q = selectedState ? `?state=${selectedState}` : "";
+    fetch(`${basePath}/api/admin/opportunity-by-category${q}`)
+      .then(r => r.json())
+      .then(d => { setCategoryMoney(d.categories ?? []); setSummary(d.summary ?? null); setNeeds(d.needs ?? []); })
+      .catch(() => {});
+  }, [selectedState]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
@@ -199,20 +290,27 @@ export default function Admin() {
 
   const fmt$ = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  // ── Command Center derived metrics ──────────────────────────────────────
-  const oppBucket = (b: string) => leadStats?.opportunityDistribution?.find(o => o.bucket === b)?.count ?? 0;
-  const hotLeads = oppBucket("Hot (70+)");
-  const warmLeads = oppBucket("Warm (40-69)");
-  const coldLeads = oppBucket("Cold (<40)");
-  const totalScored = hotLeads + warmLeads + coldLeads;
+  // ── Command Center derived metrics (state-aware via `summary`) ──────────
+  const hotLeads = summary?.hot ?? 0;
+  const warmLeads = summary?.warm ?? 0;
+  const coldLeads = summary?.cold ?? 0;
+  const totalScored = summary?.total ?? 0;
   const moneyLeads = hotLeads + warmLeads;
-  const needCount = (n: string) => leadStats?.needsCounts?.find(x => x.need === n)?.count ?? 0;
-  const noWebsiteLeads = needCount("No website");
+  const noWebsiteLeads = summary?.noWebsite ?? 0;
   // A category with 10+ hot leads is a bundle you can sell as a pack.
   const sellablePacks = categoryMoney.filter(c => c.hot >= 10).length;
-  const topNeeds = leadStats?.needsCounts ?? [];
+  const topNeeds = needs;
   const maxNeed = Math.max(1, ...topNeeds.map(n => n.count));
-  const moneyExport = (params: string) => `${basePath}/api/leads/export.csv?sort=opportunity${params}`;
+  // Selected-state suffix threaded into every export so packs respect territory.
+  const stateParam = selectedState ? `&state=${selectedState}` : "";
+  const moneyExport = (params: string) => `${basePath}/api/leads/export.csv?sort=opportunity${params}${stateParam}`;
+  const priceFor = (category: string) => prices[categoryTier(category)] ?? 0;
+  // Estimated resale value of all hot leads, priced by each category's live tier price.
+  const hotPackValue = categoryMoney.reduce((sum, c) => sum + c.hot * priceFor(c.category), 0);
+  // Top states by money-lead density (sell by territory).
+  const moneyStates = moneyGeo
+    ? Object.entries(moneyGeo.byState).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([state, count]) => ({ state, count }))
+    : [];
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -330,10 +428,17 @@ export default function Admin() {
               <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-6">
                 <div className="absolute -top-16 -right-16 w-48 h-48 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
                 <div className="relative">
-                  <div className="flex items-center gap-2 mb-4">
+                  <div className="flex items-center gap-2 mb-4 flex-wrap">
                     <Zap className="w-5 h-5 text-primary" />
                     <h2 className="text-lg font-display font-bold">Money Command Center</h2>
                     <span className="text-xs font-mono bg-primary/10 text-primary border border-primary/30 px-2 py-0.5 rounded-full">LIVE</span>
+                    {selectedState && (
+                      <button onClick={() => setSelectedState("")}
+                        className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/15 border border-primary/40 text-primary text-xs font-bold hover:bg-primary/25 transition-colors">
+                        <MapPin className="w-3 h-3" /> {STATE_NAMES[selectedState] ?? selectedState}
+                        <span className="ml-1 opacity-70">✕ clear</span>
+                      </button>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {[
@@ -345,7 +450,7 @@ export default function Admin() {
                       <div key={i} className={`rounded-xl p-4 border ${k.glow ? "bg-primary/10 border-primary/40" : "bg-background/40 border-border"}`}>
                         <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">{k.icon} {k.label}</div>
                         <div className={`text-3xl font-display font-bold ${k.glow ? "text-primary" : "text-foreground"}`}>
-                          {leadStats ? k.value.toLocaleString() : "…"}
+                          {summary ? k.value.toLocaleString() : "…"}
                         </div>
                         <div className="text-xs text-muted-foreground mt-0.5">{k.sub}</div>
                       </div>
@@ -380,6 +485,13 @@ export default function Admin() {
                     <a href={moneyExport("&minOpportunity=70")} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary/40 bg-primary/10 text-primary text-sm font-semibold hover:bg-primary/20 transition-colors">
                       <Flame className="w-4 h-4" /> Hot Only (70+)
                     </a>
+                    {hotPackValue > 0 && (
+                      <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-background/40 border border-border text-sm">
+                        <TrendingUp className="w-4 h-4 text-primary" />
+                        <span className="text-muted-foreground">Est. hot-pack value</span>
+                        <span className="font-display font-bold text-primary">${Math.round(hotPackValue).toLocaleString()}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -390,7 +502,22 @@ export default function Admin() {
                   <div className="flex items-center gap-2 p-5 border-b border-border">
                     <Target className="w-4 h-4 text-primary" />
                     <h2 className="text-lg font-display font-bold">Category Money Leaderboard</h2>
-                    <span className="text-xs text-muted-foreground ml-auto">one-click sellable packs ↓</span>
+                    <span className="text-xs text-muted-foreground ml-auto">{selectedState ? `${STATE_NAMES[selectedState] ?? selectedState} · ` : ""}one-click sellable packs ↓</span>
+                  </div>
+                  {/* Editable tier pricing — drives Pack Value */}
+                  <div className="flex items-center gap-3 px-5 py-2.5 border-b border-border bg-background/30 flex-wrap">
+                    <span className="text-xs text-muted-foreground font-semibold flex items-center gap-1"><DollarSign className="w-3 h-3" /> Price/lead:</span>
+                    {TIER_ORDER.map(t => (
+                      <label key={t} className="flex items-center gap-1.5 text-xs">
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-bold ${TIER_META[t].cls}`}>{TIER_META[t].label}</span>
+                        <span className="text-muted-foreground">$</span>
+                        <input
+                          type="number" min="0" step="0.5" value={prices[t]}
+                          onChange={e => setPrice(t, parseFloat(e.target.value))}
+                          className="w-16 bg-background border border-border rounded-md px-2 py-1 text-foreground text-xs focus:outline-none focus:border-primary/50"
+                        />
+                      </label>
+                    ))}
                   </div>
                   {categoryMoney.length === 0 ? (
                     <div className="py-16 text-center">
@@ -403,18 +530,29 @@ export default function Admin() {
                         <thead>
                           <tr className="border-b border-border bg-background/50">
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Category</th>
-                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Total</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Tier</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">🔥 Hot</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Avg Opp</th>
-                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">No Site</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Pack Value</th>
                             <th className="px-4 py-3"></th>
                           </tr>
                         </thead>
                         <tbody>
-                          {categoryMoney.map((c, i) => (
+                          {categoryMoney.map((c, i) => {
+                            const tier = categoryTier(c.category);
+                            const meta = TIER_META[tier];
+                            const packValue = c.hot * prices[tier];
+                            return (
                             <tr key={c.category} className={`border-b border-border/50 hover:bg-white/[0.02] transition-colors ${i % 2 !== 0 ? "bg-white/[0.01]" : ""}`}>
-                              <td className="px-4 py-3 font-semibold text-foreground truncate max-w-[160px]" title={c.category}>{c.category}</td>
-                              <td className="px-4 py-3 text-muted-foreground">{c.total.toLocaleString()}</td>
+                              <td className="px-4 py-3 font-semibold text-foreground truncate max-w-[150px]" title={c.category}>
+                                {c.category}
+                                <span className="block text-[10px] font-normal text-muted-foreground/60">{c.total.toLocaleString()} total · {c.noWebsite.toLocaleString()} no site</span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-bold ${meta.cls}`} title={`$${prices[tier]}/lead`}>
+                                  {meta.label}
+                                </span>
+                              </td>
                               <td className="px-4 py-3">
                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-bold ${c.hot > 0 ? "bg-primary/20 text-primary border-primary/40" : "bg-muted text-muted-foreground border-border"}`}>
                                   {c.hot.toLocaleString()}
@@ -422,21 +560,33 @@ export default function Admin() {
                               </td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center gap-2">
-                                  <div className="h-1.5 w-16 rounded-full bg-background overflow-hidden border border-border">
+                                  <div className="h-1.5 w-14 rounded-full bg-background overflow-hidden border border-border">
                                     <div className="h-full bg-primary rounded-full" style={{ width: `${c.avgOpportunity}%` }} />
                                   </div>
                                   <span className="text-xs font-mono text-muted-foreground">{c.avgOpportunity}</span>
                                 </div>
                               </td>
-                              <td className="px-4 py-3 text-xs text-muted-foreground">{c.noWebsite.toLocaleString()}</td>
-                              <td className="px-4 py-3 text-right">
-                                <a href={moneyExport(`&category=${encodeURIComponent(c.category)}`)}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors whitespace-nowrap">
-                                  <Download className="w-3.5 h-3.5" /> Pack
-                                </a>
+                              <td className="px-4 py-3 font-display font-bold text-primary whitespace-nowrap">
+                                {packValue > 0 ? `$${Math.round(packValue).toLocaleString()}` : <span className="text-muted-foreground/40 font-normal">—</span>}
+                              </td>
+                              <td className="px-4 py-3 text-right whitespace-nowrap">
+                                <div className="inline-flex items-center gap-1.5">
+                                  <a href={moneyExport(`&category=${encodeURIComponent(c.category)}`)}
+                                    title="Download free CSV"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-muted-foreground text-xs font-semibold hover:text-foreground hover:border-primary/40 transition-colors">
+                                    <Download className="w-3.5 h-3.5" /> Pack
+                                  </a>
+                                  <button
+                                    onClick={() => { setSellPack({ category: c.category, state: selectedState }); setSellResult(null); setSellError(""); }}
+                                    title="Sell this pack"
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-bold hover:bg-primary/20 transition-colors">
+                                    <DollarSign className="w-3.5 h-3.5" /> Sell
+                                  </button>
+                                </div>
                               </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -471,6 +621,60 @@ export default function Admin() {
                     <div className="flex items-center gap-1.5 mb-1"><Phone className="w-3 h-3" /> Reachable money leads close fastest.</div>
                     <p className="text-muted-foreground/60">Not yet scored: site quality, online booking, ad presence — needs an enrichment pass.</p>
                   </div>
+                </div>
+              </div>
+
+              {/* Money Leads by Territory */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="lg:col-span-2 bg-card border border-border rounded-2xl p-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <MapPin className="w-4 h-4 text-primary" />
+                    <h2 className="text-lg font-display font-bold">Money Leads by Territory</h2>
+                    <span className="text-xs text-muted-foreground ml-auto">click a state to filter ·  opportunity 40+</span>
+                  </div>
+                  {moneyGeo ? (
+                    Object.keys(moneyGeo.byState).length === 0 ? (
+                      <div className="py-16 text-center">
+                        <div className="text-4xl mb-3">🗺️</div>
+                        <p className="text-sm text-muted-foreground">No US address data on money leads yet.</p>
+                      </div>
+                    ) : <GeoHeatmap byState={moneyGeo.byState} selected={selectedState}
+                          onSelect={(st) => setSelectedState(prev => prev === st ? "" : st)} />
+                  ) : (
+                    <div className="py-16 flex items-center justify-center">
+                      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
+                </div>
+                <div className="bg-card border border-border rounded-2xl p-5 flex flex-col">
+                  <h2 className="text-lg font-display font-bold mb-1">Top Money States</h2>
+                  <p className="text-xs text-muted-foreground mb-4">Click to filter · export a territory pack →</p>
+                  {moneyStates.length === 0 ? (
+                    <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">No data yet</div>
+                  ) : (
+                    <div className="space-y-1">
+                      {moneyStates.map((s, i) => (
+                        <div key={s.state} className={`flex items-center justify-between gap-2 py-1 px-2 rounded-lg transition-colors ${selectedState === s.state ? "bg-primary/10 border border-primary/30" : "border border-transparent"}`}>
+                          <button onClick={() => setSelectedState(prev => prev === s.state ? "" : s.state)}
+                            className="flex items-center gap-2 min-w-0 flex-1 text-left hover:opacity-80 transition-opacity">
+                            <span className={`text-xs font-mono font-bold w-7 text-center rounded ${i === 0 || selectedState === s.state ? "text-primary" : "text-muted-foreground"}`}>{s.state}</span>
+                            <span className="text-sm text-foreground truncate">{STATE_NAMES[s.state] ?? s.state}</span>
+                          </button>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-xs font-bold text-primary">{s.count.toLocaleString()}</span>
+                            <a href={`${basePath}/api/leads/export.csv?sort=opportunity&minOpportunity=40&state=${s.state}`}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-primary/30 bg-primary/10 text-primary text-[11px] font-semibold hover:bg-primary/20 transition-colors"
+                              title={`Export money leads in ${STATE_NAMES[s.state] ?? s.state}`}>
+                              <Download className="w-3 h-3" />
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="mt-4 pt-4 border-t border-border text-[10px] text-muted-foreground/60">
+                    Combine with a category pack for "no-website plumbers in TX" precision.
+                  </p>
                 </div>
               </div>
             </motion.div>
@@ -570,7 +774,9 @@ export default function Admin() {
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Email</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Plan</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Leads</th>
-                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Renews</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">💰 Money</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">🔥 Hot</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Last Active</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Joined</th>
                           </tr>
                         </thead>
@@ -595,8 +801,18 @@ export default function Admin() {
                                     {u.lead_count.toLocaleString()}
                                   </span>
                                 </td>
-                                <td className="px-4 py-3 text-xs text-muted-foreground">
-                                  {u.period_end ? new Date(u.period_end * 1000).toLocaleDateString() : <span className="text-muted-foreground/30">—</span>}
+                                <td className="px-4 py-3">
+                                  <span className={`font-mono text-sm font-bold ${u.money_lead_count > 0 ? "text-primary" : "text-muted-foreground/40"}`}>
+                                    {u.money_lead_count.toLocaleString()}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className={`font-mono text-sm font-bold ${u.hot_lead_count > 0 ? "text-primary" : "text-muted-foreground/40"}`}>
+                                    {u.hot_lead_count.toLocaleString()}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                                  {u.last_active ? new Date(u.last_active).toLocaleDateString() : <span className="text-muted-foreground/30">—</span>}
                                 </td>
                                 <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                                   {u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}
@@ -729,10 +945,10 @@ export default function Admin() {
                       💰 Money Leads {total > 0 && <span className="text-muted-foreground text-sm font-normal">({total.toLocaleString()})</span>}
                     </h2>
                     <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
-                      All users' leads ranked by <span className="text-primary font-semibold">opportunity</span> — weak online presence (no website, few reviews, low rating, no socials) you can sell websites, SEO, ads, reputation, or automation to. Not yet scored: site quality, online booking, ad presence.
+                      All members' leads ranked by <span className="text-primary font-semibold">value</span> = need (opportunity) × demand (how many members extracted it). The most valuable leads to sell surface first.
                     </p>
                   </div>
-                  <a href={`${basePath}/api/leads/export.csv?sort=opportunity`}
+                  <a href={`${basePath}/api/leads/export.csv?sort=value`}
                     className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity shrink-0">
                     <Download className="w-4 h-4" /> Export Money Leads CSV
                   </a>
@@ -758,6 +974,8 @@ export default function Admin() {
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Email</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Website</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Category</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">⭐ Value</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Demand</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Opportunity</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Needs</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Saved</th>
@@ -769,6 +987,11 @@ export default function Admin() {
                             const oppColor = opp >= 70 ? "bg-primary/20 text-primary border-primary/40"
                               : opp >= 40 ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/40"
                               : "bg-muted text-muted-foreground border-border";
+                            const val = lead.valueScore ?? 0;
+                            const valColor = val >= 60 ? "bg-primary/20 text-primary border-primary/40"
+                              : val >= 35 ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/40"
+                              : "bg-muted text-muted-foreground border-border";
+                            const members = lead.extractedBy?.length ?? 0;
                             return (
                               <tr key={lead.id} className={`border-b border-border/50 hover:bg-white/[0.02] transition-colors ${i % 2 !== 0 ? "bg-white/[0.01]" : ""}`}>
                                 <td className="px-4 py-3 font-semibold text-foreground truncate max-w-[160px]">{lead.name ?? "—"}</td>
@@ -780,6 +1003,13 @@ export default function Admin() {
                                     : <span className="text-primary font-semibold">none</span>}
                                 </td>
                                 <td className="px-4 py-3 text-xs text-muted-foreground truncate max-w-[120px]">{lead.category ?? "—"}</td>
+                                <td className="px-4 py-3">
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold ${valColor}`}>⭐ {val}</span>
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap" title={`${members} member${members !== 1 ? "s" : ""} · extracted ${lead.timesExtracted ?? 0}×`}>
+                                  <span className="text-xs text-foreground font-semibold">{members}</span>
+                                  <span className="text-[10px] text-muted-foreground/60 ml-1">member{members !== 1 ? "s" : ""}</span>
+                                </td>
                                 <td className="px-4 py-3">
                                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold ${oppColor}`}>💰 {opp}</span>
                                 </td>
@@ -824,6 +1054,57 @@ export default function Admin() {
 
         </div>
       </main>
+
+      {/* Sell-pack modal */}
+      {sellPack && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setSellPack(null)}>
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-1">
+              <DollarSign className="w-4 h-4 text-primary" />
+              <h3 className="font-display font-bold">Sell a lead pack</h3>
+              <button onClick={() => setSellPack(null)} className="ml-auto text-muted-foreground hover:text-foreground">✕</button>
+            </div>
+            <p className="text-xs text-muted-foreground mb-4">
+              {sellPack.category}{sellPack.state ? ` · ${STATE_NAMES[sellPack.state] ?? sellPack.state}` : ""} · money leads (opportunity 40+)
+            </p>
+
+            {!sellResult ? (
+              <>
+                <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Price (USD)</label>
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-muted-foreground">$</span>
+                  <input type="number" min="1" step="1" value={sellPrice} onChange={e => setSellPrice(e.target.value)}
+                    className="w-28 bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50" />
+                </div>
+                {sellError && <p className="text-xs text-red-400 mb-3">{sellError}</p>}
+                <button onClick={generateSaleLink} disabled={sellLoading}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
+                  {sellLoading ? "Creating…" : <>Generate sale link</>}
+                </button>
+                <p className="text-[11px] text-muted-foreground/60 mt-3">Buyer pays via Stripe, then downloads the CSV. Needs the Stripe integration connected.</p>
+              </>
+            ) : (
+              <>
+                <div className="bg-primary/10 border border-primary/30 rounded-lg p-3 mb-3">
+                  <p className="text-sm text-foreground font-semibold mb-1">✅ Sale link ready — {sellResult.leadCount.toLocaleString()} leads</p>
+                  <p className="text-xs text-muted-foreground break-all font-mono">{sellResult.url}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => { navigator.clipboard.writeText(sellResult.url).then(() => { setCopiedLink(true); setTimeout(() => setCopiedLink(false), 1500); }).catch(() => {}); }}
+                    className="flex-1 px-4 py-2 rounded-lg border border-primary/30 bg-primary/10 text-primary text-sm font-semibold hover:bg-primary/20 transition-colors">
+                    {copiedLink ? "Copied!" : "Copy link"}
+                  </button>
+                  <a href={sellResult.url} target="_blank" rel="noopener noreferrer"
+                    className="flex-1 text-center px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity">
+                    Open
+                  </a>
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mt-3">Send this link to a buyer. They pay, then get the pack.</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

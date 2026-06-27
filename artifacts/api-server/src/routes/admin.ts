@@ -84,7 +84,10 @@ router.get("/users", async (req, res) => {
           COALESCE(s.sub_status, 'free') AS plan,
           s.period_end,
           s.cancel_at,
-          COALESCE(lc.lead_count, 0)::int AS lead_count
+          COALESCE(lc.lead_count, 0)::int AS lead_count,
+          COALESCE(lc.money_lead_count, 0)::int AS money_lead_count,
+          COALESCE(lc.hot_lead_count, 0)::int AS hot_lead_count,
+          lc.last_active
         FROM users u
         LEFT JOIN (
           SELECT customer, status AS sub_status,
@@ -93,12 +96,17 @@ router.get("/users", async (req, res) => {
           FROM stripe.subscriptions
           WHERE status = 'active'
         ) s ON s.customer = u.stripe_customer_id
-        LEFT JOIN (
-          SELECT clerk_user_id, COUNT(*)::int AS lead_count
+        LEFT JOIN LATERAL (
+          -- Count every lead this member extracted (including businesses also
+          -- pulled by others) via the extracted_by demand list — true activity.
+          SELECT
+            COUNT(*)::int AS lead_count,
+            COUNT(*) FILTER (WHERE opportunity_score >= 40)::int AS money_lead_count,
+            COUNT(*) FILTER (WHERE opportunity_score >= 70)::int AS hot_lead_count,
+            MAX(updated_at) AS last_active
           FROM leads
-          WHERE clerk_user_id IS NOT NULL
-          GROUP BY clerk_user_id
-        ) lc ON lc.clerk_user_id = u.id
+          WHERE jsonb_exists(COALESCE(extracted_by, '[]'::jsonb), u.id)
+        ) lc ON TRUE
         ORDER BY u.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `),
@@ -113,7 +121,12 @@ router.get("/users", async (req, res) => {
 });
 
 // ---- GET /geo — state-level lead counts parsed from addresses ---------------
-router.get("/geo", async (_req, res) => {
+// ?minOpportunity=N restricts to "money" leads so the heatmap can show where
+// the sellable opportunity is concentrated (sell by territory).
+router.get("/geo", async (req, res) => {
+  const minOpportunity = parseInt(String(req.query.minOpportunity ?? "0"), 10) || 0;
+  const oppFilter = minOpportunity > 0 ? sql` AND opportunity_score >= ${minOpportunity}` : sql``;
+
   const rows = await db.execute(sql`
     SELECT
       UPPER(
@@ -122,7 +135,7 @@ router.get("/geo", async (_req, res) => {
       COUNT(*)::int AS cnt
     FROM leads
     WHERE address IS NOT NULL
-      AND address ~ '[A-Z]{2}\\s+\\d{5}'
+      AND address ~ '[A-Z]{2}\\s+\\d{5}'${oppFilter}
     GROUP BY raw_match
     ORDER BY cnt DESC
   `);
@@ -145,7 +158,7 @@ router.get("/geo", async (_req, res) => {
       ) AS city,
       COUNT(*)::int AS cnt
     FROM leads
-    WHERE address IS NOT NULL AND address LIKE '%,%'
+    WHERE address IS NOT NULL AND address LIKE '%,%'${oppFilter}
     GROUP BY city
     ORDER BY cnt DESC
     LIMIT 20
@@ -161,32 +174,66 @@ router.get("/geo", async (_req, res) => {
 });
 
 // ---- GET /opportunity-by-category — money intelligence per vertical ---------
-// Powers the Command Center leaderboard: which categories hold the most
-// high-opportunity ("money") leads, how weak they are, and what to sell them.
-router.get("/opportunity-by-category", async (_req, res) => {
-  const rows = await db.execute(sql`
-    SELECT
-      category,
-      COUNT(*)::int AS total,
-      COUNT(*) FILTER (WHERE opportunity_score >= 70)::int AS hot,
-      COUNT(*) FILTER (WHERE opportunity_score >= 40 AND opportunity_score < 70)::int AS warm,
-      COALESCE(ROUND(AVG(opportunity_score)), 0)::int AS avg_opportunity,
-      COUNT(*) FILTER (WHERE website IS NULL OR website = '')::int AS no_website,
-      COUNT(*) FILTER (WHERE phone IS NOT NULL OR emails IS NOT NULL)::int AS reachable
-    FROM leads
-    WHERE category IS NOT NULL AND category <> ''
-    GROUP BY category
-    ORDER BY hot DESC, total DESC
-    LIMIT 30
-  `);
+// Powers the entire Command Center: leaderboard (which categories hold the most
+// high-opportunity "money" leads), a summary (hot/warm/cold/no-website/reachable),
+// and the needs breakdown — all optionally scoped to one state via ?state=XX
+// so clicking a state on the heatmap re-filters everything.
+router.get("/opportunity-by-category", async (req, res) => {
+  const state = String(req.query.state ?? "").trim().toUpperCase();
+  // Territory filter: match "<STATE> <ZIP>" inside the address (word-boundary).
+  const stateFilter = /^[A-Z]{2}$/.test(state)
+    ? sql` AND address ~ ${"\\y" + state + "\\s+\\d{5}"}`
+    : sql``;
 
-  type Row = {
+  const [catRows, summaryRows, needsRows] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        category,
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE opportunity_score >= 70)::int AS hot,
+        COUNT(*) FILTER (WHERE opportunity_score >= 40 AND opportunity_score < 70)::int AS warm,
+        COALESCE(ROUND(AVG(opportunity_score)), 0)::int AS avg_opportunity,
+        COUNT(*) FILTER (WHERE website IS NULL OR website = '')::int AS no_website,
+        COUNT(*) FILTER (WHERE phone IS NOT NULL OR emails IS NOT NULL)::int AS reachable
+      FROM leads
+      WHERE category IS NOT NULL AND category <> ''${stateFilter}
+      GROUP BY category
+      ORDER BY hot DESC, total DESC
+      LIMIT 30
+    `),
+    db.execute(sql`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE opportunity_score >= 70)::int AS hot,
+        COUNT(*) FILTER (WHERE opportunity_score >= 40 AND opportunity_score < 70)::int AS warm,
+        COUNT(*) FILTER (WHERE opportunity_score < 40)::int AS cold,
+        COUNT(*) FILTER (WHERE website IS NULL OR website = '')::int AS no_website,
+        COUNT(*) FILTER (WHERE phone IS NOT NULL OR emails IS NOT NULL)::int AS reachable
+      FROM leads
+      WHERE TRUE${stateFilter}
+    `),
+    db.execute(sql`
+      SELECT need AS need, COUNT(*)::int AS cnt
+      FROM leads, jsonb_array_elements_text(COALESCE(needs, '[]'::jsonb)) AS need
+      WHERE TRUE${stateFilter}
+      GROUP BY need
+      ORDER BY cnt DESC
+    `),
+  ]);
+
+  type CatRow = {
     category: string; total: number; hot: number; warm: number;
     avg_opportunity: number; no_website: number; reachable: number;
   };
+  type SumRow = {
+    total: number; hot: number; warm: number; cold: number;
+    no_website: number; reachable: number;
+  };
+  const s = (summaryRows.rows[0] ?? {}) as SumRow;
 
   res.json({
-    categories: (rows.rows as Row[]).map(r => ({
+    state: /^[A-Z]{2}$/.test(state) ? state : null,
+    categories: (catRows.rows as CatRow[]).map(r => ({
       category: r.category,
       total: Number(r.total),
       hot: Number(r.hot),
@@ -195,21 +242,75 @@ router.get("/opportunity-by-category", async (_req, res) => {
       noWebsite: Number(r.no_website),
       reachable: Number(r.reachable),
     })),
+    summary: {
+      total: Number(s.total ?? 0),
+      hot: Number(s.hot ?? 0),
+      warm: Number(s.warm ?? 0),
+      cold: Number(s.cold ?? 0),
+      noWebsite: Number(s.no_website ?? 0),
+      reachable: Number(s.reachable ?? 0),
+    },
+    needs: (needsRows.rows as { need: string; cnt: number }[]).map(r => ({ need: r.need, count: Number(r.cnt) })),
   });
 });
 
+// ---- POST /packs/checkout — create a Stripe Checkout link to SELL a pack ----
+// The owner sets a price for a category/territory pack; the buyer pays via the
+// returned Stripe URL and is redirected to a payment-gated CSV download.
+router.post("/packs/checkout", async (req, res) => {
+  const body = req.body as { category?: string; state?: string; minOpportunity?: number; priceCents?: number; label?: string };
+  const priceCents = Math.max(100, Math.round(Number(body.priceCents) || 0)); // $1 minimum
+  const category = (body.category ?? "").trim();
+  const state = (body.state ?? "").trim().toUpperCase();
+  const minOpportunity = Math.max(0, Math.round(Number(body.minOpportunity) || 0));
+
+  // Count what the buyer will get, so we can refuse to sell an empty pack.
+  const conditions = [];
+  if (category) conditions.push(sql`category ILIKE ${"%" + category + "%"}`);
+  if (/^[A-Z]{2}$/.test(state)) conditions.push(sql`address ~ ${"\\y" + state + "\\s+\\d{5}"}`);
+  if (minOpportunity > 0) conditions.push(sql`opportunity_score >= ${minOpportunity}`);
+  const whereSql = conditions.length ? sql.join([sql` WHERE `, sql.join(conditions, sql` AND `)]) : sql``;
+  const cntRows = await db.execute(sql`SELECT COUNT(*)::int AS c FROM leads${whereSql}`);
+  const leadCount = (cntRows.rows[0] as { c: number }).c;
+  if (leadCount === 0) { res.status(400).json({ error: "That pack has 0 leads — nothing to sell." }); return; }
+
+  const name = body.label?.trim()
+    || `Lead pack${category ? ` — ${category}` : ""}${state ? ` (${state})` : ""}${minOpportunity ? ` · opp ${minOpportunity}+` : ""} · ${leadCount} leads`;
+
+  try {
+    const stripe = await getUncachableStripeClient();
+    const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost"}`;
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      payment_method_types: ["card"],
+      line_items: [{ price_data: { currency: "usd", unit_amount: priceCents, product_data: { name } }, quantity: 1 }],
+      metadata: { pack_category: category, pack_state: state, pack_min_opp: String(minOpportunity) },
+      success_url: `${baseUrl}/api/leads/pack-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/admin`,
+    });
+    res.json({ url: session.url, leadCount, priceCents, name });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Stripe not connected" });
+  }
+});
+
 // ---- GET /leads — all leads paginated for admin view ------------------------
+const ADMIN_SORT_COLUMNS: Record<string, string> = {
+  value: "value_score",
+  demand: "demand_score",
+  opportunity: "opportunity_score",
+};
 router.get("/leads", async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10) || 50));
   const minOpportunity = parseInt(String(req.query.minOpportunity ?? "0"), 10) || 0;
-  // sort=opportunity surfaces the "money" leads (weak businesses that need
-  // websites / SEO / ads / reputation) across all users.
-  const sortByOpportunity = String(req.query.sort ?? "") === "opportunity";
+  // sort = value | demand | opportunity surfaces the most valuable / wanted /
+  // weakest leads across all members; default is newest first.
+  const sortCol = ADMIN_SORT_COLUMNS[String(req.query.sort ?? "")];
   const offset = (page - 1) * limit;
 
   const where = minOpportunity > 0 ? gte(leads.opportunityScore, minOpportunity) : undefined;
-  const orderBy = sortByOpportunity ? sql`opportunity_score DESC, created_at DESC` : sql`created_at DESC`;
+  const orderBy = sortCol ? sql.raw(`${sortCol} DESC, created_at DESC`) : sql`created_at DESC`;
 
   const [rows, [{ total }]] = await Promise.all([
     db.select().from(leads).where(where).orderBy(orderBy).limit(limit).offset(offset),

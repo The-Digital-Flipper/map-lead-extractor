@@ -6,6 +6,7 @@ import {
   Search, Share2, Crown, ArrowUpRight, CreditCard, Trash2,
   RefreshCw, ChevronLeft, ChevronRight, BarChart2, X,
   CheckSquare, Square, CheckCheck, ShieldCheck,
+  Settings, Bookmark, Plus, Pin, StickyNote, Tag, Bell,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis,
@@ -64,6 +65,49 @@ interface PlanStatus {
   plan: "free" | "pro";
   freeLimit: number;
   periodEnd: string | null;
+}
+
+// ---- Personalization (persisted per client in localStorage) -----------------
+// Accent presets re-skin the whole dashboard by overriding the --primary token
+// (stored as HSL components to match index.css: `--primary: H S L%`).
+const ACCENTS: { key: string; label: string; hsl: string }[] = [
+  { key: "green", label: "Green", hsl: "146 100% 45%" },
+  { key: "blue", label: "Blue", hsl: "217 91% 60%" },
+  { key: "purple", label: "Purple", hsl: "270 91% 65%" },
+  { key: "orange", label: "Orange", hsl: "25 95% 53%" },
+  { key: "pink", label: "Pink", hsl: "330 81% 60%" },
+  { key: "cyan", label: "Cyan", hsl: "190 95% 50%" },
+];
+
+type Density = "comfortable" | "compact";
+interface ColPrefs { phone: boolean; email: boolean; website: boolean; socials: boolean; category: boolean }
+interface DashPrefs {
+  brandName: string;
+  accent: string;
+  density: Density;
+  showStats: boolean;
+  chartsDefault: boolean;
+  defaultMoney: boolean;
+  cols: ColPrefs;
+}
+const DEFAULT_PREFS: DashPrefs = {
+  brandName: "",
+  accent: "green",
+  density: "comfortable",
+  showStats: true,
+  chartsDefault: false,
+  defaultMoney: false,
+  cols: { phone: true, email: true, website: true, socials: true, category: true },
+};
+interface SavedView { name: string; search: string; status: string; money: boolean }
+
+function loadJSON<T>(key: string, fallback: T): T {
+  try { const raw = localStorage.getItem(key); if (raw) return { ...fallback, ...JSON.parse(raw) }; } catch { /* ignore */ }
+  return fallback;
+}
+function loadPrefs(): DashPrefs {
+  const p = loadJSON("mle_dash_prefs", DEFAULT_PREFS);
+  return { ...p, cols: { ...DEFAULT_PREFS.cols, ...(p.cols ?? {}) } };
 }
 
 // ---- Small components -------------------------------------------------------
@@ -292,14 +336,124 @@ export default function Dashboard() {
   const [plan, setPlan] = useState<PlanStatus | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   const [stats, setStats] = useState<StatsData | null>(null);
-  const [showCharts, setShowCharts] = useState(false);
+  // Personalization (persisted). Charts/money default come from saved prefs.
+  const [prefs, setPrefsState] = useState<DashPrefs>(() => loadPrefs());
+  const [showCustomize, setShowCustomize] = useState(false);
+  const [savedViews, setSavedViews] = useState<SavedView[]>(() => {
+    try { const r = localStorage.getItem("mle_saved_views"); if (r) { const p = JSON.parse(r); if (Array.isArray(p)) return p; } } catch {}
+    return [];
+  });
+  const [pinned, setPinned] = useState<Set<number>>(() => {
+    try { const r = localStorage.getItem("mle_pinned"); if (r) { const p = JSON.parse(r); if (Array.isArray(p)) return new Set<number>(p); } } catch {}
+    return new Set<number>();
+  });
+  const [showCharts, setShowCharts] = useState(() => loadPrefs().chartsDefault);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [deleting, setDeleting] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   // Money mode: rank by opportunity (weakest businesses first) — the leads
   // worth selling websites / SEO / ads / reputation / automation to.
-  const [moneyMode, setMoneyMode] = useState(false);
+  const [moneyMode, setMoneyMode] = useState(() => loadPrefs().defaultMoney);
+  // Table vs Kanban board (pipeline) view.
+  const [viewMode, setViewMode] = useState<"table" | "board">("table");
+  const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
+
+  // Persist + apply preferences. Accent overrides the global --primary token.
+  const updatePrefs = (patch: Partial<DashPrefs>) => {
+    setPrefsState(prev => {
+      const next = { ...prev, ...patch, cols: { ...prev.cols, ...(patch.cols ?? {}) } };
+      try { localStorage.setItem("mle_dash_prefs", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  useEffect(() => {
+    const hsl = ACCENTS.find(a => a.key === prefs.accent)?.hsl;
+    if (hsl) document.documentElement.style.setProperty("--primary", hsl);
+  }, [prefs.accent]);
+
+  // Pin / saved-view persistence helpers
+  const togglePin = (id: number) => setPinned(prev => {
+    const s = new Set(prev);
+    if (s.has(id)) s.delete(id); else s.add(id);
+    try { localStorage.setItem("mle_pinned", JSON.stringify([...s])); } catch { /* ignore */ }
+    return s;
+  });
+  const saveCurrentView = () => {
+    const name = window.prompt("Name this view (filters + mode are saved):");
+    if (!name) return;
+    const view: SavedView = { name: name.trim(), search, status: filterStatus, money: moneyMode };
+    setSavedViews(prev => {
+      const next = [...prev.filter(v => v.name !== view.name), view];
+      try { localStorage.setItem("mle_saved_views", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const applyView = (v: SavedView) => {
+    setSearchInput(v.search); setSearch(v.search);
+    setFilterStatus(v.status); setMoneyMode(v.money); setPage(1);
+  };
+  const deleteView = (name: string) => setSavedViews(prev => {
+    const next = prev.filter(v => v.name !== name);
+    try { localStorage.setItem("mle_saved_views", JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  });
+
+  // ── Per-lead notes, tags & reminders (private, member-scoped, server-stored)
+  type NoteData = { note: string | null; tags: string[]; reminderAt: string | null; reminderDone: boolean };
+  const [notes, setNotes] = useState<Record<number, NoteData>>({});
+  const [editingNote, setEditingNote] = useState<number | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [tagDraft, setTagDraft] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [reminderDraft, setReminderDraft] = useState("");  // yyyy-mm-dd
+  const [reminders, setReminders] = useState<{ leadId: number; reminderAt: string | null; note: string | null; name: string | null; phone: string | null }[]>([]);
+
+  const openNote = (id: number) => {
+    const existing = notes[id];
+    setNoteDraft(existing?.note ?? "");
+    setTagDraft(existing?.tags ?? []);
+    setReminderDraft(existing?.reminderAt ? existing.reminderAt.slice(0, 10) : "");
+    setTagInput("");
+    setEditingNote(id);
+  };
+  const addTag = () => {
+    const t = tagInput.trim();
+    if (t && !tagDraft.includes(t)) setTagDraft(d => [...d, t]);
+    setTagInput("");
+  };
+  const fetchReminders = useCallback(async () => {
+    try {
+      const r = await fetch(`${basePath}/api/leads/reminders`, { credentials: "include" });
+      if (r.ok) { const d = await r.json(); setReminders(d.reminders ?? []); }
+    } catch { /* ignore */ }
+  }, []);
+  const persistNote = async (id: number, data: NoteData) => {
+    setNotes(prev => ({ ...prev, [id]: data }));
+    try {
+      await fetch(`${basePath}/api/leads/${id}/note`, {
+        method: "PUT", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+    } catch { /* optimistic */ }
+    fetchReminders();
+  };
+  const saveNote = async (id: number) => {
+    const data: NoteData = {
+      note: noteDraft.trim() || null,
+      tags: tagDraft,
+      reminderAt: reminderDraft ? new Date(reminderDraft + "T09:00:00").toISOString() : null,
+      reminderDone: notes[id]?.reminderDone ?? false,
+    };
+    setEditingNote(null);
+    await persistNote(id, data);
+  };
+  const completeReminder = async (id: number) => {
+    const existing = notes[id] ?? { note: null, tags: [], reminderAt: null, reminderDone: false };
+    await persistNote(id, { ...existing, reminderDone: true });
+  };
 
   const apiKey = (user?.publicMetadata?.apiKey as string) || "— not generated yet —";
 
@@ -352,6 +506,19 @@ export default function Dashboard() {
   }, [page, search, filterStatus, moneyMode]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
+
+  // Load the current member's private notes/tags for the visible leads.
+  useEffect(() => {
+    const ids = leads.map(l => l.id);
+    if (ids.length === 0) { setNotes({}); return; }
+    fetch(`${basePath}/api/leads/notes?ids=${ids.join(",")}`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : { notes: {} })
+      .then(d => setNotes(d.notes ?? {}))
+      .catch(() => {});
+  }, [leads]);
+
+  // Load the member's open follow-up reminders once on mount.
+  useEffect(() => { fetchReminders(); }, [fetchReminders]);
 
   // Debounce search
   useEffect(() => {
@@ -415,6 +582,15 @@ export default function Dashboard() {
   const withEmail = leads.filter(l => l.emails).length;
   const withSocial = leads.filter(l => l.facebook || l.instagram || l.twitter || l.linkedin).length;
 
+  // Pinned leads float to the top of the current page. Compact density tightens
+  // row padding via Tailwind arbitrary variants on the table element.
+  const sortedLeads = [...leads].sort((a, b) => (pinned.has(b.id) ? 1 : 0) - (pinned.has(a.id) ? 1 : 0));
+  // Tag filter (client-side over the loaded page) + all tags for the filter bar.
+  const allTags = [...new Set(Object.values(notes).flatMap(n => n.tags ?? []))].sort();
+  const displayLeads = tagFilter ? sortedLeads.filter(l => notes[l.id]?.tags?.includes(tagFilter)) : sortedLeads;
+  const cols = prefs.cols;
+  const densityCls = prefs.density === "compact" ? "[&_td]:py-1.5 [&_th]:py-2" : "";
+
   const exportParams = new URLSearchParams({
     ...(search ? { search } : {}),
     ...(filterStatus ? { status: filterStatus } : {}),
@@ -466,25 +642,179 @@ export default function Dashboard() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h1 className="text-3xl md:text-4xl font-display font-bold mb-1">
-                  Welcome back{user?.firstName ? `, ${user.firstName}` : ""} 👋
+                  {prefs.brandName
+                    ? prefs.brandName
+                    : <>Welcome back{user?.firstName ? `, ${user.firstName}` : ""} 👋</>}
                 </h1>
-                <p className="text-muted-foreground">Your extracted leads are saved here automatically.</p>
+                <p className="text-muted-foreground">
+                  {prefs.brandName
+                    ? `Welcome back${user?.firstName ? `, ${user.firstName}` : ""} — your leads, organized.`
+                    : "Your extracted leads are saved here automatically."}
+                </p>
               </div>
-              {/* Last synced + refresh */}
+              {/* Customize + Last synced + refresh */}
               <div className="flex flex-col items-end gap-1.5 shrink-0">
-                <button
-                  onClick={handleRefresh}
-                  disabled={refreshing}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowCustomize(s => !s)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${showCustomize ? "bg-primary/10 border-primary/40 text-primary" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"}`}
+                  >
+                    <Settings className="w-3.5 h-3.5" /> Customize
+                  </button>
+                  <button
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
+                  </button>
+                </div>
                 {lastSynced && (
                   <span className="text-xs text-muted-foreground/60">Last sync: {lastSynced}</span>
                 )}
               </div>
             </div>
+
+            {/* Customize panel */}
+            <AnimatePresence>
+              {showCustomize && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-4 bg-card border border-primary/30 rounded-2xl p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Settings className="w-4 h-4 text-primary" />
+                      <h3 className="font-display font-bold">Make it yours</h3>
+                      <span className="text-xs text-muted-foreground ml-auto">saved to this browser</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      {/* Brand name */}
+                      <div>
+                        <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Dashboard name</label>
+                        <input
+                          type="text" value={prefs.brandName} maxLength={40}
+                          onChange={e => updatePrefs({ brandName: e.target.value })}
+                          placeholder="e.g. Gulf Coast Leads"
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+                        />
+                      </div>
+                      {/* Accent */}
+                      <div>
+                        <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Accent color</label>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {ACCENTS.map(a => (
+                            <button key={a.key} onClick={() => updatePrefs({ accent: a.key })}
+                              title={a.label}
+                              className={`w-7 h-7 rounded-full border-2 transition-transform hover:scale-110 ${prefs.accent === a.key ? "border-foreground scale-110" : "border-transparent"}`}
+                              style={{ background: `hsl(${a.hsl})` }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      {/* Density */}
+                      <div>
+                        <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Table density</label>
+                        <div className="flex items-center gap-1 bg-background border border-border rounded-lg p-1 w-fit">
+                          {(["comfortable", "compact"] as Density[]).map(d => (
+                            <button key={d} onClick={() => updatePrefs({ density: d })}
+                              className={`px-3 py-1 rounded-md text-xs font-semibold capitalize transition-colors ${prefs.density === d ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                              {d}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {/* Layout toggles */}
+                      <div>
+                        <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Layout</label>
+                        <div className="flex flex-col gap-1.5">
+                          {([
+                            { k: "showStats", label: "Show stats cards" },
+                            { k: "chartsDefault", label: "Open charts by default" },
+                            { k: "defaultMoney", label: "Start in Money Leads view" },
+                          ] as { k: keyof DashPrefs; label: string }[]).map(o => (
+                            <label key={o.k} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                              <input type="checkbox" checked={prefs[o.k] as boolean}
+                                onChange={e => updatePrefs({ [o.k]: e.target.checked } as Partial<DashPrefs>)}
+                                className="accent-primary w-4 h-4" />
+                              {o.label}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      {/* Columns */}
+                      <div className="md:col-span-2">
+                        <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Visible columns</label>
+                        <div className="flex items-center gap-4 flex-wrap">
+                          {([
+                            { k: "phone", label: "Phone" }, { k: "email", label: "Email" },
+                            { k: "website", label: "Website" }, { k: "socials", label: "Socials" },
+                            { k: "category", label: "Category" },
+                          ] as { k: keyof ColPrefs; label: string }[]).map(c => (
+                            <label key={c.k} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                              <input type="checkbox" checked={prefs.cols[c.k]}
+                                onChange={e => updatePrefs({ cols: { ...prefs.cols, [c.k]: e.target.checked } })}
+                                className="accent-primary w-4 h-4" />
+                              {c.label}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-4 pt-4 border-t border-border flex justify-end">
+                      <button onClick={() => updatePrefs(DEFAULT_PREFS)}
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                        Reset to defaults
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
+
+          {/* Follow-ups due */}
+          {reminders.length > 0 && (() => {
+            const today = new Date(); today.setHours(23, 59, 59, 999);
+            const due = reminders.filter(r => r.reminderAt && new Date(r.reminderAt) <= today);
+            if (due.length === 0) return null;
+            const fmtDue = (iso: string | null) => {
+              if (!iso) return "";
+              const d = new Date(iso); const now = new Date();
+              const days = Math.round((d.getTime() - now.setHours(0, 0, 0, 0)) / 86400000);
+              return days < 0 ? `${-days}d overdue` : days === 0 ? "today" : `in ${days}d`;
+            };
+            return (
+              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.05 }} className="mb-8">
+                <div className="bg-yellow-500/5 border border-yellow-500/30 rounded-2xl p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Bell className="w-4 h-4 text-yellow-400" />
+                    <h2 className="font-display font-bold text-foreground">Follow-ups due</h2>
+                    <span className="text-xs font-bold bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded-full">{due.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {due.slice(0, 6).map(r => {
+                      const overdue = r.reminderAt ? new Date(r.reminderAt) < new Date(new Date().setHours(0, 0, 0, 0)) : false;
+                      return (
+                        <div key={r.leadId} className="flex items-center gap-3 bg-card border border-border rounded-lg px-3 py-2">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${overdue ? "bg-red-500/15 text-red-400" : "bg-yellow-500/15 text-yellow-400"}`}>{fmtDue(r.reminderAt)}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-foreground truncate">{r.name ?? "Lead"}</div>
+                            {r.note && <div className="text-xs text-muted-foreground truncate">{r.note}</div>}
+                          </div>
+                          {r.phone && <a href={`tel:${r.phone}`} className="text-xs text-primary font-mono hover:underline shrink-0 hidden sm:block">{r.phone}</a>}
+                          <button onClick={() => completeReminder(r.leadId)} title="Mark done"
+                            className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-md border border-primary/30 bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors">
+                            <Check className="w-3.5 h-3.5" /> Done
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })()}
 
           {/* Plan banner */}
           <PlanBanner plan={plan} total={total} onManageBilling={handleManageBilling} onUpgrade={handleUpgrade} />
@@ -512,6 +842,7 @@ export default function Dashboard() {
           </motion.div>
 
           {/* Stats row */}
+          {prefs.showStats && (
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.15 }}
             className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {[
@@ -526,6 +857,7 @@ export default function Dashboard() {
               </div>
             ))}
           </motion.div>
+          )}
 
           {/* Charts toggle */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.16 }} className="mb-2">
@@ -543,9 +875,9 @@ export default function Dashboard() {
             {showCharts && <ChartsPanel stats={stats} />}
           </AnimatePresence>
 
-          {/* Money Leads toggle */}
+          {/* Money Leads + view toggle */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.175 }}
-            className="mb-4">
+            className="mb-4 flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1 w-fit">
               <button
                 onClick={() => { setMoneyMode(false); setPage(1); }}
@@ -560,6 +892,16 @@ export default function Dashboard() {
                 💰 Money Leads
               </button>
             </div>
+            <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1 w-fit">
+              <button onClick={() => setViewMode("table")}
+                className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${viewMode === "table" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                ☰ Table
+              </button>
+              <button onClick={() => setViewMode("board")}
+                className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${viewMode === "board" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                ▦ Board
+              </button>
+            </div>
             {moneyMode && (
               <p className="text-xs text-muted-foreground mt-2 max-w-2xl">
                 Ranked by <span className="text-primary font-semibold">opportunity</span> — businesses with a weak online presence (no website, few reviews, low rating, no socials) that you can sell websites, SEO, ads, reputation, or automation to.
@@ -567,6 +909,48 @@ export default function Dashboard() {
               </p>
             )}
           </motion.div>
+
+          {/* Saved Views */}
+          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.177 }}
+            className="flex items-center gap-2 mb-4 flex-wrap">
+            <span className="text-xs text-muted-foreground font-semibold mr-1 flex items-center gap-1"><Bookmark className="w-3.5 h-3.5" /> Views:</span>
+            {savedViews.length === 0 && (
+              <span className="text-xs text-muted-foreground/50">Save your filters as a one-click view →</span>
+            )}
+            {savedViews.map(v => (
+              <span key={v.name} className="group inline-flex items-center gap-1 pl-3 pr-1.5 py-1 rounded-full border border-border bg-card text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
+                <button onClick={() => applyView(v)} className="flex items-center gap-1">
+                  {v.money && "💰"} {v.name}
+                </button>
+                <button onClick={() => deleteView(v.name)} title="Delete view"
+                  className="opacity-0 group-hover:opacity-100 text-muted-foreground/60 hover:text-red-400 transition-opacity">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+            <button onClick={saveCurrentView}
+              className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-dashed border-border text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors">
+              <Plus className="w-3 h-3" /> Save view
+            </button>
+          </motion.div>
+
+          {/* Tag filter (from your private lead tags) */}
+          {allTags.length > 0 && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 mb-4 flex-wrap">
+              <span className="text-xs text-muted-foreground font-semibold mr-1 flex items-center gap-1"><Tag className="w-3.5 h-3.5" /> Tags:</span>
+              {allTags.map(t => (
+                <button key={t} onClick={() => setTagFilter(tagFilter === t ? "" : t)}
+                  className={`px-2.5 py-1 rounded-full border text-xs font-semibold transition-colors ${tagFilter === t ? "bg-primary/15 border-primary/40 text-primary" : "bg-card border-border text-muted-foreground hover:text-foreground"}`}>
+                  {t}
+                </button>
+              ))}
+              {tagFilter && (
+                <button onClick={() => setTagFilter("")} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+                  <X className="w-3 h-3" /> clear
+                </button>
+              )}
+            </motion.div>
+          )}
 
           {/* Status filter pills */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.18 }}
@@ -652,10 +1036,59 @@ export default function Dashboard() {
                     </a>
                   )}
                 </div>
+              ) : viewMode === "board" ? (
+                /* ── Kanban pipeline board ── */
+                <div className="p-4 overflow-x-auto">
+                  <div className="flex gap-4 min-w-max">
+                    {STATUS_OPTIONS.map(col => {
+                      const colLeads = displayLeads.filter(l => (l.status ?? "new") === col.value);
+                      return (
+                        <div key={col.value}
+                          onDragOver={e => { e.preventDefault(); setDragOverStatus(col.value); }}
+                          onDragLeave={() => setDragOverStatus(s => (s === col.value ? null : s))}
+                          onDrop={e => { e.preventDefault(); const id = Number(e.dataTransfer.getData("text/plain")); if (id) handleStatusChange(id, col.value as LeadStatus); setDragOverStatus(null); }}
+                          className={`w-72 shrink-0 rounded-xl border p-3 transition-colors ${dragOverStatus === col.value ? "border-primary bg-primary/5" : "border-border bg-background/40"}`}>
+                          <div className="flex items-center justify-between mb-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-bold ${col.color}`}>{col.label}</span>
+                            <span className="text-xs text-muted-foreground">{colLeads.length}</span>
+                          </div>
+                          <div className="space-y-2 min-h-[80px]">
+                            {colLeads.map(lead => (
+                              <div key={lead.id} draggable
+                                onDragStart={e => e.dataTransfer.setData("text/plain", String(lead.id))}
+                                className="bg-card border border-border rounded-lg p-3 cursor-grab active:cursor-grabbing hover:border-primary/40 transition-colors">
+                                <div className="flex items-start justify-between gap-2 mb-0.5">
+                                  <div className="font-semibold text-sm text-foreground truncate" title={lead.name ?? ""}>{lead.name}</div>
+                                  {moneyMode ? <OpportunityBadge score={lead.opportunityScore} /> : <ScoreBadge score={lead.score} />}
+                                </div>
+                                {lead.category && <div className="text-xs text-muted-foreground truncate">{lead.category}</div>}
+                                {lead.phone && <a href={`tel:${lead.phone}`} className="text-xs text-primary font-mono hover:underline">{lead.phone}</a>}
+                                {notes[lead.id]?.tags && notes[lead.id].tags.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-1.5">
+                                    {notes[lead.id].tags.map(t => (
+                                      <span key={t} className="px-1.5 py-0.5 rounded border border-primary/30 bg-primary/10 text-primary text-[10px] font-semibold">{t}</span>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/50">
+                                  <button onClick={() => openNote(lead.id)} title="Note & tags" className="text-muted-foreground/50 hover:text-primary transition-colors"><StickyNote className="w-3.5 h-3.5" /></button>
+                                  {notes[lead.id]?.reminderAt && !notes[lead.id]?.reminderDone && <Bell className="w-3.5 h-3.5 text-yellow-400" />}
+                                  <button onClick={() => togglePin(lead.id)} title="Pin" className={`transition-colors ${pinned.has(lead.id) ? "text-primary" : "text-muted-foreground/40 hover:text-primary"}`}><Pin className={`w-3.5 h-3.5 ${pinned.has(lead.id) ? "fill-current" : ""}`} /></button>
+                                </div>
+                              </div>
+                            ))}
+                            {colLeads.length === 0 && <div className="text-xs text-muted-foreground/30 text-center py-6 border border-dashed border-border/50 rounded-lg">Drop here</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground/60 mt-3 px-1">Drag cards between columns to update status — showing this page's {displayLeads.length} leads.</p>
+                </div>
               ) : (
                 <>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className={`w-full text-sm ${densityCls}`}>
                       <thead>
                         <tr className="border-b border-border bg-background/50">
                           <th className="px-4 py-3 w-10">
@@ -664,11 +1097,11 @@ export default function Dashboard() {
                             </button>
                           </th>
                           <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Name</th>
-                          <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Phone</th>
-                          <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Email</th>
-                          <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Website</th>
-                          <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Socials</th>
-                          <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Category</th>
+                          {cols.phone && <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Phone</th>}
+                          {cols.email && <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Email</th>}
+                          {cols.website && <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Website</th>}
+                          {cols.socials && <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Socials</th>}
+                          {cols.category && <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Category</th>}
                           {moneyMode ? (
                             <>
                               <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Opportunity</th>
@@ -682,24 +1115,41 @@ export default function Dashboard() {
                         </tr>
                       </thead>
                       <tbody>
-                        {leads.map((lead, i) => (
+                        {displayLeads.map((lead, i) => (
                           <tr key={lead.id}
-                            className={`border-b border-border/50 transition-colors ${selected.has(lead.id) ? "bg-primary/5" : i % 2 === 0 ? "hover:bg-white/[0.02]" : "bg-white/[0.01] hover:bg-white/[0.03]"}`}>
+                            className={`border-b border-border/50 transition-colors ${selected.has(lead.id) ? "bg-primary/5" : pinned.has(lead.id) ? "bg-primary/[0.04]" : i % 2 === 0 ? "hover:bg-white/[0.02]" : "bg-white/[0.01] hover:bg-white/[0.03]"}`}>
                             <td className="px-4 py-3">
                               <button onClick={() => toggleSelect(lead.id)} className="text-muted-foreground hover:text-foreground transition-colors">
                                 {selected.has(lead.id) ? <CheckSquare className="w-4 h-4 text-primary" /> : <Square className="w-4 h-4" />}
                               </button>
                             </td>
                             <td className="px-4 py-3">
-                              <div className="font-semibold text-foreground truncate max-w-[150px]" title={lead.name ?? ""}>
-                                {lead.gmapsUrl ? (
-                                  <a href={lead.gmapsUrl} target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">{lead.name}</a>
-                                ) : lead.name}
+                              <div className="flex items-center gap-1.5">
+                                <button onClick={() => togglePin(lead.id)} title={pinned.has(lead.id) ? "Unpin" : "Pin to top"}
+                                  className={`shrink-0 transition-colors ${pinned.has(lead.id) ? "text-primary" : "text-muted-foreground/30 hover:text-primary"}`}>
+                                  <Pin className={`w-3.5 h-3.5 ${pinned.has(lead.id) ? "fill-current" : ""}`} />
+                                </button>
+                                <div className="font-semibold text-foreground truncate max-w-[150px]" title={lead.name ?? ""}>
+                                  {lead.gmapsUrl ? (
+                                    <a href={lead.gmapsUrl} target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">{lead.name}</a>
+                                  ) : lead.name}
+                                </div>
                               </div>
                               {lead.address && (
-                                <div className="text-xs text-muted-foreground truncate max-w-[150px]" title={lead.address}>{lead.address}</div>
+                                <div className="text-xs text-muted-foreground truncate max-w-[150px] pl-5" title={lead.address}>{lead.address}</div>
+                              )}
+                              {notes[lead.id]?.tags && notes[lead.id].tags.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1 pl-5 max-w-[180px]">
+                                  {notes[lead.id].tags.map(t => (
+                                    <button key={t} onClick={() => setTagFilter(tagFilter === t ? "" : t)}
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded border border-primary/30 bg-primary/10 text-primary text-[10px] font-semibold hover:bg-primary/20 transition-colors">
+                                      {t}
+                                    </button>
+                                  ))}
+                                </div>
                               )}
                             </td>
+                            {cols.phone && (
                             <td className="px-4 py-3">
                               {lead.phone ? (
                                 <div className="flex items-center">
@@ -708,6 +1158,8 @@ export default function Dashboard() {
                                 </div>
                               ) : <span className="text-muted-foreground/40">—</span>}
                             </td>
+                            )}
+                            {cols.email && (
                             <td className="px-4 py-3 max-w-[160px]">
                               {lead.emails ? (
                                 <div className="flex items-center">
@@ -716,6 +1168,8 @@ export default function Dashboard() {
                                 </div>
                               ) : <span className="text-muted-foreground/40">—</span>}
                             </td>
+                            )}
+                            {cols.website && (
                             <td className="px-4 py-3">
                               {lead.website ? (
                                 <a href={lead.website} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
@@ -723,6 +1177,8 @@ export default function Dashboard() {
                                 </a>
                               ) : <span className="text-muted-foreground/40">—</span>}
                             </td>
+                            )}
+                            {cols.socials && (
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-1">
                                 <SocialLink href={lead.facebook} label="Facebook" emoji="f" />
@@ -734,7 +1190,8 @@ export default function Dashboard() {
                                 )}
                               </div>
                             </td>
-                            <td className="px-4 py-3 text-xs text-muted-foreground">{lead.category ?? "—"}</td>
+                            )}
+                            {cols.category && <td className="px-4 py-3 text-xs text-muted-foreground">{lead.category ?? "—"}</td>}
                             {moneyMode ? (
                               <>
                                 <td className="px-4 py-3"><OpportunityBadge score={lead.opportunityScore} /></td>
@@ -747,13 +1204,25 @@ export default function Dashboard() {
                               <StatusBadge status={lead.status} id={lead.id} onChange={handleStatusChange} />
                             </td>
                             <td className="px-4 py-3">
-                              <button
-                                onClick={() => handleDelete(lead.id)}
-                                className="text-muted-foreground/40 hover:text-red-400 transition-colors"
-                                title="Delete lead"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              <div className="flex items-center gap-2">
+                                {notes[lead.id]?.reminderAt && !notes[lead.id]?.reminderDone && (
+                                  <Bell className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+                                )}
+                                <button
+                                  onClick={() => openNote(lead.id)}
+                                  className={`transition-colors ${notes[lead.id]?.note || notes[lead.id]?.tags?.length ? "text-primary" : "text-muted-foreground/40 hover:text-primary"}`}
+                                  title={notes[lead.id]?.note || notes[lead.id]?.tags?.length ? "Edit note & tags" : "Add note & tags"}
+                                >
+                                  <StickyNote className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(lead.id)}
+                                  className="text-muted-foreground/40 hover:text-red-400 transition-colors"
+                                  title="Delete lead"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -810,6 +1279,87 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Note & tags editor modal */}
+      <AnimatePresence>
+        {editingNote !== null && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setEditingNote(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-card border border-border rounded-2xl p-6 w-full max-w-lg shadow-2xl"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <StickyNote className="w-4 h-4 text-primary" />
+                <h3 className="font-display font-bold">Note & tags</h3>
+                <button onClick={() => setEditingNote(null)} className="ml-auto text-muted-foreground hover:text-foreground">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground mb-4 truncate">
+                {leads.find(l => l.id === editingNote)?.name ?? "Lead"} — private to you
+              </p>
+
+              <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Note</label>
+              <textarea
+                value={noteDraft} onChange={e => setNoteDraft(e.target.value)}
+                rows={4} placeholder="Call back Tuesday, owner is Mike, quoted $1,500 for a 5-page site…"
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-none mb-4"
+              />
+
+              <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Tags</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {tagDraft.map(t => (
+                  <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-primary/30 bg-primary/10 text-primary text-xs font-semibold">
+                    {t}
+                    <button onClick={() => setTagDraft(d => d.filter(x => x !== t))} className="hover:text-red-400"><X className="w-3 h-3" /></button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 mb-5">
+                <input
+                  type="text" value={tagInput} onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+                  placeholder="hot-lead, follow-up, website…"
+                  className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+                />
+                <button onClick={addTag}
+                  className="px-3 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors flex items-center gap-1">
+                  <Plus className="w-3.5 h-3.5" /> Add
+                </button>
+              </div>
+
+              <label className="text-xs font-semibold text-muted-foreground mb-1.5 flex items-center gap-1.5"><Bell className="w-3.5 h-3.5" /> Follow up on</label>
+              <div className="flex items-center gap-2 mb-5">
+                <input
+                  type="date" value={reminderDraft} onChange={e => setReminderDraft(e.target.value)}
+                  className="bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50"
+                />
+                {reminderDraft && (
+                  <button onClick={() => setReminderDraft("")} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+                    <X className="w-3 h-3" /> clear
+                  </button>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setEditingNote(null)}
+                  className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  Cancel
+                </button>
+                <button onClick={() => saveNote(editingNote)}
+                  className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity">
+                  Save
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

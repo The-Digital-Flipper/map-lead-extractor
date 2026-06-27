@@ -4,7 +4,7 @@
 //   pnpm --filter @workspace/scripts run backfill-opportunity
 //
 // Safe to re-run — it simply recomputes from current column values.
-import { db, leads, computeOpportunity } from "@workspace/db";
+import { db, leads, computeOpportunity, computeDemand, computeValue } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
 async function main() {
@@ -21,10 +21,12 @@ async function main() {
       rating: leads.rating,
       reviewCount: leads.reviewCount,
       category: leads.category,
+      timesExtracted: leads.timesExtracted,
+      extractedBy: leads.extractedBy,
     })
     .from(leads);
 
-  console.log(`Backfilling opportunity for ${rows.length} lead(s)…`);
+  console.log(`Backfilling opportunity + demand + value for ${rows.length} lead(s)…`);
 
   let updated = 0;
   for (const row of rows) {
@@ -42,7 +44,12 @@ async function main() {
       category: row.category,
     });
 
-    await db.update(leads).set({ opportunityScore, needs }).where(eq(leads.id, row.id));
+    const timesExtracted = row.timesExtracted ?? 1;
+    const distinctMembers = Array.isArray(row.extractedBy) ? row.extractedBy.length : 0;
+    const demandScore = computeDemand({ timesExtracted, distinctMembers });
+    const valueScore = computeValue(opportunityScore, demandScore);
+
+    await db.update(leads).set({ opportunityScore, needs, demandScore, valueScore }).where(eq(leads.id, row.id));
     updated++;
     if (updated % 500 === 0) console.log(`  …${updated}/${rows.length}`);
   }
