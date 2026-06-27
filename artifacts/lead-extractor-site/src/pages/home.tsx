@@ -64,7 +64,7 @@ export default function Home() {
           <nav className="hidden md:flex gap-8 text-sm font-medium text-muted-foreground">
             <a href="#extensions" className="hover:text-foreground transition-colors">Products</a>
             <a href="#leads-for-sale" className="text-primary hover:opacity-80 transition-opacity font-semibold">Buy Leads</a>
-            <a href="#developer-api" className="hover:text-foreground transition-colors">API</a>
+            <a href="#developer-program" className="hover:text-foreground transition-colors">Developers</a>
             <a href="#how-it-works" className="hover:text-foreground transition-colors">How it Works</a>
             <a href="#data" className="hover:text-foreground transition-colors">Data Fields</a>
             <a href="#features" className="hover:text-foreground transition-colors">Engine</a>
@@ -102,12 +102,6 @@ export default function Home() {
           <div className="container mx-auto px-6">
             <div className="max-w-5xl mx-auto text-center">
               <motion.div initial="hidden" animate="visible" variants={staggerContainer}>
-                <motion.div variants={fadeIn} className="flex justify-center mb-6">
-                  <Badge variant="outline" className="px-4 py-1.5 border-primary/50 text-primary bg-primary/10 font-mono text-xs uppercase tracking-wider">
-                    <Shield className="w-3.5 h-3.5 mr-2 inline" /> 100% Local. No server. No subscriptions.
-                  </Badge>
-                </motion.div>
-                
                 <motion.h1 variants={fadeIn} className="text-5xl md:text-8xl font-display font-bold leading-[1.1] mb-8 tracking-tight">
                   Scrape business leads <br className="hidden md:block"/> from <span className="text-primary relative inline-block">Maps<div className="absolute -bottom-2 left-0 right-0 h-1 bg-primary/50 blur-sm rounded-full"></div></span> in one click.
                 </motion.h1>
@@ -549,15 +543,15 @@ export default function Home() {
           <div className="container mx-auto px-6">
             <div className="text-center mb-20">
               <h2 className="text-4xl md:text-5xl font-display font-bold mb-6">Built for raw speed.</h2>
-              <p className="text-xl text-muted-foreground max-w-2xl mx-auto">We ripped out the tracking scripts, dropped the cloud sync, and optimized the parsing engine for maximum local performance.</p>
+              <p className="text-xl text-muted-foreground max-w-2xl mx-auto">A fast parsing engine that extracts clean, de-duplicated leads and auto-syncs them straight to your dashboard — scored and ready to work or sell.</p>
             </div>
 
             <div className="grid md:grid-cols-3 gap-8">
               {[
                 { icon: Search, title: "Deep Site Enrichment", desc: "If an email isn't on the map, the engine quietly visits the business's website to scrape hidden contact details and social links." },
                 { icon: FileSpreadsheet, title: "Auto-Deduplication", desc: "No messy spreadsheets. The extension natively tracks hashes and prevents duplicate businesses from being exported." },
-                { icon: Shield, title: "100% Local Execution", desc: "We run completely in your browser. We don't have a backend database. Your lead lists are yours alone." },
-                { icon: Lock, title: "No Subscriptions", desc: "SaaS tools charge $100/mo for 1000 leads. We give you infinite extraction for $0. Tips are welcome, but optional." },
+                { icon: Database, title: "Cloud Sync", desc: "Every extraction auto-saves to your dashboard — backed up, scored, and ready to work or sell. Never lose a lead." },
+                { icon: Package, title: "Free to Start", desc: "Pull leads free to try it out. Upgrade to Pro for unlimited saves and the full money-lead scoring suite." },
                 { icon: Zap, title: "Manifest V3 Compliant", desc: "Written on the modern Chrome extension API. Fast background service workers. Minimal memory footprint." },
                 { icon: Code2, title: "Unminified Source", desc: "We don't obfuscate our core engine. Independent developers can inspect the network requests and verify our zero-tracking claims." }
               ].map((feature, i) => (
@@ -623,44 +617,17 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Section: Developer API */}
-        <section id="developer-api" className="py-32 relative">
-          <div className="container mx-auto px-6">
-            <div className="grid lg:grid-cols-2 gap-12 items-center">
-              <div>
-                <Badge className="mb-4 bg-primary/15 text-primary border-primary/30">⚡ Developer API</Badge>
-                <h2 className="text-4xl md:text-5xl font-display font-bold mb-6 tracking-tight">Pull leads with code.</h2>
-                <p className="text-xl text-muted-foreground mb-6">
-                  A simple REST API to query the lead catalog programmatically — filter by industry, location, opportunity, and value, with pagination. Authenticate with your API key.
-                </p>
-                <ul className="space-y-2 text-muted-foreground mb-8">
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0" /> Clean JSON — name, phone, email, website, scores & needs</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0" /> Filters: <code className="text-primary text-sm">category, state, minOpportunity, minValue, search</code></li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0" /> Auth via <code className="text-primary text-sm">X-Api-Key</code> from your dashboard</li>
-                </ul>
-                <a href="/dashboard" className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity">
-                  <Code2 className="w-5 h-5" /> Get your API key
-                </a>
-              </div>
-              <div className="bg-secondary text-secondary-foreground rounded-2xl border border-border p-6 font-mono text-sm overflow-x-auto">
-                <div className="text-muted-foreground mb-3"># Get high-value dentist leads in Texas</div>
-                <pre className="whitespace-pre-wrap leading-relaxed"><span className="text-primary">curl</span> https://mapleadextractor.net/api/v1/leads \
-  -H <span className="text-green-400">"X-Api-Key: YOUR_KEY"</span> \
-  --data-urlencode <span className="text-green-400">"category=dentist"</span> \
-  --data-urlencode <span className="text-green-400">"state=TX"</span> \
-  --data-urlencode <span className="text-green-400">"minValue=60"</span> -G</pre>
-                <div className="text-muted-foreground mt-5 mb-2"># Response</div>
-                <pre className="whitespace-pre-wrap leading-relaxed text-muted-foreground">{`{
-  "data": [
-    { "id": 1842, "name": "Bright Smile Dental",
-      "phone": "...", "website": null,
-      "opportunityScore": 85, "valueScore": 72,
-      "needs": ["No website","Few reviews"] }
-  ],
-  "pagination": { "page": 1, "limit": 25, "total": 318, "pages": 13 }
-}`}</pre>
-              </div>
-            </div>
+        {/* Section: Developer Program */}
+        <section id="developer-program" className="py-32 relative">
+          <div className="container mx-auto px-6 text-center max-w-2xl">
+            <Badge className="mb-4 bg-primary/15 text-primary border-primary/30">⚡ Developer Program</Badge>
+            <h2 className="text-4xl md:text-5xl font-display font-bold mb-6 tracking-tight">We have a developer program.</h2>
+            <p className="text-xl text-muted-foreground mb-8">
+              Building something with leads? We work with developers and partners on custom integrations and programmatic access. Reach out and tell us what you're building.
+            </p>
+            <a href="#leads-for-sale" className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity">
+              <Code2 className="w-5 h-5" /> Apply for access
+            </a>
           </div>
         </section>
 

@@ -80,7 +80,7 @@ router.get("/leads", requireApiKey, async (req, res) => {
 
 // GET /api/v1/leads/:id — single lead.
 router.get("/leads/:id", requireApiKey, async (req, res) => {
-  const id = parseInt(req.params.id, 10);
+  const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id." }); return; }
   const [row] = await db.select(publicColumns).from(leads).where(eq(leads.id, id)).limit(1);
   if (!row) { res.status(404).json({ error: "Lead not found." }); return; }

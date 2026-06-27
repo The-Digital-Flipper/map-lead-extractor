@@ -23,10 +23,78 @@ Your job: understand what the visitor sells or who they serve, recommend the lea
 
 interface ChatMessage { role: string; content: string }
 
-router.post("/", async (req, res) => {
-  const apiKey = process.env.OPENAI_API_KEY;
+// Accept the key under several common names so it works regardless of what the
+// secret was named (e.g. CHAT_GPT_API, OPENAI_API_KEY).
+function getOpenAiKey(): string | undefined {
+  return process.env.OPENAI_API_KEY
+    || process.env.CHAT_GPT_API
+    || process.env.CHATGPT_API_KEY
+    || process.env.OPENAI_KEY
+    || process.env.OPENAI;
+}
+
+function smsConfigured(): boolean {
+  return !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
+    && process.env.TWILIO_FROM_NUMBER && process.env.ALERT_PHONE_NUMBER);
+}
+
+// Text the owner via Twilio when someone starts chatting. Fire-and-forget —
+// never blocks or breaks the chat reply. Silent no-op if Twilio isn't set up.
+async function notifyOwnerSms(body: string): Promise<void> {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_FROM_NUMBER;
+  const to = process.env.ALERT_PHONE_NUMBER;
+  if (!sid || !token || !from || !to) return;
+  try {
+    const params = new URLSearchParams({ To: to, From: from, Body: body.slice(0, 600) });
+    await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + Buffer.from(`${sid}:${token}`).toString("base64"),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch {
+    /* SMS is best-effort; the chat still works without it */
+  }
+}
+
+// GET /api/chat/health — visit this in a browser to diagnose the ChatGPT setup.
+// Reports whether the key is set and whether a real call to OpenAI succeeds,
+// with a plain-English hint for the common failures (bad key / no credit).
+router.get("/health", async (_req, res) => {
+  const apiKey = getOpenAiKey();
+  const model = process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini";
   if (!apiKey) {
-    res.status(503).json({ error: "The chat assistant isn't configured yet. Set OPENAI_API_KEY to enable it." });
+    res.json({ configured: false, ok: false, hint: "No OpenAI key found. Set a secret named OPENAI_API_KEY or CHAT_GPT_API, then redeploy." });
+    return;
+  }
+  try {
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (r.ok) { res.json({ configured: true, ok: true, model, smsAlerts: smsConfigured(), hint: `✅ ChatGPT is connected and working.${smsConfigured() ? " 📱 SMS alerts are ON." : " (SMS alerts OFF — add Twilio secrets to text your phone.)"}` }); return; }
+    const detail = (await r.text().catch(() => "")).slice(0, 300);
+    let hint = `OpenAI returned ${r.status}.`;
+    if (r.status === 401) hint = "Invalid API key (401) — the key value is wrong or revoked.";
+    else if (r.status === 429) hint = "Quota / billing (429) — your OpenAI account has no credit. Add a few dollars at platform.openai.com → Billing.";
+    else if (r.status === 404) hint = `Model "${model}" not found (404) — your account may not have access to it.`;
+    res.json({ configured: true, ok: false, status: r.status, hint, detail });
+  } catch (err) {
+    res.json({ configured: true, ok: false, hint: "Could not reach OpenAI: " + (err instanceof Error ? err.message : "error") });
+  }
+});
+
+router.post("/", async (req, res) => {
+  const apiKey = getOpenAiKey();
+  if (!apiKey) {
+    res.status(503).json({ error: "The chat assistant isn't configured yet." });
     return;
   }
 
@@ -41,6 +109,14 @@ router.post("/", async (req, res) => {
   if (history.length === 0 || history[history.length - 1].role !== "user") {
     res.status(400).json({ error: "Send a user message." });
     return;
+  }
+
+  // Text the owner the first time a visitor sends a message in a conversation.
+  const userTurns = history.filter(m => m.role === "user").length;
+  if (userTurns === 1) {
+    const firstMsg = history[history.length - 1].content;
+    notifyOwnerSms(`🟢 New lead chat on MapLeadExtractor:\n"${firstMsg}"\n\nReply on the site to close them.`)
+      .catch(() => {});
   }
 
   try {
