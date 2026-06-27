@@ -44,12 +44,16 @@ interface Lead {
   rating: string | null;
   reviewCount: number | null;
   score: number | null;
+  opportunityScore: number | null;
+  needs: string[] | null;
   gmapsUrl: string | null;
   status: string | null;
 }
 
 interface StatsData {
   scoreDistribution: { bucket: string; count: number }[];
+  opportunityDistribution: { bucket: string; count: number }[];
+  needsCounts: { need: string; count: number }[];
   topCategories: { category: string; count: number }[];
   statusCounts: { status: string; count: number }[];
   lastSyncedAt: string | null;
@@ -73,6 +77,33 @@ function ScoreBadge({ score }: { score: number | null }) {
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-bold ${color}`}>
       {s}
     </span>
+  );
+}
+
+// Opportunity = "money" potential: HIGH (green) means a weak business that
+// needs a website / SEO / ads / reputation help — the leads worth selling.
+function OpportunityBadge({ score }: { score: number | null }) {
+  const s = score ?? 0;
+  const color = s >= 70 ? "bg-primary/20 text-primary border-primary/40"
+    : s >= 40 ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/40"
+    : "bg-muted text-muted-foreground border-border";
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold ${color}`} title="Opportunity score — higher means a weaker online presence to sell services to">
+      💰 {s}
+    </span>
+  );
+}
+
+function NeedsBadges({ needs }: { needs: string[] | null }) {
+  if (!needs || needs.length === 0) return <span className="text-muted-foreground/40 text-xs">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1 max-w-[200px]">
+      {needs.map(n => (
+        <span key={n} className="inline-flex items-center px-1.5 py-0.5 rounded border border-border bg-white/[0.03] text-[10px] font-medium text-muted-foreground whitespace-nowrap">
+          {n}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -266,6 +297,9 @@ export default function Dashboard() {
   const [deleting, setDeleting] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  // Money mode: rank by opportunity (weakest businesses first) — the leads
+  // worth selling websites / SEO / ads / reputation / automation to.
+  const [moneyMode, setMoneyMode] = useState(false);
 
   const apiKey = (user?.publicMetadata?.apiKey as string) || "— not generated yet —";
 
@@ -305,6 +339,7 @@ export default function Dashboard() {
     const params = new URLSearchParams({ page: String(page), limit: "50" });
     if (search) params.set("search", search);
     if (filterStatus) params.set("status", filterStatus);
+    if (moneyMode) params.set("sort", "opportunity");
     try {
       const r = await fetch(`${basePath}/api/leads/?${params}`);
       const data = await r.json();
@@ -314,7 +349,7 @@ export default function Dashboard() {
     } catch {}
     setLoading(false);
     setRefreshing(false);
-  }, [page, search, filterStatus]);
+  }, [page, search, filterStatus, moneyMode]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
@@ -380,7 +415,12 @@ export default function Dashboard() {
   const withEmail = leads.filter(l => l.emails).length;
   const withSocial = leads.filter(l => l.facebook || l.instagram || l.twitter || l.linkedin).length;
 
-  const exportUrl = `${basePath}/api/leads/export.csv${search || filterStatus ? `?${new URLSearchParams({ ...(search ? { search } : {}), ...(filterStatus ? { status: filterStatus } : {}) })}` : ""}`;
+  const exportParams = new URLSearchParams({
+    ...(search ? { search } : {}),
+    ...(filterStatus ? { status: filterStatus } : {}),
+    ...(moneyMode ? { sort: "opportunity" } : {}),
+  });
+  const exportUrl = `${basePath}/api/leads/export.csv${exportParams.toString() ? `?${exportParams}` : ""}`;
 
   const lastSynced = stats?.lastSyncedAt
     ? new Date(stats.lastSyncedAt).toLocaleString()
@@ -503,6 +543,31 @@ export default function Dashboard() {
             {showCharts && <ChartsPanel stats={stats} />}
           </AnimatePresence>
 
+          {/* Money Leads toggle */}
+          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.175 }}
+            className="mb-4">
+            <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1 w-fit">
+              <button
+                onClick={() => { setMoneyMode(false); setPage(1); }}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${!moneyMode ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                All Leads
+              </button>
+              <button
+                onClick={() => { setMoneyMode(true); setPage(1); }}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${moneyMode ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                💰 Money Leads
+              </button>
+            </div>
+            {moneyMode && (
+              <p className="text-xs text-muted-foreground mt-2 max-w-2xl">
+                Ranked by <span className="text-primary font-semibold">opportunity</span> — businesses with a weak online presence (no website, few reviews, low rating, no socials) that you can sell websites, SEO, ads, reputation, or automation to.
+                <span className="block mt-0.5 text-muted-foreground/70">Not yet scored: website quality, online booking, ad presence — these need a follow-up enrichment pass.</span>
+              </p>
+            )}
+          </motion.div>
+
           {/* Status filter pills */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.18 }}
             className="flex items-center gap-2 mb-4 flex-wrap">
@@ -564,7 +629,7 @@ export default function Dashboard() {
                   </div>
                   <a href={exportUrl}
                     className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity">
-                    <Download className="w-4 h-4" /> Export CSV
+                    <Download className="w-4 h-4" /> {moneyMode ? "Export Money Leads" : "Export CSV"}
                   </a>
                 </div>
               </div>
@@ -604,7 +669,14 @@ export default function Dashboard() {
                           <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Website</th>
                           <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Socials</th>
                           <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Category</th>
-                          <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Score</th>
+                          {moneyMode ? (
+                            <>
+                              <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Opportunity</th>
+                              <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Needs</th>
+                            </>
+                          ) : (
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Score</th>
+                          )}
                           <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Status</th>
                           <th className="px-4 py-3 w-8"></th>
                         </tr>
@@ -663,7 +735,14 @@ export default function Dashboard() {
                               </div>
                             </td>
                             <td className="px-4 py-3 text-xs text-muted-foreground">{lead.category ?? "—"}</td>
-                            <td className="px-4 py-3"><ScoreBadge score={lead.score} /></td>
+                            {moneyMode ? (
+                              <>
+                                <td className="px-4 py-3"><OpportunityBadge score={lead.opportunityScore} /></td>
+                                <td className="px-4 py-3"><NeedsBadges needs={lead.needs} /></td>
+                              </>
+                            ) : (
+                              <td className="px-4 py-3"><ScoreBadge score={lead.score} /></td>
+                            )}
                             <td className="px-4 py-3">
                               <StatusBadge status={lead.status} id={lead.id} onChange={handleStatusChange} />
                             </td>

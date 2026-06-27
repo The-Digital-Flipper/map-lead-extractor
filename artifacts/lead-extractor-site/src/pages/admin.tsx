@@ -6,6 +6,7 @@ import {
   Zap, Download, LogOut, Users, Star, TrendingUp, Calendar,
   MapPin, ChevronLeft, ChevronRight, DollarSign, CreditCard,
   UserCheck, UserX, Crown, BarChart2, RefreshCw,
+  Flame, Globe, Target, Sparkles, Package, Phone,
 } from "lucide-react";
 import {
   ComposableMap, Geographies, Geography, ZoomableGroup,
@@ -46,13 +47,31 @@ interface Revenue { mrr: number; subscriberCount: number; monthRevenue: number; 
 interface GeoData { byState: Record<string, number>; topCities: { city: string; count: number }[]; }
 interface Lead {
   id: number; name: string | null; phone: string | null; emails: string | null;
-  address: string | null; category: string | null; score: number | null;
+  website: string | null; address: string | null; category: string | null;
+  score: number | null; opportunityScore: number | null; needs: string[] | null;
   status: string | null; createdAt: string | null;
 }
 interface AdminUser {
   id: string; email: string | null; plan: string;
   lead_count: number; created_at: string | null; period_end: number | null;
 }
+interface CategoryMoney {
+  category: string; total: number; hot: number; warm: number;
+  avgOpportunity: number; noWebsite: number; reachable: number;
+}
+interface LeadStats {
+  opportunityDistribution: { bucket: string; count: number }[];
+  needsCounts: { need: string; count: number }[];
+}
+
+// Each weakness maps to a service you sell — drives the "What to sell" panel.
+const NEED_TO_SERVICE: Record<string, string> = {
+  "No website": "Website builds",
+  "No social": "Social setup",
+  "Few reviews": "Review generation",
+  "Low rating": "Reputation mgmt",
+  "Hard to reach": "Enrichment needed",
+};
 
 function colorForCount(count: number, max: number): string {
   if (count === 0 || max === 0) return "#1a2332";
@@ -120,33 +139,23 @@ export default function Admin() {
   const [usersPage, setUsersPage] = useState(1);
   const [usersPages, setUsersPages] = useState(1);
   const [loadingUsers, setLoadingUsers] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "users" | "leads">("overview");
+  const [categoryMoney, setCategoryMoney] = useState<CategoryMoney[]>([]);
+  const [leadStats, setLeadStats] = useState<LeadStats | null>(null);
+  const [activeTab, setActiveTab] = useState<"command" | "overview" | "users" | "leads" | "money">("command");
 
-  if (!isLoaded) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  const isAdmin = user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL?.toLowerCase();
-  if (!isAdmin) { setLocation("/dashboard"); return null; }
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   const fetchLeads = useCallback(async () => {
     setLoadingLeads(true);
+    const sort = activeTab === "money" ? "&sort=opportunity" : "";
     try {
-      const r = await fetch(`${basePath}/api/admin/leads?page=${page}&limit=50`);
+      const r = await fetch(`${basePath}/api/admin/leads?page=${page}&limit=50${sort}`);
       const data = await r.json();
       setLeads(data.leads ?? []);
       setTotal(data.total ?? 0);
       setPages(data.pages ?? 1);
     } catch {}
     setLoadingLeads(false);
-  }, [page]);
+  }, [page, activeTab]);
 
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   const fetchUsers = useCallback(async () => {
     setLoadingUsers(true);
     try {
@@ -159,7 +168,6 @@ export default function Admin() {
     setLoadingUsers(false);
   }, [usersPage]);
 
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     fetch(`${basePath}/api/admin/stats`).then(r => r.json()).then(setStats).catch(() => {});
     fetch(`${basePath}/api/admin/geo`).then(r => r.json()).then(setGeo).catch(() => {});
@@ -167,10 +175,19 @@ export default function Admin() {
     fetch(`${basePath}/api/admin/revenue`).then(r => r.json()).then(data => { setRevenue(data); setRevenueLoading(false); }).catch(() => setRevenueLoading(false));
   }, []);
 
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
+  if (!isLoaded) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  const isAdmin = user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL?.toLowerCase();
+  if (!isAdmin) { setLocation("/dashboard"); return null; }
 
   const topStates = geo
     ? Object.entries(geo.byState).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([state, count]) => ({ state, count }))
@@ -181,6 +198,21 @@ export default function Admin() {
     : "0.0";
 
   const fmt$ = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // ── Command Center derived metrics ──────────────────────────────────────
+  const oppBucket = (b: string) => leadStats?.opportunityDistribution?.find(o => o.bucket === b)?.count ?? 0;
+  const hotLeads = oppBucket("Hot (70+)");
+  const warmLeads = oppBucket("Warm (40-69)");
+  const coldLeads = oppBucket("Cold (<40)");
+  const totalScored = hotLeads + warmLeads + coldLeads;
+  const moneyLeads = hotLeads + warmLeads;
+  const needCount = (n: string) => leadStats?.needsCounts?.find(x => x.need === n)?.count ?? 0;
+  const noWebsiteLeads = needCount("No website");
+  // A category with 10+ hot leads is a bundle you can sell as a pack.
+  const sellablePacks = categoryMoney.filter(c => c.hot >= 10).length;
+  const topNeeds = leadStats?.needsCounts ?? [];
+  const maxNeed = Math.max(1, ...topNeeds.map(n => n.count));
+  const moneyExport = (params: string) => `${basePath}/api/leads/export.csv?sort=opportunity${params}`;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -281,14 +313,168 @@ export default function Admin() {
           {/* ── TABS ──────────────────────────────────────────────────────── */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.09 }} className="mb-6">
             <div className="flex gap-1 bg-card border border-border rounded-xl p-1 w-fit">
-              {(["overview", "users", "leads"] as const).map(tab => (
-                <button key={tab} onClick={() => setActiveTab(tab)}
+              {(["command", "overview", "users", "leads", "money"] as const).map(tab => (
+                <button key={tab} onClick={() => { setActiveTab(tab); if (tab === "leads" || tab === "money") setPage(1); }}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors capitalize ${activeTab === tab ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                  {tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : "📋 Leads"}
+                  {tab === "command" ? "⚡ Command" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : "💰 Money Leads"}
                 </button>
               ))}
             </div>
           </motion.div>
+
+          {/* ── COMMAND CENTER TAB ────────────────────────────────────────── */}
+          {activeTab === "command" && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
+
+              {/* Money KPI strip */}
+              <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-6">
+                <div className="absolute -top-16 -right-16 w-48 h-48 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
+                <div className="relative">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Zap className="w-5 h-5 text-primary" />
+                    <h2 className="text-lg font-display font-bold">Money Command Center</h2>
+                    <span className="text-xs font-mono bg-primary/10 text-primary border border-primary/30 px-2 py-0.5 rounded-full">LIVE</span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {[
+                      { label: "🔥 Hot Leads", value: hotLeads, sub: "opportunity 70+", icon: <Flame className="w-4 h-4 text-primary" />, glow: true },
+                      { label: "💰 Money Leads", value: moneyLeads, sub: "opportunity 40+", icon: <DollarSign className="w-4 h-4 text-yellow-400" /> },
+                      { label: "🌐 No Website", value: noWebsiteLeads, sub: "easiest to close", icon: <Globe className="w-4 h-4 text-blue-400" /> },
+                      { label: "📦 Sellable Packs", value: sellablePacks, sub: "categories w/ 10+ hot", icon: <Package className="w-4 h-4 text-orange-400" /> },
+                    ].map((k, i) => (
+                      <div key={i} className={`rounded-xl p-4 border ${k.glow ? "bg-primary/10 border-primary/40" : "bg-background/40 border-border"}`}>
+                        <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">{k.icon} {k.label}</div>
+                        <div className={`text-3xl font-display font-bold ${k.glow ? "text-primary" : "text-foreground"}`}>
+                          {leadStats ? k.value.toLocaleString() : "…"}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5">{k.sub}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Opportunity distribution bar */}
+                  {totalScored > 0 && (
+                    <div className="mt-5">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+                        <span>Opportunity spread</span>
+                        <span>{totalScored.toLocaleString()} scored leads</span>
+                      </div>
+                      <div className="flex h-3 w-full rounded-full overflow-hidden border border-border">
+                        <div className="bg-primary" style={{ width: `${(hotLeads / totalScored) * 100}%` }} title={`Hot: ${hotLeads}`} />
+                        <div className="bg-yellow-500" style={{ width: `${(warmLeads / totalScored) * 100}%` }} title={`Warm: ${warmLeads}`} />
+                        <div className="bg-muted-foreground/30" style={{ width: `${(coldLeads / totalScored) * 100}%` }} title={`Cold: ${coldLeads}`} />
+                      </div>
+                      <div className="flex items-center gap-4 mt-2 text-xs">
+                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-primary inline-block" /> Hot {hotLeads}</span>
+                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500 inline-block" /> Warm {warmLeads}</span>
+                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-muted-foreground/30 inline-block" /> Cold {coldLeads}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Quick export actions */}
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <a href={moneyExport("")} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity">
+                      <Download className="w-4 h-4" /> Export All Money Leads
+                    </a>
+                    <a href={moneyExport("&minOpportunity=70")} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary/40 bg-primary/10 text-primary text-sm font-semibold hover:bg-primary/20 transition-colors">
+                      <Flame className="w-4 h-4" /> Hot Only (70+)
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {/* Category Money Leaderboard */}
+                <div className="lg:col-span-2 bg-card border border-border rounded-2xl overflow-hidden">
+                  <div className="flex items-center gap-2 p-5 border-b border-border">
+                    <Target className="w-4 h-4 text-primary" />
+                    <h2 className="text-lg font-display font-bold">Category Money Leaderboard</h2>
+                    <span className="text-xs text-muted-foreground ml-auto">one-click sellable packs ↓</span>
+                  </div>
+                  {categoryMoney.length === 0 ? (
+                    <div className="py-16 text-center">
+                      <div className="text-4xl mb-3">🎯</div>
+                      <p className="text-sm text-muted-foreground">No category data yet — leads need a category to rank here.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-background/50">
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Category</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Total</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">🔥 Hot</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Avg Opp</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">No Site</th>
+                            <th className="px-4 py-3"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {categoryMoney.map((c, i) => (
+                            <tr key={c.category} className={`border-b border-border/50 hover:bg-white/[0.02] transition-colors ${i % 2 !== 0 ? "bg-white/[0.01]" : ""}`}>
+                              <td className="px-4 py-3 font-semibold text-foreground truncate max-w-[160px]" title={c.category}>{c.category}</td>
+                              <td className="px-4 py-3 text-muted-foreground">{c.total.toLocaleString()}</td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-bold ${c.hot > 0 ? "bg-primary/20 text-primary border-primary/40" : "bg-muted text-muted-foreground border-border"}`}>
+                                  {c.hot.toLocaleString()}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <div className="h-1.5 w-16 rounded-full bg-background overflow-hidden border border-border">
+                                    <div className="h-full bg-primary rounded-full" style={{ width: `${c.avgOpportunity}%` }} />
+                                  </div>
+                                  <span className="text-xs font-mono text-muted-foreground">{c.avgOpportunity}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground">{c.noWebsite.toLocaleString()}</td>
+                              <td className="px-4 py-3 text-right">
+                                <a href={moneyExport(`&category=${encodeURIComponent(c.category)}`)}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors whitespace-nowrap">
+                                  <Download className="w-3.5 h-3.5" /> Pack
+                                </a>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* What to sell — top needs */}
+                <div className="bg-card border border-border rounded-2xl p-5 flex flex-col">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    <h2 className="text-lg font-display font-bold">What To Sell</h2>
+                  </div>
+                  {topNeeds.length === 0 ? (
+                    <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">No data yet</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {topNeeds.map(n => (
+                        <div key={n.need}>
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <span className="font-semibold text-foreground">{NEED_TO_SERVICE[n.need] ?? n.need}</span>
+                            <span className="text-muted-foreground">{n.count.toLocaleString()}</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-background overflow-hidden border border-border">
+                            <div className="h-full bg-primary rounded-full" style={{ width: `${(n.count / maxNeed) * 100}%` }} />
+                          </div>
+                          <div className="text-[10px] text-muted-foreground/60 mt-0.5">{n.need}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5 mb-1"><Phone className="w-3 h-3" /> Reachable money leads close fastest.</div>
+                    <p className="text-muted-foreground/60">Not yet scored: site quality, online booking, ad presence — needs an enrichment pass.</p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
 
           {/* ── OVERVIEW TAB: Geographic heatmap ──────────────────────────── */}
           {activeTab === "overview" && (
@@ -509,6 +695,109 @@ export default function Admin() {
                               </td>
                             </tr>
                           ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {pages > 1 && (
+                      <div className="flex items-center justify-between px-5 py-3 border-t border-border">
+                        <span className="text-sm text-muted-foreground">Page {page} of {pages}</span>
+                        <div className="flex gap-2">
+                          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                            <ChevronLeft className="w-4 h-4" /> Prev
+                          </button>
+                          <button onClick={() => setPage(p => Math.min(pages, p + 1))} disabled={page >= pages}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                            Next <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── MONEY LEADS TAB ───────────────────────────────────────────── */}
+          {activeTab === "money" && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
+              <div className="bg-card border border-border rounded-2xl overflow-hidden">
+                <div className="flex items-center justify-between gap-4 p-5 border-b border-border flex-wrap">
+                  <div>
+                    <h2 className="text-lg font-display font-bold">
+                      💰 Money Leads {total > 0 && <span className="text-muted-foreground text-sm font-normal">({total.toLocaleString()})</span>}
+                    </h2>
+                    <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
+                      All users' leads ranked by <span className="text-primary font-semibold">opportunity</span> — weak online presence (no website, few reviews, low rating, no socials) you can sell websites, SEO, ads, reputation, or automation to. Not yet scored: site quality, online booking, ad presence.
+                    </p>
+                  </div>
+                  <a href={`${basePath}/api/leads/export.csv?sort=opportunity`}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity shrink-0">
+                    <Download className="w-4 h-4" /> Export Money Leads CSV
+                  </a>
+                </div>
+                {loadingLeads ? (
+                  <div className="py-20 flex items-center justify-center">
+                    <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : leads.length === 0 ? (
+                  <div className="py-20 text-center">
+                    <div className="text-4xl mb-3">💸</div>
+                    <p className="font-semibold text-foreground mb-1">No money leads yet</p>
+                    <p className="text-sm text-muted-foreground max-w-sm mx-auto">Once users extract leads, the weakest businesses (best to sell to) surface here.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-background/50">
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Name</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Phone</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Email</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Website</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Category</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Opportunity</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Needs</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Saved</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {leads.map((lead, i) => {
+                            const opp = lead.opportunityScore ?? 0;
+                            const oppColor = opp >= 70 ? "bg-primary/20 text-primary border-primary/40"
+                              : opp >= 40 ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/40"
+                              : "bg-muted text-muted-foreground border-border";
+                            return (
+                              <tr key={lead.id} className={`border-b border-border/50 hover:bg-white/[0.02] transition-colors ${i % 2 !== 0 ? "bg-white/[0.01]" : ""}`}>
+                                <td className="px-4 py-3 font-semibold text-foreground truncate max-w-[160px]">{lead.name ?? "—"}</td>
+                                <td className="px-4 py-3 font-mono text-xs text-primary whitespace-nowrap">{lead.phone ?? <span className="text-muted-foreground/40">—</span>}</td>
+                                <td className="px-4 py-3 text-xs text-primary truncate max-w-[150px]">{lead.emails ?? <span className="text-muted-foreground/40">—</span>}</td>
+                                <td className="px-4 py-3 text-xs">
+                                  {lead.website
+                                    ? <span className="text-muted-foreground">has site</span>
+                                    : <span className="text-primary font-semibold">none</span>}
+                                </td>
+                                <td className="px-4 py-3 text-xs text-muted-foreground truncate max-w-[120px]">{lead.category ?? "—"}</td>
+                                <td className="px-4 py-3">
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold ${oppColor}`}>💰 {opp}</span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  {lead.needs && lead.needs.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1 max-w-[200px]">
+                                      {lead.needs.map(n => (
+                                        <span key={n} className="inline-flex items-center px-1.5 py-0.5 rounded border border-border bg-white/[0.03] text-[10px] font-medium text-muted-foreground whitespace-nowrap">{n}</span>
+                                      ))}
+                                    </div>
+                                  ) : <span className="text-muted-foreground/40 text-xs">—</span>}
+                                </td>
+                                <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                                  {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : "—"}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>

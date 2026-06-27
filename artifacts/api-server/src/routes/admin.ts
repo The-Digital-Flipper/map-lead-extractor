@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, leads, users } from "@workspace/db";
-import { sql, count } from "drizzle-orm";
+import { sql, count, gte } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 
 const router = Router();
@@ -160,15 +160,60 @@ router.get("/geo", async (_req, res) => {
   res.json({ byState, topCities });
 });
 
+// ---- GET /opportunity-by-category — money intelligence per vertical ---------
+// Powers the Command Center leaderboard: which categories hold the most
+// high-opportunity ("money") leads, how weak they are, and what to sell them.
+router.get("/opportunity-by-category", async (_req, res) => {
+  const rows = await db.execute(sql`
+    SELECT
+      category,
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE opportunity_score >= 70)::int AS hot,
+      COUNT(*) FILTER (WHERE opportunity_score >= 40 AND opportunity_score < 70)::int AS warm,
+      COALESCE(ROUND(AVG(opportunity_score)), 0)::int AS avg_opportunity,
+      COUNT(*) FILTER (WHERE website IS NULL OR website = '')::int AS no_website,
+      COUNT(*) FILTER (WHERE phone IS NOT NULL OR emails IS NOT NULL)::int AS reachable
+    FROM leads
+    WHERE category IS NOT NULL AND category <> ''
+    GROUP BY category
+    ORDER BY hot DESC, total DESC
+    LIMIT 30
+  `);
+
+  type Row = {
+    category: string; total: number; hot: number; warm: number;
+    avg_opportunity: number; no_website: number; reachable: number;
+  };
+
+  res.json({
+    categories: (rows.rows as Row[]).map(r => ({
+      category: r.category,
+      total: Number(r.total),
+      hot: Number(r.hot),
+      warm: Number(r.warm),
+      avgOpportunity: Number(r.avg_opportunity),
+      noWebsite: Number(r.no_website),
+      reachable: Number(r.reachable),
+    })),
+  });
+});
+
 // ---- GET /leads — all leads paginated for admin view ------------------------
 router.get("/leads", async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10) || 50));
+  const minOpportunity = parseInt(String(req.query.minOpportunity ?? "0"), 10) || 0;
+  // sort=opportunity surfaces the "money" leads (weak businesses that need
+  // websites / SEO / ads / reputation) across all users.
+  const sortByOpportunity = String(req.query.sort ?? "") === "opportunity";
   const offset = (page - 1) * limit;
 
+  const where = minOpportunity > 0 ? gte(leads.opportunityScore, minOpportunity) : undefined;
+  const orderBy = sortByOpportunity ? sql`opportunity_score DESC, created_at DESC` : sql`created_at DESC`;
+
   const [rows, [{ total }]] = await Promise.all([
-    db.select().from(leads).orderBy(sql`created_at DESC`).limit(limit).offset(offset),
-    db.select({ total: count() }).from(leads),
+    db.select().from(leads).where(where).orderBy(orderBy).limit(limit).offset(offset),
+    db.select({ total: count() }).from(leads).where(where),
   ]);
 
   res.json({ leads: rows, total: Number(total), page, pages: Math.ceil(Number(total) / limit) || 1 });

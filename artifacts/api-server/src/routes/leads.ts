@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { createHash } from "node:crypto";
-import { db, leads } from "@workspace/db";
+import { db, leads, computeScore, computeOpportunity } from "@workspace/db";
 import { sql, ilike, or, gte, and, count, eq } from "drizzle-orm";
 
 const router = Router();
@@ -26,29 +26,6 @@ function parseSocials(raw: string | null | undefined): {
   const linkedin = extractSocial(raw, /https?:\/\/(?:www\.)?linkedin\.com\/[^\s,\n"'<>]+/i);
   const social = [facebook, instagram, twitter, linkedin].filter(Boolean).join(", ") || raw || null;
   return { social, facebook, instagram, twitter, linkedin };
-}
-
-function computeScore(lead: {
-  phone?: string | null;
-  emails?: string | null;
-  website?: string | null;
-  facebook?: string | null;
-  instagram?: string | null;
-  twitter?: string | null;
-  linkedin?: string | null;
-  rating?: number | null;
-  reviewCount?: number | null;
-  category?: string | null;
-}): number {
-  let score = 0;
-  if (lead.phone) score += 20;
-  if (lead.emails) score += 20;
-  if (lead.website) score += 15;
-  if (lead.facebook || lead.instagram || lead.twitter || lead.linkedin) score += 15;
-  if (lead.rating != null && lead.rating >= 4.0) score += 10;
-  if (lead.reviewCount != null && lead.reviewCount >= 50) score += 10;
-  if (lead.category) score += 10;
-  return score;
 }
 
 function parseReviewCount(ratingInfo: string | undefined | null): number | null {
@@ -103,7 +80,7 @@ router.post("/save", async (req, res) => {
     const { social, facebook, instagram, twitter, linkedin } = parseSocials(socialRaw || null);
     const ratingNum = (rating != null && !isNaN(rating)) ? rating : null;
 
-    const score = computeScore({
+    const scoreable = {
       phone: phone || null,
       emails: emails || null,
       website: website || null,
@@ -114,7 +91,9 @@ router.post("/save", async (req, res) => {
       rating: ratingNum,
       reviewCount,
       category: category || null,
-    });
+    };
+    const score = computeScore(scoreable);
+    const { opportunityScore, needs } = computeOpportunity(scoreable);
 
     return {
       key,
@@ -133,6 +112,8 @@ router.post("/save", async (req, res) => {
       rating: ratingNum != null ? String(ratingNum) : null,
       reviewCount,
       score,
+      opportunityScore,
+      needs,
       gmapsUrl: gmapsUrl || null,
       plusCode: plusCode || null,
       raw: lead,
@@ -167,6 +148,8 @@ router.post("/save", async (req, res) => {
           rating: sql`excluded.rating`,
           reviewCount: sql`excluded.review_count`,
           score: sql`excluded.score`,
+          opportunityScore: sql`excluded.opportunity_score`,
+          needs: sql`excluded.needs`,
           gmapsUrl: sql`excluded.gmaps_url`,
           plusCode: sql`excluded.plus_code`,
           raw: sql`excluded.raw`,
@@ -188,8 +171,11 @@ router.get("/", async (req, res) => {
   const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10) || 50));
   const search = String(req.query.search ?? "").trim();
   const minScore = parseInt(String(req.query.minScore ?? "0"), 10) || 0;
+  const minOpportunity = parseInt(String(req.query.minOpportunity ?? "0"), 10) || 0;
   const category = String(req.query.category ?? "").trim();
   const status = String(req.query.status ?? "").trim();
+  // sort=opportunity ranks by "money" potential; default ranks by completeness.
+  const sortByOpportunity = String(req.query.sort ?? "") === "opportunity";
   const offset = (page - 1) * limit;
 
   const conditions = [];
@@ -197,15 +183,19 @@ router.get("/", async (req, res) => {
     conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`)));
   }
   if (minScore > 0) conditions.push(gte(leads.score, minScore));
+  if (minOpportunity > 0) conditions.push(gte(leads.opportunityScore, minOpportunity));
   if (category) conditions.push(ilike(leads.category, `%${category}%`));
   if (status && VALID_STATUSES.includes(status as LeadStatus)) {
     conditions.push(eq(leads.status, status));
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const orderBy = sortByOpportunity
+    ? sql`opportunity_score DESC, created_at DESC`
+    : sql`score DESC, created_at DESC`;
 
   const [rows, [{ total }]] = await Promise.all([
-    db.select().from(leads).where(where).orderBy(sql`score DESC, created_at DESC`).limit(limit).offset(offset),
+    db.select().from(leads).where(where).orderBy(orderBy).limit(limit).offset(offset),
     db.select({ total: count() }).from(leads).where(where),
   ]);
 
@@ -214,7 +204,7 @@ router.get("/", async (req, res) => {
 
 // ---- GET /stats — charts data -----------------------------------------------
 router.get("/stats", async (_req, res) => {
-  const [scoreRows, categoryRows, statusRows, lastRow] = await Promise.all([
+  const [scoreRows, categoryRows, statusRows, lastRow, opportunityRows, needsRows] = await Promise.all([
     db.execute(sql`
       SELECT
         CASE
@@ -240,10 +230,33 @@ router.get("/stats", async (_req, res) => {
       GROUP BY status
     `),
     db.execute(sql`SELECT MAX(updated_at) AS last_synced FROM leads`),
+    db.execute(sql`
+      SELECT
+        CASE
+          WHEN opportunity_score >= 70 THEN 'Hot (70+)'
+          WHEN opportunity_score >= 40 THEN 'Warm (40-69)'
+          ELSE 'Cold (<40)'
+        END AS bucket,
+        COUNT(*) AS cnt
+      FROM leads
+      GROUP BY bucket
+    `),
+    db.execute(sql`
+      SELECT need AS need, COUNT(*) AS cnt
+      FROM leads, jsonb_array_elements_text(COALESCE(needs, '[]'::jsonb)) AS need
+      GROUP BY need
+      ORDER BY cnt DESC
+    `),
   ]);
+
+  // Order opportunity buckets Hot → Warm → Cold for stable chart coloring.
+  const oppOrder = ["Hot (70+)", "Warm (40-69)", "Cold (<40)"];
+  const oppRaw = (opportunityRows.rows as { bucket: string; cnt: string }[]).map(r => ({ bucket: r.bucket, count: Number(r.cnt) }));
 
   res.json({
     scoreDistribution: (scoreRows.rows as { bucket: string; cnt: string }[]).map(r => ({ bucket: r.bucket, count: Number(r.cnt) })),
+    opportunityDistribution: oppOrder.map(b => ({ bucket: b, count: oppRaw.find(r => r.bucket === b)?.count ?? 0 })).filter(r => r.count > 0),
+    needsCounts: (needsRows.rows as { need: string; cnt: string }[]).map(r => ({ need: r.need, count: Number(r.cnt) })),
     topCategories: (categoryRows.rows as { category: string; cnt: string }[]).map(r => ({ category: r.category, count: Number(r.cnt) })),
     statusCounts: (statusRows.rows as { status: string; cnt: string }[]).map(r => ({ status: r.status, count: Number(r.cnt) })),
     lastSyncedAt: (lastRow.rows[0] as { last_synced: string | null })?.last_synced ?? null,
@@ -289,34 +302,47 @@ router.delete("/bulk", async (req, res) => {
 router.get("/export.csv", async (req, res) => {
   const search = String(req.query.search ?? "").trim();
   const minScore = parseInt(String(req.query.minScore ?? "0"), 10) || 0;
+  const minOpportunity = parseInt(String(req.query.minOpportunity ?? "0"), 10) || 0;
+  const category = String(req.query.category ?? "").trim();
   const status = String(req.query.status ?? "").trim();
+  const sortByOpportunity = String(req.query.sort ?? "") === "opportunity";
 
   const conditions = [];
   if (search) conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`)));
   if (minScore > 0) conditions.push(gte(leads.score, minScore));
+  if (minOpportunity > 0) conditions.push(gte(leads.opportunityScore, minOpportunity));
+  if (category) conditions.push(ilike(leads.category, `%${category}%`));
   if (status && VALID_STATUSES.includes(status as LeadStatus)) conditions.push(eq(leads.status, status));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
-  const rows = await db.select().from(leads).where(where).orderBy(sql`score DESC, created_at DESC`);
+  const orderBy = sortByOpportunity
+    ? sql`opportunity_score DESC, created_at DESC`
+    : sql`score DESC, created_at DESC`;
+  const rows = await db.select().from(leads).where(where).orderBy(orderBy);
 
   const dateStr = new Date().toISOString().slice(0, 10);
+  const isMoney = sortByOpportunity || minOpportunity > 0;
+  const slug = category ? category.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : "";
+  const filename = isMoney
+    ? `money-leads${slug ? `-${slug}` : ""}-${dateStr}.csv`
+    : `leads${slug ? `-${slug}` : ""}-${dateStr}.csv`;
   res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", `attachment; filename="leads-${dateStr}.csv"`);
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
 
   function csvCell(v: unknown): string {
     if (v == null) return "";
-    const s = String(v);
+    const s = Array.isArray(v) ? v.join("; ") : String(v);
     if (s.includes(",") || s.includes('"') || s.includes("\n")) return `"${s.replace(/"/g, '""')}"`;
     return s;
   }
 
-  const headers = ["Name","Phone","Emails","Website","Facebook","Instagram","Twitter","LinkedIn","Address","Category","Rating","Reviews","Score","Status","Google Maps URL","Plus Code"];
+  const headers = ["Name","Phone","Emails","Website","Facebook","Instagram","Twitter","LinkedIn","Address","Category","Rating","Reviews","Score","Opportunity","Needs","Status","Google Maps URL","Plus Code"];
   let csv = headers.join(",") + "\n";
   for (const row of rows) {
-    csv += [row.name,row.phone,row.emails,row.website,row.facebook,row.instagram,row.twitter,row.linkedin,row.address,row.category,row.rating,row.reviewCount,row.score,row.status,row.gmapsUrl,row.plusCode].map(csvCell).join(",") + "\n";
+    csv += [row.name,row.phone,row.emails,row.website,row.facebook,row.instagram,row.twitter,row.linkedin,row.address,row.category,row.rating,row.reviewCount,row.score,row.opportunityScore,row.needs,row.status,row.gmapsUrl,row.plusCode].map(csvCell).join(",") + "\n";
   }
 
-  req.log.info({ rows: rows.length }, "leads exported to csv");
+  req.log.info({ rows: rows.length, money: sortByOpportunity || minOpportunity > 0 }, "leads exported to csv");
   res.send(csv);
 });
 

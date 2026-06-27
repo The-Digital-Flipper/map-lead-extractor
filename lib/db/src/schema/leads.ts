@@ -18,6 +18,13 @@ export const leads = pgTable("leads", {
   rating: numeric("rating"),
   reviewCount: integer("review_count"),
   score: integer("score").default(0),
+  // Opportunity score (0-100): HIGH = weak online presence + reachable =
+  // a prime business to sell websites / SEO / ads / reputation / automation to.
+  // This is the inverse intent of `score` (which measures profile completeness).
+  opportunityScore: integer("opportunity_score").default(0),
+  // Human-readable weakness tags backing the opportunity score, e.g.
+  // ["No website", "Few reviews", "No social"]. Drives the sales pitch.
+  needs: jsonb("needs").$type<string[]>().default([]),
   gmapsUrl: text("gmaps_url"),
   plusCode: text("plus_code"),
   raw: jsonb("raw"),
