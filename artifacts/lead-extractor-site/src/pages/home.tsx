@@ -133,12 +133,14 @@ export default function Home() {
                       src={promoScreenshot1}
                       alt="Map Lead Extractor pipeline — Search, Extract, Export"
                       className="w-full object-cover rounded-xl"
+                      fetchPriority="high"
+                      decoding="async"
                       data-testid="img-promo-main"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-4 mt-4 max-w-4xl mx-auto">
-                    <img src={promoScreenshot2} alt="Extension panel showing extracted leads" className="rounded-lg border border-border/40 object-cover w-full" data-testid="img-promo-2" />
-                    <img src={promoScreenshot3} alt="CSV export preview" className="rounded-lg border border-border/40 object-cover w-full" data-testid="img-promo-3" />
+                    <img src={promoScreenshot2} alt="Extension panel showing extracted leads" className="rounded-lg border border-border/40 object-cover w-full" loading="lazy" decoding="async" data-testid="img-promo-2" />
+                    <img src={promoScreenshot3} alt="CSV export preview" className="rounded-lg border border-border/40 object-cover w-full" loading="lazy" decoding="async" data-testid="img-promo-3" />
                   </div>
                 </motion.div>
               </motion.div>
@@ -239,7 +241,7 @@ export default function Home() {
                   </div>
                   <CardContent className="p-8 relative z-10">
                     <div className="mb-6 rounded-xl overflow-hidden border border-border shadow-lg shadow-black/50">
-                      <img src={googleExtractorLogo} alt="Google Maps Lead Extractor" className="w-full h-auto object-cover" />
+                      <img src={googleExtractorLogo} alt="Google Maps Lead Extractor" className="w-full h-auto object-cover" loading="lazy" decoding="async" />
                     </div>
                     <h3 className="text-3xl font-display font-bold mb-3 flex items-center gap-3">
                       Google Maps Extractor
@@ -388,7 +390,7 @@ export default function Home() {
                   </Button>
                 </div>
                 <div className="rounded-2xl overflow-hidden shadow-2xl shadow-black/70 border border-border">
-                  <img src={step1CwsListing} alt="Chrome Web Store listing for Map Lead Extractor showing the Add to Chrome button" className="w-full h-auto object-cover" />
+                  <img src={step1CwsListing} alt="Chrome Web Store listing for Map Lead Extractor showing the Add to Chrome button" className="w-full h-auto object-cover" loading="lazy" decoding="async" />
                 </div>
               </motion.div>
 
@@ -461,7 +463,7 @@ export default function Home() {
                   </ul>
                 </div>
                 <div className="md:order-1 rounded-2xl overflow-hidden shadow-2xl shadow-black/70 border border-border">
-                  <img src={step4GoogleMaps} alt="Google Maps showing real search results for Plumbers in Houston TX with business listings in the sidebar" className="w-full h-auto object-cover" />
+                  <img src={step4GoogleMaps} alt="Google Maps showing real search results for Plumbers in Houston TX with business listings in the sidebar" className="w-full h-auto object-cover" loading="lazy" decoding="async" />
                 </div>
               </motion.div>
 

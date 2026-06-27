@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, lazy, Suspense } from "react";
 import { ClerkProvider, SignIn, SignUp, Show } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
 import { shadcn } from "@clerk/themes";
@@ -11,11 +11,12 @@ import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 import Blog from "@/pages/blog";
 import BlogPost from "@/pages/blog-post";
-import Dashboard from "@/pages/dashboard";
-import Admin from "@/pages/admin";
-import AdminLogin from "@/pages/admin-login";
 import Pricing from "@/pages/pricing";
 import ConnectExtension from "@/pages/connect-extension";
+
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const Admin = lazy(() => import("@/pages/admin"));
+const AdminLogin = lazy(() => import("@/pages/admin-login"));
 
 const queryClient = new QueryClient();
 
@@ -117,27 +118,27 @@ function HomeRoute() {
 
 function DashboardRoute() {
   return (
-    <>
+    <Suspense fallback={null}>
       <Show when="signed-in">
         <Dashboard />
       </Show>
       <Show when="signed-out">
         <Redirect to="/sign-in" />
       </Show>
-    </>
+    </Suspense>
   );
 }
 
 function AdminRoute() {
   return (
-    <>
+    <Suspense fallback={null}>
       <Show when="signed-in">
         <Admin />
       </Show>
       <Show when="signed-out">
         <Redirect to="/sign-in" />
       </Show>
-    </>
+    </Suspense>
   );
 }
 
@@ -185,7 +186,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/sign-up/*?" component={SignUpPage} />
             <Route path="/dashboard" component={DashboardRoute} />
             <Route path="/admin" component={AdminRoute} />
-            <Route path="/admin-login/*?" component={() => <AdminLogin />} />
+            <Route path="/admin-login/*?" component={() => <Suspense fallback={null}><AdminLogin /></Suspense>} />
             <Route path="/pricing" component={Pricing} />
             <Route path="/blog" component={Blog} />
             <Route path="/blog/:slug" component={BlogPost} />
