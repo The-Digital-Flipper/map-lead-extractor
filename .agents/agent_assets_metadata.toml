@@ -6,3 +6,15 @@ id = "dGocZJ5c4pYdLlEPobiyR"
 uri = "file://attached_assets/MapLeadExtractor-2.5.5-signed-v2.zip"
 type = "unspecified"
 title = "MapLeadExtractor-2.5.5 (redesigned popup)"
+
+[[outputs]]
+id = "lkMuTQMQ50AyPXbhxjz8H"
+uri = "file://attached_assets/extension-with-sync/MapLeadExtractor-GoogleMaps-1.4.25-sync.zip"
+type = "unspecified"
+title = "Google Maps Extension v1.4.25 (with sync)"
+
+[[outputs]]
+id = "k_R-c8BxxlCs0jR_TCygZ"
+uri = "file://attached_assets/extension-with-sync/MapLeadExtractor-Bing-2.5.6-sync.zip"
+type = "unspecified"
+title = "Bing Maps Extension v2.5.6 (with sync)"
