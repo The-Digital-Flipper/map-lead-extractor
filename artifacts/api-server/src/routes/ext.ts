@@ -1,117 +1,90 @@
 /**
- * Extension-facing routes that existed in the old standalone backend.
- * These are called directly by the Chrome extensions (no Clerk session,
- * auth is via X-Api-Key / x-mle-token headers or the anonCode body param).
+ * Extension-facing routes — no Clerk session, auth via x-mle-token / X-Api-Key.
+ * All four live routes return the { code, result } envelope the extension expects.
+ * /delete-account is the only plain-JSON exception per the spec.
+ *
+ * Mounted with router.use(extRouter) — no prefix stripping — so paths here are
+ * exactly what the extension hits under /api/*
  */
 import { Router } from "express";
+import crypto from "node:crypto";
 import { storage } from "../storage.js";
 
 const router = Router();
+const LOG_LEVEL = process.env.LOG_LEVEL ?? "info";
 
-// ── POST /auth/token ───────────────────────────────────────────────────────────
-// Extension boot: the extension sends an anonCode and gets back a short-lived
-// token (ik) it can use for subsequent calls.  For simplicity we return the
-// user's API key as the token if the anonCode maps to a known key; otherwise
-// we return a generic guest token so the extension doesn't hard-fail.
-router.post("/auth/token", async (req, res) => {
+// ── POST /auth/token ──────────────────────────────────────────────────────────
+// Extension boot: anonCode → stable token. We derive the token as a SHA-256
+// hash of the anonCode so it's always consistent without needing a tokens table.
+router.post("/auth/token", (req, res) => {
   const { anonCode } = req.body ?? {};
-
-  if (anonCode) {
-    const user = await storage.getUserByApiKey(String(anonCode));
-    if (user?.apiKey) {
-      res.json({ ik: user.apiKey, plan: "pro", quota: -1 });
-      return;
-    }
+  if (!anonCode) {
+    res.json({ code: 400, message: "anonCode required" });
+    return;
   }
-
-  // Guest / unrecognised — return a harmless token so the extension boots
-  res.json({ ik: "guest_" + Date.now(), plan: "free", quota: 500 });
+  const token =
+    "tok_" +
+    crypto
+      .createHash("sha256")
+      .update(String(anonCode))
+      .digest("hex")
+      .slice(0, 48);
+  res.json({ code: 200, result: { ik: token } });
 });
 
-// ── GET /config/docking ────────────────────────────────────────────────────────
-// Remote config the extensions fetch on startup.  Used for hot-patching CSS
-// selectors without a re-release.  Add fields here whenever Bing/Google change
-// their DOM and you need to push a fix without a store update.
+// ── GET /config/docking ───────────────────────────────────────────────────────
+// Remote config — push Bing selector patches via bingMapsVersions without a
+// store re-release. Keep [] until a hotfix is needed.
 router.get("/config/docking", (_req, res) => {
   res.json({
-    version: 1,
-    google_maps: {
-      result_selector: "[role='feed'] > div",
-      name_selector: ".fontHeadlineSmall",
-      phone_selector: "[data-item-id^='phone']",
-      website_selector: "[data-item-id='authority']",
-      rating_selector: ".fontBodyMedium span[aria-label]",
-    },
-    bing_maps: {
-      listing_selector: ".listings-container .b-card",
-      name_selector: ".b-card-title",
-      phone_selector: ".b-card-phoneNumber",
-      website_selector: ".b-card-website a",
-    },
-    yelp: {
-      card_selector: "[data-testid='serp-ia-card']",
-    },
-    flags: {
-      sync_enabled: true,
-      telemetry_enabled: true,
+    code: 200,
+    result: {
+      logLevel: LOG_LEVEL,
+      bingMapsVersions: [],
     },
   });
 });
 
-// ── GET /user/info ─────────────────────────────────────────────────────────────
-// Returns plan and quota for the calling user.  Accepts either X-Api-Key or
-// the legacy x-mle-token header.  We treat every connected user as "unlimited"
-// (matching the old backend behaviour described in the route table).
-router.get("/user/info", async (req, res) => {
-  const apiKey =
-    (req.headers["x-api-key"] as string | undefined) ||
-    (req.headers["x-mle-token"] as string | undefined);
-
-  if (!apiKey) {
-    res.status(401).json({ error: "Missing API key" });
-    return;
-  }
-
-  const user = await storage.getUserByApiKey(apiKey);
-  if (!user) {
-    res.status(401).json({ error: "Invalid API key" });
-    return;
-  }
-
+// ── GET /user/info ────────────────────────────────────────────────────────────
+// Returns plan + quota. Extension sends x-mle-token here; the panel gates on
+// the API key not this response, so we always report unlimited.
+router.get("/user/info", (_req, res) => {
   res.json({
-    email: user.email,
-    plan: "pro",
-    quota: -1,
-    quotaUsed: 0,
-    active: true,
+    code: 200,
+    result: {
+      plan: "unlimited",
+      quota: null,
+      used: 0,
+      remaining: null,
+    },
   });
 });
 
-// ── POST /telemetry/log ────────────────────────────────────────────────────────
-// Anonymous diagnostics sink — accept and acknowledge, no storage needed.
+// ── POST /telemetry/log ───────────────────────────────────────────────────────
+// Anonymous diagnostics sink — log and acknowledge.
 router.post("/telemetry/log", (req, res) => {
-  res.json({ ok: true });
+  const { appId, name, message, type } = req.body ?? {};
+  req.log.info({ appId, name, message, type }, "telemetry");
+  res.json({ code: 200, result: { ok: true } });
 });
 
-// ── POST /api/delete-account ───────────────────────────────────────────────────
-// GDPR delete: wipes the user row and all their leads.
-// Auth: X-Api-Key header (same as leads/save — extension-callable).
+// ── POST /delete-account ──────────────────────────────────────────────────────
+// GDPR delete: wipes the user + their leads. Auth: X-Api-Key header.
+// Returns plain JSON (no envelope) per spec.
 router.post("/delete-account", async (req, res) => {
   const apiKey = req.headers["x-api-key"] as string | undefined;
   if (!apiKey) {
-    res.status(401).json({ error: "Missing X-Api-Key header" });
+    res.status(401).json({ message: "Missing X-Api-Key header" });
     return;
   }
-
   const user = await storage.getUserByApiKey(apiKey);
   if (!user) {
-    res.status(401).json({ error: "Invalid API key" });
+    res.status(401).json({ message: "Invalid API key" });
     return;
   }
-
   await storage.deleteUser(user.id);
   req.log.info({ userId: user.id }, "Account deleted (GDPR)");
-  res.json({ ok: true });
+  res.json({ deleted: true });
 });
 
 export default router;

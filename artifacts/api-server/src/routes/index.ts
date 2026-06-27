@@ -20,11 +20,7 @@ router.use("/admin", adminRouter);
 router.use("/chat", chatRouter);
 router.use("/v1", v1Router);
 
-// Extension-facing routes (no Clerk session, auth via X-Api-Key)
-router.use("/auth", extRouter);           // POST /api/auth/token
-router.use("/config", extRouter);         // GET  /api/config/docking
-router.use("/user", extRouter);           // GET  /api/user/info
-router.use("/telemetry", extRouter);      // POST /api/telemetry/log
-router.use("/delete-account", extRouter); // POST /api/delete-account
+// Extension-facing routes — no prefix stripping; paths in ext.ts are full
+router.use(extRouter);
 
 export default router;
