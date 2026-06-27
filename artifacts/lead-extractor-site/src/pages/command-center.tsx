@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useUser } from "@clerk/react";
 import { useSession } from "@clerk/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Phone, Send, RefreshCw, ArrowLeft, MessageSquare, Circle, ChevronRight, Zap } from "lucide-react";
+import { Phone, Send, RefreshCw, ArrowLeft, MessageSquare, Circle, ChevronRight, Zap, Download, ChevronDown } from "lucide-react";
 import { useSeo } from "@/lib/seo";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -63,7 +63,42 @@ export default function CommandCenter() {
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ sent: number; failed: number } | null>(null);
   const [tab, setTab] = useState<"inbox" | "bulk">("inbox");
+  const [importing, setImporting] = useState(false);
+  const [importCount, setImportCount] = useState<number | null>(null);
+  const [showImportMenu, setShowImportMenu] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const importMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close import dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (importMenuRef.current && !importMenuRef.current.contains(e.target as Node)) {
+        setShowImportMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const importFromLeads = useCallback(async (statusFilter?: string) => {
+    setImporting(true);
+    setShowImportMenu(false);
+    setImportCount(null);
+    try {
+      const params = new URLSearchParams({ limit: "2000" });
+      if (statusFilter) params.set("status", statusFilter);
+      const r = await fetch(`${basePath}/api/leads/?${params}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      const phones: string[] = (d.leads ?? [])
+        .map((l: { phone?: string | null }) => l.phone?.trim() ?? "")
+        .filter((p: string) => p.length > 0);
+      const unique = [...new Set(phones)];
+      setBulkPhones(unique.join("\n"));
+      setImportCount(unique.length);
+    } catch { /* ignore */ }
+    finally { setImporting(false); }
+  }, []);
 
   const getAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
     const token = await session?.getToken().catch(() => null);
@@ -227,12 +262,61 @@ export default function CommandCenter() {
             <h2 className="font-display font-bold text-lg mb-1">Bulk Text Blast</h2>
             <p className="text-xs text-muted-foreground mb-5">Send one message to many numbers at once.</p>
 
-            <label className="text-xs font-semibold text-muted-foreground block mb-1.5">
-              Phone numbers <span className="font-normal">(one per line or comma-separated)</span>
-            </label>
+            {/* Import from leads */}
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-muted-foreground">
+                Phone numbers <span className="font-normal">(one per line or comma-separated)</span>
+              </label>
+              <div className="relative" ref={importMenuRef}>
+                <button
+                  onClick={() => setShowImportMenu(v => !v)}
+                  disabled={importing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/30 text-primary text-xs font-bold hover:bg-primary/20 transition-colors disabled:opacity-50"
+                >
+                  {importing
+                    ? <><div className="w-3 h-3 border-2 border-primary/40 border-t-primary rounded-full animate-spin" /> Importing…</>
+                    : <><Download className="w-3 h-3" /> Import from Leads <ChevronDown className="w-3 h-3" /></>
+                  }
+                </button>
+                <AnimatePresence>
+                  {showImportMenu && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                      className="absolute right-0 top-full mt-1.5 w-52 bg-card border border-border rounded-xl shadow-xl z-20 overflow-hidden"
+                    >
+                      {[
+                        { label: "All leads with phones", value: undefined },
+                        { label: "New leads", value: "new" },
+                        { label: "Contacted", value: "contacted" },
+                        { label: "Interested", value: "interested" },
+                        { label: "Not interested", value: "not_interested" },
+                        { label: "Closed", value: "closed" },
+                      ].map(opt => (
+                        <button
+                          key={opt.label}
+                          onClick={() => importFromLeads(opt.value)}
+                          className="w-full text-left px-4 py-2.5 text-xs text-foreground hover:bg-white/5 transition-colors border-b border-border/50 last:border-0"
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            {importCount !== null && (
+              <p className="text-xs text-primary font-semibold mb-2">
+                ✓ {importCount} phone number{importCount !== 1 ? "s" : ""} imported from your leads
+              </p>
+            )}
+
             <textarea
               value={bulkPhones}
-              onChange={e => setBulkPhones(e.target.value)}
+              onChange={e => { setBulkPhones(e.target.value); setImportCount(null); }}
               rows={6}
               placeholder={"+15551234567\n+15559876543\n+15550001111"}
               className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-none mb-4 font-mono"
