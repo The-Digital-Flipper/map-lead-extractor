@@ -1,0 +1,64 @@
+import { Router, type Request, type Response } from "express";
+import crypto from "node:crypto";
+import { storage } from "../storage"; // match leads.ts import path
+
+const router = Router();
+
+const LOG_LEVEL = process.env.LOG_LEVEL ?? "info";
+const TOKEN_SECRET = process.env.TOKEN_SECRET ?? process.env.ADMIN_SECRET ?? "change-me";
+
+// Envelope the extension expects: { code, result, message
+const ok = (result: unknown) => ({ code: 200, result });
+
+// Stateless, idempotent token per anonCode — no table needed.
+const tokenFor = (anonCode: string) =>
+  "tok_" + crypto.createHmac("sha256", TOKEN_SECRET).update(anonCode).digest("hex").slice(0, 48);
+
+// POST /auth/token — extension boot. Anonymous, NO Clerk. (form-urlencoded body)
+router.post("/auth/token", (req: Request, res: Response) =>
+  const anonCode = req.body?.anonCode;
+  if (!anonCode) return res.json({ code: 400, message: "ano
+  res.json(ok({ ik: tokenFor(String(anonCode)) }));
+});
+
+// GET /config/docking — remote config. Push Bing selector
+// bingMapsVersions to fix scraping without republishing. Keep [] until needed.
+router.get("/config/docking", (_req: Request, res: Response
+  res.json(ok({ logLevel: LOG_LEVEL, bingMapsVersions: [] }));
+});
+
+// GET /user/info — cosmetic (the panel gates cloud-save on
+router.get("/user/info", async (req: Request, res: Response) => {
+  const apiKey = req.headers["x-api-key"] as string | undef
+  const user = apiKey ? await storage.getUserByApiKey(apiKey) : null;
+  res.json(ok({ plan: "unlimited", email: user?.email ?? nuaining: null }));
+});
+
+// POST /telemetry/log — anonymous sink. Just log via your logger; no table.
+router.post("/telemetry/log", (req: Request, res: Response)
+  const e = req.body ?? {};
+  req.log.info({ telemetry: { appId: e.appId, name: e.name,sage } }, "extension telemetry");
+  res.json(ok({ ok: true }));
+});
+
+export default router;
+
+/api/delete-account — add to leads.ts (mounted under /api,
+
+import { eq } from "drizzle-orm";
+import { db } from "@workspace/db";
+import { leads } from "@workspace/db/schema"; // same impor
+
+// POST /api/delete-account — X-Api-Key only, no Clerk (mat
+router.post("/delete-account", async (req, res) => {
+  const apiKey = req.headers["x-api-key"] as string | undef
+  const user = apiKey ? await storage.getUserByApiKey(apiKey) : null;
+  if (!user) return res.status(401).json({ message: "Sign i
+
+  const deleted = await db.delete(leads).where(eq(leads.use
+  req.log.info({ userId: user.id, leadsDeleted: deleted.length }, "deleted account data");
+
+  // Optional: also revoke the key / remove the user row if you store one.
+  // await storage.deleteUserByApiKey(apiKey);
+  res.json({ deleted: true, leadsDeleted: deleted.length });
+});
