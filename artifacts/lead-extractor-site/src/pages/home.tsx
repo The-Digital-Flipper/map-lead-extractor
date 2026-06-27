@@ -54,7 +54,7 @@ function PhotoSlot({ icon, label, hint }: { icon: React.ReactNode; label: string
 
 export default function Home() {
   useSeo({
-    title: "Map Lead Extractor — Scrape Google & Bing Maps Leads to CSV",
+    title: "Map Lead Extractor — Find Google & Bing Maps Leads to CSV",
     description: "Extract local business leads from Google Maps & Bing Maps — names, phones, emails, websites & ratings — and export to CSV in seconds. Or buy ready-scored leads by industry and city.",
     path: "/",
   });
@@ -109,7 +109,7 @@ export default function Home() {
             <div className="max-w-5xl mx-auto text-center">
               <motion.div initial="hidden" animate="visible" variants={staggerContainer}>
                 <motion.h1 variants={fadeIn} className="text-5xl md:text-8xl font-display font-bold leading-[1.1] mb-8 tracking-tight">
-                  Scrape business leads <br className="hidden md:block"/> from <span className="text-primary relative inline-block">Maps<div className="absolute -bottom-2 left-0 right-0 h-1 bg-primary/50 blur-sm rounded-full"></div></span> in one click.
+                  Find business leads <br className="hidden md:block"/> from <span className="text-primary relative inline-block">Maps<div className="absolute -bottom-2 left-0 right-0 h-1 bg-primary/50 blur-sm rounded-full"></div></span> in one click.
                 </motion.h1>
                 
                 <motion.p variants={fadeIn} className="text-xl md:text-2xl text-muted-foreground mb-12 max-w-3xl mx-auto leading-relaxed">
@@ -582,7 +582,7 @@ export default function Home() {
 
             <div className="grid md:grid-cols-3 gap-8">
               {[
-                { icon: Search, title: "Deep Site Enrichment", desc: "If an email isn't on the map, the engine quietly visits the business's website to scrape hidden contact details and social links." },
+                { icon: Search, title: "Deep Site Enrichment", desc: "If an email isn't on the map, the engine quietly visits the business's website to find hidden contact details and social links." },
                 { icon: FileSpreadsheet, title: "Auto-Deduplication", desc: "No messy spreadsheets. The extension natively tracks hashes and prevents duplicate businesses from being exported." },
                 { icon: Database, title: "Cloud Sync", desc: "Every extraction auto-saves to your dashboard — backed up, scored, and ready to work or sell. Never lose a lead." },
                 { icon: Package, title: "Free to Start", desc: "Pull leads free to try it out. Upgrade to Pro for unlimited saves and the full money-lead scoring suite." },
@@ -674,7 +674,7 @@ export default function Home() {
               <div className="p-6">
                 <Users className="w-12 h-12 text-primary mx-auto mb-6" />
                 <h3 className="text-xl font-bold mb-3">Agency Owners</h3>
-                <p className="text-muted-foreground">Scrape hyper-local businesses (e.g. "Roofers in Miami") to build highly targeted cold email and calling lists for your services.</p>
+                <p className="text-muted-foreground">Find hyper-local businesses (e.g. "Roofers in Miami") to build highly targeted cold email and calling lists for your services.</p>
               </div>
               <div className="p-6">
                 <Settings2 className="w-12 h-12 text-primary mx-auto mb-6" />
@@ -791,7 +791,7 @@ export default function Home() {
               <AccordionItem value="item-3" className="border-border">
                 <AccordionTrigger className="text-xl font-medium py-6 hover:text-primary transition-colors">Why are there two different extensions?</AccordionTrigger>
                 <AccordionContent className="text-muted-foreground text-lg pb-6">
-                  Google Maps and Bing Maps have completely different underlying architectures. To provide the fastest, most resilient scraping possible, we built dedicated engines for each platform rather than a bloated, fragile hybrid.
+                  Google Maps and Bing Maps have completely different underlying architectures. To provide the fastest, most resilient lead finding possible, we built dedicated engines for each platform rather than a bloated, fragile hybrid.
                 </AccordionContent>
               </AccordionItem>
               <AccordionItem value="item-4" className="border-border">

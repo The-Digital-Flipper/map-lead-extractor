@@ -23,7 +23,7 @@ const categoryColors: Record<string, string> = {
 export default function Blog() {
   useSeo({
     title: "Blog — Google & Bing Maps Lead Generation Guides | Map Lead Extractor",
-    description: "Tutorials and guides on scraping Google Maps leads, cold email outreach, lead-gen for agencies and web designers, and staying compliant.",
+    description: "Tutorials and guides on finding Google Maps leads, cold email outreach, lead-gen for agencies and web designers, and staying compliant.",
     path: "/blog",
   });
   const [featured, ...rest] = posts;

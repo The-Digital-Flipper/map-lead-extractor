@@ -17,7 +17,7 @@ interface Section {
 export const posts: Post[] = [
   {
     slug: "how-to-scrape-google-maps-leads",
-    title: "How to Scrape Google Maps Leads in 2025 (No Code Required)",
+    title: "How to Find Google Maps Leads in 2025 (No Code Required)",
     description: "A step-by-step guide to extracting business names, phone numbers, emails, and websites from Google Maps without writing a single line of code.",
     date: "June 18, 2025",
     readTime: "6 min read",
@@ -153,7 +153,7 @@ export const posts: Post[] = [
   },
   {
     slug: "gdpr-google-maps-scraping",
-    title: "Is Scraping Google Maps Legal? GDPR, ToS, and What You Need to Know",
+    title: "Is Finding Leads on Google Maps Legal? GDPR, ToS, and What You Need to Know",
     description: "A plain-language breakdown of the legal landscape around Google Maps data extraction — what's fine, what's risky, and how to stay compliant.",
     date: "May 13, 2025",
     readTime: "5 min read",
@@ -164,8 +164,8 @@ export const posts: Post[] = [
       { type: "p", text: "Business name, phone number, address, hours, website — all of this information is publicly displayed on Google Maps to anyone with a browser. Businesses put it there intentionally so customers can find them." },
       { type: "p", text: "In most jurisdictions, extracting publicly visible business contact data for legitimate commercial outreach is legal. You're not accessing any non-public system or bypassing any security measure." },
       { type: "h2", text: "Google's Terms of Service" },
-      { type: "p", text: "Google's ToS restricts automated scraping of their services. Our extension works differently — it runs in your browser, on your account, reading the same page you'd see manually. It doesn't hit Google's API or backend directly." },
-      { type: "p", text: "Google could theoretically take action against accounts that appear to be scraping at scale. In practice, the extension throttles its speed to stay within normal browsing patterns." },
+      { type: "p", text: "Google's ToS restricts automated data extraction from their services. Our extension works differently — it runs in your browser, on your account, reading the same page you'd see manually. It doesn't hit Google's API or backend directly." },
+      { type: "p", text: "Google could theoretically take action against accounts that appear to be extracting data at scale. In practice, the extension throttles its speed to stay within normal browsing patterns." },
       { type: "h2", text: "GDPR Considerations (EU Users)" },
       { type: "p", text: "GDPR applies to personal data — information about identified or identifiable natural persons. Business contact information (a company's phone number, a business's website) is generally not personal data." },
       { type: "p", text: "Where GDPR gets relevant: if you extract a named individual's contact information (e.g., 'John Smith, owner, 555-0123'), that's personal data and GDPR provisions apply — you need a lawful basis for processing, typically 'legitimate interest' for B2B outreach." },
@@ -238,7 +238,7 @@ export const posts: Post[] = [
       { type: "h2", text: "Step 1: Extract the listings" },
       { type: "p", text: "Run a Google Maps search for your target, then use Map Lead Extractor to pull every listing, including the website URL for each business. That website is the key to finding the email." },
       { type: "h2", text: "Step 2: Turn on email enrichment" },
-      { type: "p", text: "With enrichment enabled, the extension quietly visits each business's website in the background and scrapes any contact emails and social links it finds — no manual clicking, no copy-paste." },
+      { type: "p", text: "With enrichment enabled, the extension quietly visits each business's website in the background and finds any contact emails and social links there — no manual clicking, no copy-paste." },
       { type: "tip", text: "Enrichment works best on businesses that have a website. For no-website businesses, the phone number is your channel — and those are often your most valuable prospects anyway." },
       { type: "h2", text: "Step 3: Export to CSV" },
       { type: "p", text: "When the run finishes, export to CSV. You get a spreadsheet with name, phone, website, social profiles, and any emails found — ready for your outreach tool or CRM." },

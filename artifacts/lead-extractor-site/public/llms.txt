@@ -16,7 +16,7 @@ A Chrome extension that extracts business leads from Google Maps and Bing Maps �
 - https://mapleadextractor.net/blog/bing-maps-lead-generation — Why Bing Maps is an untapped lead source your competitors are ignoring
 - https://mapleadextractor.net/blog/cold-email-from-google-maps-leads — How to write cold emails that convert Google Maps leads
 - https://mapleadextractor.net/blog/lead-generation-for-web-designers — Freelance web designer's guide to finding clients on Google Maps
-- https://mapleadextractor.net/blog/gdpr-google-maps-scraping — Is scraping Google Maps legal? GDPR, ToS, and compliance guide
+- https://mapleadextractor.net/blog/gdpr-google-maps-scraping — Is finding leads on Google Maps legal? GDPR, ToS, and compliance guide
 - https://mapleadextractor.net/blog/how-to-find-businesses-with-no-website — How to find local businesses with no website (the best leads for web designers)
 - https://mapleadextractor.net/blog/where-to-buy-local-business-leads — Where to buy local business leads that actually convert
 - https://mapleadextractor.net/blog/how-to-extract-emails-from-google-maps — How to extract business emails from Google Maps, free and no code
