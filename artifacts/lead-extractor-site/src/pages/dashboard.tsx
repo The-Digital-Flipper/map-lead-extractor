@@ -1375,6 +1375,19 @@ export default function Dashboard() {
               </button>
             )}
 
+            {selPhones.length > 0 && (
+              <button
+                onClick={() => {
+                  localStorage.setItem("mle_cc_import", selPhones.join("\n"));
+                  window.location.href = `${basePath}/command-center?tab=bulk`;
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#00E676]/10 border border-[#00E676]/40 text-[#00E676] text-xs font-bold hover:bg-[#00E676]/20 transition-colors"
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                Import to Command Center
+              </button>
+            )}
+
             {selEmails.length > 0 && (
               <button
                 onClick={async () => { try { await navigator.clipboard.writeText(selEmails.join(", ")); } catch {} }}

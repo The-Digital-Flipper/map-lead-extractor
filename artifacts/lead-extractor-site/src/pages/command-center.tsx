@@ -62,12 +62,26 @@ export default function CommandCenter() {
   const [bulkMessage, setBulkMessage] = useState("");
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ sent: number; failed: number } | null>(null);
-  const [tab, setTab] = useState<"inbox" | "bulk">("inbox");
+  const [tab, setTab] = useState<"inbox" | "bulk">(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("tab") === "bulk" ? "bulk" : "inbox";
+  });
   const [importing, setImporting] = useState(false);
   const [importCount, setImportCount] = useState<number | null>(null);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const importMenuRef = useRef<HTMLDivElement>(null);
+
+  // Read phones imported from dashboard via localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem("mle_cc_import");
+    if (stored) {
+      setBulkPhones(stored);
+      const count = stored.split("\n").filter(Boolean).length;
+      setImportCount(count);
+      localStorage.removeItem("mle_cc_import");
+    }
+  }, []);
 
   // Close import dropdown when clicking outside
   useEffect(() => {
