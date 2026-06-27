@@ -19,10 +19,27 @@ function toE164(raw: string): string {
 }
 
 function getTwilioClient() {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
-  if (!sid || !token) return null;
-  return twilio(sid, token);
+  if (!token) return null;
+
+  // Standard auth: Account SID (AC...) + Auth Token. Prefer an explicit AC SID
+  // (TWILIO_ACCOUNT_SID_AC) so a misconfigured TWILIO_ACCOUNT_SID holding an
+  // API Key (SK...) doesn't break account-token auth.
+  const accountSid =
+    process.env.TWILIO_ACCOUNT_SID_AC ||
+    (process.env.TWILIO_ACCOUNT_SID?.startsWith("AC")
+      ? process.env.TWILIO_ACCOUNT_SID
+      : undefined);
+  if (accountSid) return twilio(accountSid, token);
+
+  // Fallback: API Key SID (SK...) + API Key Secret — requires the real Account
+  // SID passed as an option. (TWILIO_AUTH_TOKEN must be the API key secret here.)
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  if (sid?.startsWith("SK") && process.env.TWILIO_ACCOUNT_SID_AC) {
+    return twilio(sid, token, { accountSid: process.env.TWILIO_ACCOUNT_SID_AC });
+  }
+
+  return sid ? twilio(sid, token) : null;
 }
 
 /** GET /api/sms/config */

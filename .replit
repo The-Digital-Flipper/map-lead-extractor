@@ -28,3 +28,7 @@ channel = "stable-25_05"
 [userenv.shared]
 VITE_ADMIN_EMAIL = "gulfcoastcashforcars@gmail.com"
 ADMIN_SECRET = "Kanaan12!"
+# Real Twilio Account SID (AC...). TWILIO_ACCOUNT_SID in Secrets holds an API
+# Key (SK...) by mistake; the app uses this AC SID + the account Auth Token
+# (TWILIO_AUTH_TOKEN) for standard auth. Not sensitive — appears in API URLs.
+TWILIO_ACCOUNT_SID_AC = "AC8dcc703ff000ad04c2750a748ea762ea"
