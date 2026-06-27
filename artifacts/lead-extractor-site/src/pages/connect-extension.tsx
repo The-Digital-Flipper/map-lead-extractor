@@ -170,6 +170,7 @@ function ConnectPanel({ apiKey, email }: { apiKey: string; email: string }) {
       setStatus("not_installed");
     } else if (res.ok) {
       setStatus("connected");
+      setTimeout(() => { window.location.href = `${basePath}/dashboard`; }, 1200);
     } else {
       setStatus("error");
     }
