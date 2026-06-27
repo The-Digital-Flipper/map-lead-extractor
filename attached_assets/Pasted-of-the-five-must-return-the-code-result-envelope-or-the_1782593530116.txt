@@ -1,0 +1,108 @@
+of the five must return the { code, result } envelope or the extension treats them as failures. Here's the exact spec plus drop-in TS.
+
+Contracts the extension expects (don't deviate)
+
+┌────────────────────────┬────────────────────────────┬───────────────────────────┬────────────────────────────────────────────────┬───────────┐
+│         Route          │    Auth header it sends    │          Request          │                  Must return                   │ Envelope? │
+├────────────────────────┼────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────┼───────────┤
+│ POST /auth/token       │ none (boot)                │ { anonCode, appId }       │ { code:200, result:{ ik: "<token>" } }         │ Yes       │
+├────────────────────────┼────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────┼───────────┤
+│ GET /config/docking    │ x-mle-token                │ —                         │ { code:200, result:{ logLevel,                 │ Yes       │
+│                        │                            │                           │ bingMapsVersions:[] } }                        │           │
+├────────────────────────┼────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────┼───────────┤
+│ GET /user/info         │ x-mle-token (+ maybe       │ —                         │ { code:200, result:{ plan, ... } }             │ Yes       │
+│                        │ X-Api-Key)                 │                           │                                                │           │
+├────────────────────────┼────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────┼───────────┤
+│ POST /telemetry/log    │ none                       │ { appId, name, message,   │ { code:200, result:{ ok:true } }               │ Yes       │
+│                        │                            │ type }                    │                                                │           │
+├────────────────────────┼────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────┼───────────┤
+│ POST                   │ X-Api-Key                  │ —                         │ plain { deleted:true }                         │ No        │
+│ /api/delete-account    │                            │                           │                                                │           │
+└────────────────────────┴────────────────────────────┴───────────────────────────┴────────────────────────────────────────────────┴───────────┘
+
+The four extension endpoints (/auth/token, /config/docking, /user/info, /telemetry/log) use the envelope and code===200. Only /api/delete-account is plain JSON (it lives under /api/ with leads/save).
+
+Drop-in TypeScript (Express-router style, to match your *.ts files)
+
+// config.ts — GET /config/docking
+import { Router } from "express";
+const router = Router();
+const LOG_LEVEL = process.env.LOG_LEVEL ?? "info";
+
+router.get("/config/docking", (_req, res) => {
+  // Push Bing selector hot-patches via bingMapsVersions to fix scraping
+  // without republishing the extension. Keep [] until you need it.
+  res.json({ code: 200, result: { logLevel: LOG_LEVEL, bingMapsVersions: [] } });
+});
+export default router;
+
+// telemetry.ts — POST /telemetry/log
+import { Router } from "express";
+import { db } from "./db";            // ← your client (Drizzle/Prisma/pg)
+const router = Router();
+
+router.post("/telemetry/log", async (req, res) => {
+  const e = req.body ?? {};
+  // anonymous: appId, name, message, type only (extension no longer sends UA/userId)
+  await db.insert(/* logs */).values({
+    appId: e.appId ?? null, name: e.name ?? null,
+    message: e.message ?? null, type: e.type ?? null, createdAt: new Date(),
+  }).catch(() => {});
+  res.json({ code: 200, result: { ok: true } });
+});
+export default router;
+
+// auth.ts — POST /auth/token  (anonymous extension boot; NOT Clerk)
+import { Router } from "express";
+import crypto from "node:crypto";
+import { db } from "./db";
+const router = Router();
+
+router.post("/auth/token", async (req, res) => {
+  const { anonCode, appId } = req.body ?? {};
+  if (!anonCode) return res.json({ code: 400, message: "anonCode required" });
+
+  let token = await getAnonToken(anonCode);           // ← your lookup
+  if (!token) {
+    token = "tok_" + crypto.randomBytes(24).toString("hex");
+    await saveAnonToken(anonCode, token, appId);       // ← your insert (tokens table)
+  }
+  res.json({ code: 200, result: { ik: token } });
+});
+export default router;
+
+// userinfo.ts — GET /user/info  (cosmetic: panel gates on the key, not this)
+import { Router } from "express";
+const router = Router();
+
+router.get("/user/info", (req, res) => {
+  // The extension carries x-mle-token here, not a Clerk session, so just
+  // report the free/unlimited plan. (No quota since it's free + unlimited.)
+  res.json({ code: 200, result: { plan: "unlimited", quota: null, used: 0, remaining: null } });
+});
+export default router;
+
+// (add to leads.ts / a delete route) — POST /api/delete-account
+router.post("/api/delete-account", requireApiKey, async (req, res) => {
+  const userId = req.apiKeyUser;                 // ← from your existing X-Api-Key auth
+  if (!userId) return res.status(401).json({ message: "Sign in first." });
+  await db.delete(/* leads */).where(/* userId = userId */);
+  res.json({ deleted: true });
+});
+
+  ┌────────────────────────┬────────────────────────────┬───────────────────────────┬────────────────────────────────────────────────┬───────────┐
+  │         Route          │    Auth header it sends    │          Request          │                  Must return                   │ Envelope? │
+  ├────────────────────────┼────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────┼───────────┤
+  │ POST /auth/token       │ none (boot)                │ { anonCode, appId }       │ { code:200, result:{ ik: "<token>" } }         │ Yes       │
+  ├────────────────────────┼────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────┼───────────┤
+  │ GET /config/docking    │ x-mle-token                │ —                         │ { code:200, result:{ logLevel,                 │ Yes       │
+  │                        │                            │                           │ bingMapsVersions:[] } }                        │           │
+  ├────────────────────────┼────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────┼───────────┤
+  │ GET /user/info         │ x-mle-token (+ maybe       │ —                         │ { code:200, result:{ plan, ... } }             │ Yes       │
+  │                        │ X-Api-Key)                 │                           │                                                │           │
+  ├────────────────────────┼────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────┼───────────┤
+  │ POST /telemetry/log    │ none                       │ { appId, name, message,   │ { code:200, result:{ ok:true } }               │ Yes       │
+  │                        │                            │ type }                    │                                                │           │
+  ├────────────────────────┼────────────────────────────┼───────────────────────────┼────────────────────────────────────────────────┼───────────┤
+  │ POST                   │ X-Api-Key                  │ —                         │ plain { deleted:true }                         │ No        │
+  │ /api/delete-account    │                            │                           │                                                │           │
