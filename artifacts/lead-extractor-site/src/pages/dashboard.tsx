@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useUser, useClerk } from "@clerk/react";
+import { useUser, useClerk, useSession } from "@clerk/react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Zap, Copy, Check, Download, LogOut, Star, Phone, Mail, Globe,
@@ -325,6 +325,16 @@ function ChartsPanel({ stats }: { stats: StatsData | null }) {
 export default function Dashboard() {
   const { user } = useUser();
   const { signOut } = useClerk();
+  const { session } = useSession();
+
+  // Authenticated fetch: adds Bearer token so production Clerk middleware
+  // can verify the session regardless of cookie domain behaviour.
+  const authFetch = useCallback(async (url: string, init: RequestInit = {}) => {
+    const token = await session?.getToken().catch(() => null);
+    const headers = new Headers(init.headers);
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return fetch(url, { ...init, credentials: "include", headers });
+  }, [session]);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -353,6 +363,8 @@ export default function Dashboard() {
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [emailCopied, setEmailCopied] = useState(false);
+  const [showTextModal, setShowTextModal] = useState(false);
+  const [textCopied, setTextCopied] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   // Money mode: rank by opportunity (weakest businesses first) — the leads
@@ -436,7 +448,7 @@ export default function Dashboard() {
   };
   const fetchReminders = useCallback(async () => {
     try {
-      const r = await fetch(`${basePath}/api/leads/reminders`, { credentials: "include" });
+      const r = await authFetch(`${basePath}/api/leads/reminders`);
       if (r.ok) { const d = await r.json(); setReminders(d.reminders ?? []); }
     } catch { /* ignore */ }
   }, []);
@@ -597,6 +609,17 @@ export default function Dashboard() {
   const toggleSelect = (id: number) => setSelected(prev => { const s = new Set(prev); if (s.has(id)) s.delete(id); else s.add(id); return s; });
   const toggleAll = () => { if (selected.size === leads.length) setSelected(new Set()); else setSelected(new Set(leads.map(l => l.id))); };
   const allSelected = leads.length > 0 && selected.size === leads.length;
+
+  // Derived email/phone lists for bulk actions — recomputed whenever selection or leads change
+  const selEmails = [...new Set(
+    leads.filter(l => selected.has(l.id) && l.emails)
+      .flatMap(l => l.emails!.split(",").map(e => e.trim()).filter(Boolean))
+  )];
+  const selPhones = [...new Set(
+    leads.filter(l => selected.has(l.id) && l.phone)
+      .map(l => l.phone!.trim())
+      .filter(Boolean)
+  )];
 
   const withPhone = leads.filter(l => l.phone).length;
   const withEmail = leads.filter(l => l.emails).length;
@@ -1007,31 +1030,11 @@ export default function Dashboard() {
                   <h2 className="text-lg font-display font-bold">
                     Saved Leads {total > 0 && <span className="text-muted-foreground text-sm font-normal">({total.toLocaleString()})</span>}
                   </h2>
-                  {selected.size > 0 && (() => {
-                    const selEmails = [...new Set(
-                      leads.filter(l => selected.has(l.id) && l.emails)
-                        .flatMap(l => l.emails!.split(",").map(e => e.trim()).filter(Boolean))
-                    )];
-                    return (
-                      <>
-                        {selEmails.length > 0 && (
-                          <button
-                            onClick={() => { setShowEmailModal(true); setEmailCopied(false); }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/30 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors"
-                          >
-                            <Mail className="w-3.5 h-3.5" /> Email {selEmails.length}
-                          </button>
-                        )}
-                        <button
-                          onClick={handleBulkDelete}
-                          disabled={deleting}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-semibold hover:bg-red-500/20 transition-colors disabled:opacity-50"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" /> Delete {selected.size}
-                        </button>
-                      </>
-                    );
-                  })()}
+                  {selected.size > 0 && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/15 border border-primary/30 text-primary text-xs font-bold">
+                      <CheckSquare className="w-3 h-3" /> {selected.size} selected
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="relative">
@@ -1318,13 +1321,83 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* ── Floating bulk action bar ─────────────────────────────────────── */}
+      <AnimatePresence>
+        {selected.size > 0 && (
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 380, damping: 32 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-4 py-3 bg-card/95 backdrop-blur-md border border-border rounded-2xl shadow-2xl"
+            style={{ boxShadow: "0 8px 40px rgba(0,230,118,0.12), 0 2px 16px rgba(0,0,0,0.5)" }}
+          >
+            <span className="text-sm font-bold text-foreground pr-2 border-r border-border mr-1">
+              {selected.size} selected
+            </span>
+
+            {selEmails.length > 0 && (
+              <button
+                onClick={() => { setShowEmailModal(true); setEmailCopied(false); }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/10 border border-primary/30 text-primary text-xs font-bold hover:bg-primary/20 transition-colors"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                Email {selEmails.length}
+              </button>
+            )}
+
+            {selPhones.length > 0 && (
+              <button
+                onClick={() => { setShowTextModal(true); setTextCopied(false); }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-bold hover:bg-blue-500/20 transition-colors"
+              >
+                <Phone className="w-3.5 h-3.5" />
+                Text {selPhones.length}
+              </button>
+            )}
+
+            {selEmails.length > 0 && (
+              <button
+                onClick={async () => { try { await navigator.clipboard.writeText(selEmails.join(", ")); } catch {} }}
+                title="Copy emails"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-muted-foreground text-xs font-semibold hover:text-foreground hover:border-border/80 transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5" /> Emails
+              </button>
+            )}
+
+            {selPhones.length > 0 && (
+              <button
+                onClick={async () => { try { await navigator.clipboard.writeText(selPhones.join(", ")); } catch {} }}
+                title="Copy phones"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-muted-foreground text-xs font-semibold hover:text-foreground hover:border-border/80 transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5" /> Phones
+              </button>
+            )}
+
+            <button
+              onClick={handleBulkDelete}
+              disabled={deleting}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-bold hover:bg-red-500/20 transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete
+            </button>
+
+            <button
+              onClick={() => setSelected(new Set())}
+              title="Deselect all"
+              className="flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors ml-1"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Bulk email composer modal */}
       <AnimatePresence>
         {showEmailModal && (() => {
-          const selEmails = [...new Set(
-            leads.filter(l => selected.has(l.id) && l.emails)
-              .flatMap(l => l.emails!.split(",").map(e => e.trim()).filter(Boolean))
-          )];
           const mailtoHref = `mailto:?bcc=${encodeURIComponent(selEmails.join(","))}&subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
           const gmailHref = `https://mail.google.com/mail/?view=cm&bcc=${encodeURIComponent(selEmails.join(","))}&su=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
           return (
@@ -1390,6 +1463,64 @@ export default function Dashboard() {
                       <ArrowUpRight className="w-3.5 h-3.5" /> Open in Gmail
                     </a>
                   </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* Bulk text / SMS modal */}
+      <AnimatePresence>
+        {showTextModal && (() => {
+          const smsHref = `sms:${selPhones.join(",")}`;
+          return (
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+              onClick={() => setShowTextModal(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+                onClick={e => e.stopPropagation()}
+                className="bg-card border border-border rounded-2xl p-6 w-full max-w-lg shadow-2xl"
+              >
+                <div className="flex items-center gap-2 mb-4">
+                  <Phone className="w-4 h-4 text-blue-400" />
+                  <h3 className="font-display font-bold">Bulk Text</h3>
+                  <span className="ml-1 text-xs text-muted-foreground">{selPhones.length} number{selPhones.length !== 1 ? "s" : ""}</span>
+                  <button onClick={() => setShowTextModal(false)} className="ml-auto text-muted-foreground hover:text-foreground">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Phone number chips */}
+                <div className="mb-5 max-h-36 overflow-y-auto flex flex-wrap gap-1.5 p-3 bg-background border border-border rounded-lg">
+                  {selPhones.map(ph => (
+                    <span key={ph} className="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-mono">
+                      {ph}
+                    </span>
+                  ))}
+                </div>
+
+                <p className="text-xs text-muted-foreground mb-5 leading-relaxed">
+                  Use <strong className="text-foreground">Copy phones</strong> to paste numbers into your bulk SMS tool (e.g. SimpleTexting, EZTexting, Podium), or hit <strong className="text-foreground">Open SMS</strong> to text all of them directly from your phone.
+                </p>
+
+                <div className="flex flex-wrap gap-2 justify-between">
+                  <button
+                    onClick={async () => {
+                      try { await navigator.clipboard.writeText(selPhones.join(", ")); setTextCopied(true); setTimeout(() => setTextCopied(false), 2000); } catch {}
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {textCopied ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+                    {textCopied ? "Copied!" : "Copy phones"}
+                  </button>
+                  <a href={smsHref}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:opacity-90 transition-opacity">
+                    <Phone className="w-3.5 h-3.5" /> Open SMS app
+                  </a>
                 </div>
               </motion.div>
             </motion.div>

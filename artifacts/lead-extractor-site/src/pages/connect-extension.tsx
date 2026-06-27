@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useUser } from "@clerk/react";
+import { useUser, useSession } from "@clerk/react";
 import { useSignIn } from "@clerk/react/legacy";
 import { CheckCircle, Plug, AlertCircle, Loader2 } from "lucide-react";
 import { useSeo } from "@/lib/seo";
@@ -309,6 +309,7 @@ export default function ConnectExtension() {
     path: "/connect-extension",
   });
   const { isLoaded, isSignedIn, user } = useUser();
+  const { session } = useSession();
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [keyError, setKeyError] = useState(false);
 
@@ -317,10 +318,21 @@ export default function ConnectExtension() {
     // Fast path: Clerk has already synced the key to publicMetadata
     const fromClerk = user?.publicMetadata?.apiKey as string | undefined;
     if (fromClerk) { setApiKey(fromClerk); return; }
-    // Slow path: ask server to get-or-create
+    // Slow path: ask server to get-or-create.
+    // Pass the Clerk session JWT as a Bearer token so the API server can
+    // verify the session in production (cookie-based auth doesn't cross the
+    // proxy boundary reliably on custom domains).
+    const token = await session?.getToken().catch(() => null);
+    const authHeader: Record<string, string> = token
+      ? { Authorization: `Bearer ${token}` }
+      : {};
     for (const method of ["POST", "GET"] as const) {
       try {
-        const r = await fetch(`${basePath}/api/user/api-key`, { method, credentials: "include" });
+        const r = await fetch(`${basePath}/api/user/api-key`, {
+          method,
+          credentials: "include",
+          headers: authHeader,
+        });
         if (!r.ok) continue;
         const data = await r.json();
         if (data?.apiKey) { setApiKey(data.apiKey); return; }
