@@ -15,10 +15,13 @@ import { WebhookHandlers } from "./webhookHandlers";
 
 const app: Express = express();
 
-// Redirect .replit.dev traffic to the custom domain
+// Redirect .replit.dev browser traffic to the custom domain (skip API calls)
 app.use((req, res, next) => {
   const host = req.hostname ?? "";
-  if (host.endsWith(".replit.dev") || host.endsWith(".riker.replit.dev")) {
+  if (
+    (host.endsWith(".replit.dev") || host.endsWith(".riker.replit.dev")) &&
+    !req.path.startsWith("/api/")
+  ) {
     const target = `https://mapleadextractor.net${req.originalUrl}`;
     return res.redirect(308, target);
   }
