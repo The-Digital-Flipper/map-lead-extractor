@@ -8,6 +8,8 @@
  */
 import { Router } from "express";
 import crypto from "node:crypto";
+import { db, logs } from "@workspace/db";
+import { desc } from "drizzle-orm";
 import { storage } from "../storage.js";
 
 const router = Router();
@@ -61,10 +63,16 @@ router.get("/user/info", (_req, res) => {
 });
 
 // ── POST /telemetry/log ───────────────────────────────────────────────────────
-// Anonymous diagnostics sink — log and acknowledge.
-router.post("/telemetry/log", (req, res) => {
-  const { appId, name, message, type } = req.body ?? {};
-  req.log.info({ appId, name, message, type }, "telemetry");
+// Anonymous diagnostics sink — persist to DB and acknowledge.
+router.post("/telemetry/log", async (req, res) => {
+  const e = req.body ?? {};
+  await db.insert(logs).values({
+    appId: e.appId ?? null,
+    name: e.name ?? null,
+    message: e.message ?? null,
+    type: e.type ?? null,
+  }).catch(() => {});
+  req.log.info({ name: e.name, type: e.type }, "extension telemetry");
   res.json({ code: 200, result: { ok: true } });
 });
 

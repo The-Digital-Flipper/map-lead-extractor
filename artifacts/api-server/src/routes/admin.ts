@@ -1,9 +1,26 @@
-import { Router } from "express";
-import { db, leads, users, computeOpportunity, computeValue } from "@workspace/db";
-import { sql, count, gte, eq } from "drizzle-orm";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import { db, leads, users, logs, computeOpportunity, computeValue } from "@workspace/db";
+import { sql, count, gte, eq, desc } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 
 const router = Router();
+
+// ── Admin secret guard ────────────────────────────────────────────────────────
+const ADMIN_SECRET = process.env.ADMIN_SECRET ?? "";
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const secret = req.headers["x-admin-secret"] ?? req.query.secret;
+  if (!ADMIN_SECRET || secret !== ADMIN_SECRET) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  next();
+}
+
+// ---- GET /logs — latest 100 extension telemetry rows -----------------------
+router.get("/logs", requireAdmin, async (_req, res) => {
+  const rows = await db.select().from(logs).orderBy(desc(logs.id)).limit(100);
+  res.json({ count: rows.length, logs: rows });
+});
 
 // ---- GET /stats — headline numbers ------------------------------------------
 router.get("/stats", async (_req, res) => {
