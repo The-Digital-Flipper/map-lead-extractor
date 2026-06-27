@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useUser } from "@clerk/react";
 import { useSignIn } from "@clerk/react/legacy";
 import { CheckCircle, Plug, AlertCircle, Loader2 } from "lucide-react";
+import { useSeo } from "@/lib/seo";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -300,6 +301,12 @@ function ConnectPanel({ apiKey, email }: { apiKey: string; email: string }) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 export default function ConnectExtension() {
+  useSeo({
+    title: "Connect Your Extension — Map Lead Extractor",
+    description:
+      "Link your Map Lead Extractor browser extension to your account to sync saved leads and unlock premium features.",
+    path: "/connect-extension",
+  });
   const { isLoaded, isSignedIn, user } = useUser();
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [keyError, setKeyError] = useState(false);
