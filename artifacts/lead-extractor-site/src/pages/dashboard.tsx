@@ -325,7 +325,6 @@ function ChartsPanel({ stats }: { stats: StatsData | null }) {
 export default function Dashboard() {
   const { user } = useUser();
   const { signOut } = useClerk();
-  const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -455,25 +454,14 @@ export default function Dashboard() {
     await persistNote(id, { ...existing, reminderDone: true });
   };
 
-  const apiKey = (user?.publicMetadata?.apiKey as string) || "— not generated yet —";
-
-  const handleCopyApiKey = async () => {
-    try { await navigator.clipboard.writeText(apiKey); setApiKeyCopied(true); setTimeout(() => setApiKeyCopied(false), 2000); } catch {}
-  };
-
-  // Fetch plan status + auto-generate API key
+  // Fetch plan status. (Extension connection is handled by the Google-login
+  // flow at /connect-extension, which get-or-creates the API key for the
+  // member — so no manual key UI is needed here.)
   useEffect(() => {
     fetch(`${basePath}/api/stripe/status`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
       .then((data: PlanStatus | null) => { if (data) setPlan(data); })
       .catch(() => {});
-
-    if (user && !user.publicMetadata?.apiKey) {
-      fetch(`${basePath}/api/user/generate-key`, { method: "POST", credentials: "include" })
-        .then(r => r.ok ? r.json() : null)
-        .then(() => { user.reload().catch(() => {}); })
-        .catch(() => {});
-    }
   }, [user]);
 
   // Fetch stats
@@ -819,25 +807,19 @@ export default function Dashboard() {
           {/* Plan banner */}
           <PlanBanner plan={plan} total={total} onManageBilling={handleManageBilling} onUpgrade={handleUpgrade} />
 
-          {/* API Key card */}
+          {/* Connect Extension card — one-click via Google, no API key to copy */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.1 }} className="mb-8">
-            <div className="bg-card border border-border rounded-2xl p-6">
-              <h2 className="text-lg font-display font-bold mb-1">Your API Key</h2>
-              <p className="text-sm text-muted-foreground mb-4">
-                Paste this into the extension settings to automatically save leads to your account.
-              </p>
-              <div className="flex items-center gap-3">
-                <code className="flex-1 bg-background border border-border rounded-lg px-4 py-3 font-mono text-sm text-primary truncate">
-                  {apiKey}
-                </code>
-                <button onClick={handleCopyApiKey}
-                  className="flex items-center gap-2 px-4 py-3 rounded-lg bg-primary/10 border border-primary/30 text-primary text-sm font-semibold hover:bg-primary/20 transition-colors shrink-0">
-                  {apiKeyCopied ? <><Check className="w-4 h-4" /> Copied!</> : <><Copy className="w-4 h-4" /> Copy</>}
-                </button>
+            <div className="bg-card border border-border rounded-2xl p-6 flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <h2 className="text-lg font-display font-bold mb-1">Connect your extension</h2>
+                <p className="text-sm text-muted-foreground">
+                  One click — sign in with Google and the extension links to your account automatically. Every extraction then auto-saves here.
+                </p>
               </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                Once entered, every extraction auto-saves here — phone, email, website, and all social profiles included.
-              </p>
+              <a href={`${basePath}/connect-extension`}
+                className="flex items-center gap-2 px-5 py-3 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity shrink-0">
+                <Zap className="w-4 h-4" /> Connect Extension
+              </a>
             </div>
           </motion.div>
 

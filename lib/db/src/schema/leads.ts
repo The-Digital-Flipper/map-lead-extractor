@@ -36,6 +36,11 @@ export const leads = pgTable("leads", {
   // Composite value 0-100 = need (opportunity) blended with demand. The single
   // "which leads are most valuable" ranking number.
   valueScore: integer("value_score").default(0),
+  // ── Enrichment (from crawling the lead's website) ─────────────────────────
+  enrichedAt: timestamp("enriched_at", { withTimezone: true }),
+  siteLive: boolean("site_live"),       // website actually loads
+  siteMobile: boolean("site_mobile"),   // has a mobile viewport (modern-ish)
+  hasBooking: boolean("has_booking"),   // online booking link detected
   gmapsUrl: text("gmaps_url"),
   plusCode: text("plus_code"),
   raw: jsonb("raw"),

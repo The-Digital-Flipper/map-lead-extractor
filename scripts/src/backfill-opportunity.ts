@@ -23,6 +23,10 @@ async function main() {
       category: leads.category,
       timesExtracted: leads.timesExtracted,
       extractedBy: leads.extractedBy,
+      enrichedAt: leads.enrichedAt,
+      siteLive: leads.siteLive,
+      siteMobile: leads.siteMobile,
+      hasBooking: leads.hasBooking,
     })
     .from(leads);
 
@@ -42,7 +46,7 @@ async function main() {
       rating: row.rating != null ? parseFloat(String(row.rating)) : null,
       reviewCount: row.reviewCount,
       category: row.category,
-    });
+    }, row.enrichedAt ? { siteLive: row.siteLive, siteMobile: row.siteMobile, hasBooking: row.hasBooking } : undefined);
 
     const timesExtracted = row.timesExtracted ?? 1;
     const distinctMembers = Array.isArray(row.extractedBy) ? row.extractedBy.length : 0;

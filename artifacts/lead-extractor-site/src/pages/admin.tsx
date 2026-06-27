@@ -206,6 +206,24 @@ export default function Admin() {
   const [sellResult, setSellResult] = useState<{ url: string; leadCount: number } | null>(null);
   const [sellError, setSellError] = useState("");
   const [copiedLink, setCopiedLink] = useState(false);
+  // Enrichment pass — crawl lead sites to score bad/old site + booking.
+  const [enriching, setEnriching] = useState(false);
+  const [enrichResult, setEnrichResult] = useState<{ enriched: number; remaining: number } | null>(null);
+  const runEnrich = async () => {
+    setEnriching(true);
+    try {
+      const r = await fetch(`${basePath}/api/admin/enrich`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 25 }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        setEnrichResult({ enriched: d.enriched, remaining: d.remaining });
+        fetch(`${basePath}/api/admin/opportunity-by-category${selectedState ? `?state=${selectedState}` : ""}`)
+          .then(rr => rr.json()).then(dd => { setCategoryMoney(dd.categories ?? []); setSummary(dd.summary ?? null); setNeeds(dd.needs ?? []); }).catch(() => {});
+      }
+    } catch { /* ignore */ }
+    setEnriching(false);
+  };
   const generateSaleLink = async () => {
     if (!sellPack) return;
     setSellLoading(true); setSellError(""); setSellResult(null);
@@ -485,6 +503,16 @@ export default function Admin() {
                     <a href={moneyExport("&minOpportunity=70")} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary/40 bg-primary/10 text-primary text-sm font-semibold hover:bg-primary/20 transition-colors">
                       <Flame className="w-4 h-4" /> Hot Only (70+)
                     </a>
+                    <button onClick={runEnrich} disabled={enriching}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
+                      title="Crawl lead websites to score bad/old sites + online booking">
+                      <RefreshCw className={`w-4 h-4 ${enriching ? "animate-spin" : ""}`} /> {enriching ? "Enriching…" : "Enrich sites (25)"}
+                    </button>
+                    {enrichResult && (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-background/40 border border-border text-xs text-muted-foreground">
+                        ✓ Enriched {enrichResult.enriched} · {enrichResult.remaining} left
+                      </div>
+                    )}
                     {hotPackValue > 0 && (
                       <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-background/40 border border-border text-sm">
                         <TrendingUp className="w-4 h-4 text-primary" />

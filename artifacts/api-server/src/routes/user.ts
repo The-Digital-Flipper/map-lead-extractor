@@ -43,20 +43,36 @@ router.post("/generate-key", async (req, res) => {
  * GET /api/user/api-key
  * Returns the current user's API key if one exists.
  */
-router.get("/api-key", async (req, res) => {
+// Get-or-create: returns the caller's API key, generating one (and mirroring it
+// to Clerk) if none exists. This is what /connect-extension relies on, so it
+// must never 404 for a signed-in member. Registered for GET and POST so either
+// verb works.
+async function getOrCreateApiKey(req: Parameters<typeof getAuth>[0] & { log?: { warn: (o: unknown, m: string) => void } }, res: { status: (n: number) => { json: (o: unknown) => void }; json: (o: unknown) => void }) {
   const auth = getAuth(req);
   if (!auth.userId) {
-    res.status(401).json({ error: "Unauthorized" });
+    res.status(401).json({ error: "Unauthorized", apiKey: null });
     return;
   }
 
-  const user = await storage.getUser(auth.userId);
-  if (!user?.apiKey) {
-    res.status(404).json({ apiKey: null });
-    return;
+  // Ensure the user row exists, then reuse an existing key or make a new one.
+  const email = (req as unknown as { auth?: { sessionClaims?: { email?: string } } }).auth?.sessionClaims?.email ?? "";
+  await storage.upsertUser(auth.userId, email);
+
+  let user = await storage.getUser(auth.userId);
+  let apiKey = user?.apiKey ?? null;
+  if (!apiKey) {
+    apiKey = await storage.generateApiKey(auth.userId);
+    try {
+      await clerkClient.users.updateUserMetadata(auth.userId, { publicMetadata: { apiKey } });
+    } catch {
+      req.log?.warn({ userId: auth.userId }, "Could not sync apiKey to Clerk metadata");
+    }
   }
 
-  res.json({ apiKey: user.apiKey });
-});
+  res.json({ apiKey });
+}
+
+router.get("/api-key", getOrCreateApiKey);
+router.post("/api-key", getOrCreateApiKey);
 
 export default router;

@@ -55,6 +55,17 @@ export interface OpportunityResult {
   needs: string[];          // weakness tags backing the score
 }
 
+// Signals from crawling the lead's website (the enrichment pass). Only meaningful
+// when the business HAS a website — they grade how bad/old it is.
+export interface EnrichmentSignals {
+  siteLive?: boolean | null;    // website actually loads
+  siteMobile?: boolean | null;  // has a mobile viewport meta (modern-ish)
+  hasBooking?: boolean | null;  // online booking link detected
+}
+export const NEED_DEAD_SITE = "Dead website";
+export const NEED_OLD_SITE = "Outdated website";
+export const NEED_NO_BOOKING = "No online booking";
+
 // ---- Opportunity score (0-100) ----------------------------------------------
 // Weighting rationale:
 //   • No website is the single biggest, easiest-to-sell gap            → 35
@@ -68,7 +79,7 @@ export interface OpportunityResult {
 // NOT YET DETECTABLE from Google Maps scrape data, so deliberately excluded:
 //   bad/old website quality, no online booking, no ads showing. These need a
 // follow-up crawl/enrichment pass before they can be scored honestly.
-export function computeOpportunity(lead: ScoreableLead): OpportunityResult {
+export function computeOpportunity(lead: ScoreableLead, enrichment?: EnrichmentSignals): OpportunityResult {
   const needs: string[] = [];
   let opportunityScore = 0;
 
@@ -78,6 +89,19 @@ export function computeOpportunity(lead: ScoreableLead): OpportunityResult {
   if (!lead.website) {
     opportunityScore += 35;
     needs.push(NEED_NO_WEBSITE);
+  } else if (enrichment) {
+    // Business HAS a website — grade how bad/old it is (only after enrichment).
+    if (enrichment.siteLive === false) {
+      opportunityScore += 25;
+      needs.push(NEED_DEAD_SITE);
+    } else if (enrichment.siteMobile === false) {
+      opportunityScore += 15;
+      needs.push(NEED_OLD_SITE);
+    }
+    if (enrichment.hasBooking === false) {
+      opportunityScore += 10;
+      needs.push(NEED_NO_BOOKING);
+    }
   }
   if (!hasSocial) {
     opportunityScore += 15;
@@ -102,7 +126,7 @@ export function computeOpportunity(lead: ScoreableLead): OpportunityResult {
     needs.push(NEED_HARD_TO_REACH);
   }
 
-  return { opportunityScore, needs };
+  return { opportunityScore: Math.min(100, opportunityScore), needs };
 }
 
 // ---- Demand score (0-100) ---------------------------------------------------

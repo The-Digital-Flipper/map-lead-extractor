@@ -278,19 +278,29 @@ function ConnectPanel({ apiKey, email }: { apiKey: string; email: string }) {
 export default function ConnectExtension() {
   const { isLoaded, isSignedIn, user } = useUser();
   const [apiKey, setApiKey] = useState<string | null>(null);
+  const [keyError, setKeyError] = useState(false);
+
+  // Resolve the member's key: use Clerk metadata if present, else get-or-create
+  // it from our API. Tries POST then GET, and NEVER spins forever — on failure
+  // it surfaces a retry instead of an endless loader.
+  async function resolveKey() {
+    setKeyError(false);
+    const fromClerk = user?.publicMetadata?.apiKey as string | undefined;
+    if (fromClerk) { setApiKey(fromClerk); return; }
+    for (const method of ["POST", "GET"] as const) {
+      try {
+        const r = await fetch(`${basePath}/api/user/api-key`, { method, credentials: "include" });
+        if (!r.ok) continue;
+        const data = await r.json();
+        if (data?.apiKey) { setApiKey(data.apiKey); return; }
+      } catch { /* try next */ }
+    }
+    setKeyError(true);
+  }
 
   useEffect(() => {
-    if (isSignedIn && user) {
-      const key = user.publicMetadata?.apiKey as string | undefined;
-      if (key) {
-        setApiKey(key);
-      } else {
-        fetch(`${basePath}/api/user/api-key`, { method: "POST", credentials: "include" })
-          .then((r) => r.json())
-          .then((data) => setApiKey(data.apiKey || null))
-          .catch(() => {});
-      }
-    }
+    if (isSignedIn && user) resolveKey();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn, user]);
 
   if (!isLoaded) {
@@ -305,10 +315,33 @@ export default function ConnectExtension() {
     return <SignInScreen />;
   }
 
+  if (keyError) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+        <AlertCircle className="w-8 h-8 text-yellow-400 mb-3" />
+        <h1 className="text-xl font-bold text-foreground mb-1">Couldn't set up your connection</h1>
+        <p className="text-sm text-muted-foreground max-w-sm mb-5">
+          We couldn't reach the server to link your account. This usually means the app needs a moment after a deploy — try again.
+        </p>
+        <div className="flex gap-3">
+          <button onClick={resolveKey}
+            className="px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity">
+            Try again
+          </button>
+          <a href={`${basePath}/dashboard`}
+            className="px-5 py-2.5 rounded-lg border border-border text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors">
+            Back to dashboard
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   if (!apiKey) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3">
         <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        <p className="text-xs text-muted-foreground">Linking your account…</p>
       </div>
     );
   }

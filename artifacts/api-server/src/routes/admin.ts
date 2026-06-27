@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, leads, users } from "@workspace/db";
-import { sql, count, gte } from "drizzle-orm";
+import { db, leads, users, computeOpportunity, computeValue } from "@workspace/db";
+import { sql, count, gte, eq } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 
 const router = Router();
@@ -252,6 +252,76 @@ router.get("/opportunity-by-category", async (req, res) => {
     },
     needs: (needsRows.rows as { need: string; cnt: number }[]).map(r => ({ need: r.need, count: Number(r.cnt) })),
   });
+});
+
+// ---- POST /enrich — crawl lead websites to score bad/old site + booking -----
+// Fetches each website and detects: liveness, mobile-friendliness, and online
+// booking links. Refines opportunity with signals we couldn't get from Google
+// Maps alone. NOTE: "no ads showing" still isn't detectable here (it needs a
+// paid SERP API), so it is deliberately not scored.
+const BOOKING_RE = /calendly\.com|opentable\.com|acuityscheduling|squareup\.com\/(appointments|book)|booksy|vagaro|resy\.com|setmore|schedulicity|mindbodyonline|getsquire|tidycal|book\s*(now|online|an appointment)|schedule\s*(now|online|an appointment)/i;
+
+async function crawlSite(rawUrl: string): Promise<{ siteLive: boolean; siteMobile: boolean; hasBooking: boolean }> {
+  let url = rawUrl.trim();
+  if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+  try {
+    const resp = await fetch(url, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(8000),
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; MapLeadEnrich/1.0)" },
+    });
+    const live = resp.status < 400;
+    let html = "";
+    try { html = (await resp.text()).slice(0, 300_000); } catch { /* body read failed */ }
+    const mobile = /<meta[^>]+name=["']viewport["']/i.test(html);
+    const booking = BOOKING_RE.test(html);
+    return { siteLive: live, siteMobile: mobile, hasBooking: booking };
+  } catch {
+    // Unreachable — a broken/parked site (real signal). In a sandbox that blocks
+    // outbound traffic this branch also fires, so run enrichment where the
+    // server can reach the public internet.
+    return { siteLive: false, siteMobile: false, hasBooking: false };
+  }
+}
+
+router.post("/enrich", async (req, res) => {
+  const limit = Math.min(50, Math.max(1, parseInt(String((req.body as { limit?: number })?.limit ?? 25), 10) || 25));
+
+  const batch = await db
+    .select()
+    .from(leads)
+    .where(sql`website IS NOT NULL AND website <> ''`)
+    .orderBy(sql`enriched_at ASC NULLS FIRST`)
+    .limit(limit);
+
+  let enriched = 0;
+  const results: { name: string | null; siteLive: boolean; siteMobile: boolean; hasBooking: boolean }[] = [];
+
+  for (const lead of batch) {
+    const signals = await crawlSite(lead.website as string);
+    const { opportunityScore, needs } = computeOpportunity({
+      phone: lead.phone, emails: lead.emails, website: lead.website,
+      facebook: lead.facebook, instagram: lead.instagram, twitter: lead.twitter, linkedin: lead.linkedin,
+      rating: lead.rating != null ? parseFloat(String(lead.rating)) : null,
+      reviewCount: lead.reviewCount, category: lead.category,
+    }, signals);
+    const valueScore = computeValue(opportunityScore, lead.demandScore ?? 0);
+
+    await db.update(leads).set({
+      enrichedAt: new Date(),
+      siteLive: signals.siteLive, siteMobile: signals.siteMobile, hasBooking: signals.hasBooking,
+      opportunityScore, needs, valueScore,
+    }).where(eq(leads.id, lead.id));
+
+    enriched++;
+    results.push({ name: lead.name, ...signals });
+  }
+
+  const remRows = await db.execute(sql`SELECT COUNT(*)::int AS c FROM leads WHERE website IS NOT NULL AND website <> '' AND enriched_at IS NULL`);
+  const remaining = (remRows.rows[0] as { c: number }).c;
+
+  req.log.info({ enriched, remaining }, "enrichment batch done");
+  res.json({ enriched, remaining, results });
 });
 
 // ---- POST /packs/checkout — create a Stripe Checkout link to SELL a pack ----
