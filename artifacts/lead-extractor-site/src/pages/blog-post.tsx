@@ -1,9 +1,13 @@
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, Clock, Zap } from "lucide-react";
 import { useParams } from "wouter";
 import { posts, type Post } from "@/data/posts";
 import NotFound from "@/pages/not-found";
 import { useSeo } from "@/lib/seo";
+
+const SITE = "https://mapleadextractor.net";
+const DEFAULT_IMAGE = `${SITE}/opengraph.jpg`;
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
 
@@ -15,6 +19,22 @@ const categoryColors: Record<string, string> = {
   "Use Cases": "bg-primary/10 text-primary border-primary/30",
   Legal: "bg-red-500/10 text-red-400 border-red-500/30",
 };
+
+function renderParts(parts: import("@/data/posts").Part[]) {
+  return parts.map((part, j) =>
+    part.type === "link" ? (
+      <a
+        key={j}
+        href={part.href}
+        className="text-primary underline underline-offset-2 hover:opacity-80 transition-opacity"
+      >
+        {part.value}
+      </a>
+    ) : (
+      <span key={j}>{part.value}</span>
+    )
+  );
+}
 
 function renderContent(post: Post) {
   return post.content.map((section, i) => {
@@ -34,7 +54,7 @@ function renderContent(post: Post) {
       case "p":
         return (
           <p key={i} className="text-muted-foreground leading-relaxed mb-5">
-            {section.text}
+            {section.parts ? renderParts(section.parts) : section.text}
           </p>
         );
       case "ul":
@@ -65,7 +85,9 @@ function renderContent(post: Post) {
         return (
           <div key={i} className="my-6 p-5 rounded-xl border border-primary/30 bg-primary/5">
             <p className="text-sm font-semibold text-primary mb-1">💡 Pro Tip</p>
-            <p className="text-sm text-muted-foreground leading-relaxed">{section.text}</p>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              {section.parts ? renderParts(section.parts) : section.text}
+            </p>
           </div>
         );
       default:
@@ -84,6 +106,38 @@ export default function BlogPost() {
     description: post?.description,
     path: `/blog/${slug ?? ""}`,
   });
+
+  useEffect(() => {
+    if (!post) return;
+    const schema = {
+      "@context": "https://schema.org",
+      "@type": "BlogPosting",
+      headline: post.title,
+      description: post.description,
+      datePublished: post.datePublished,
+      dateModified: post.dateModified ?? post.datePublished,
+      author: { "@type": "Person", name: post.authorName },
+      publisher: {
+        "@type": "Organization",
+        name: "MapLeadExtractor",
+        url: SITE,
+      },
+      mainEntityOfPage: `${SITE}/blog/${post.slug}`,
+      image: DEFAULT_IMAGE,
+      articleSection: post.category,
+      url: `${SITE}/blog/${post.slug}`,
+    };
+    const script = document.createElement("script");
+    script.type = "application/ld+json";
+    script.id = "blogposting-jsonld";
+    script.text = JSON.stringify(schema);
+    const existing = document.getElementById("blogposting-jsonld");
+    if (existing) existing.remove();
+    document.head.appendChild(script);
+    return () => {
+      document.getElementById("blogposting-jsonld")?.remove();
+    };
+  }, [post]);
 
   if (!post) return <NotFound />;
 

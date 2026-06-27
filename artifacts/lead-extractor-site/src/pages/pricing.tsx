@@ -6,6 +6,13 @@ import { useSeo } from "@/lib/seo";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+const PRICING_FAQ = [
+  { q: "What counts as a lead?", a: "Each business listing you extract — one Google Maps result = one lead." },
+  { q: "What happens when I hit 100 leads on Free?", a: "The extension will show a notice and stop saving new leads to the cloud. You can still extract locally and export — just no more cloud storage." },
+  { q: "Can I cancel anytime?", a: "Yes. Cancel from your dashboard and you keep Pro access until the end of your billing period." },
+  { q: "Is my data safe?", a: "Your leads are stored in a private PostgreSQL database. Only you can see them from your dashboard." },
+];
+
 interface Price {
   id: string;
   amount: number;
@@ -45,6 +52,29 @@ export default function Pricing() {
     description: "Start free, upgrade to Pro for unlimited lead saves and the full money-lead scoring suite. Simple pricing for Google & Bing Maps lead extraction.",
     path: "/pricing",
   });
+
+  useEffect(() => {
+    const schema = {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: PRICING_FAQ.map(({ q, a }) => ({
+        "@type": "Question",
+        name: q,
+        acceptedAnswer: { "@type": "Answer", text: a },
+      })),
+    };
+    const script = document.createElement("script");
+    script.type = "application/ld+json";
+    script.id = "faqpage-jsonld-pricing";
+    script.text = JSON.stringify(schema);
+    const existing = document.getElementById("faqpage-jsonld-pricing");
+    if (existing) existing.remove();
+    document.head.appendChild(script);
+    return () => {
+      document.getElementById("faqpage-jsonld-pricing")?.remove();
+    };
+  }, []);
+
   const { isSignedIn } = useUser();
   const [billingInterval, setBillingInterval] = useState<"month" | "year">("month");
   const [products, setProducts] = useState<Product[]>([]);
@@ -224,12 +254,7 @@ export default function Pricing() {
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.25 }} className="mt-20 max-w-2xl mx-auto">
             <h2 className="text-2xl font-display font-bold text-center mb-8">Common questions</h2>
             <div className="space-y-4">
-              {[
-                { q: "What counts as a lead?", a: "Each business listing you extract — one Google Maps result = one lead." },
-                { q: "What happens when I hit 100 leads on Free?", a: "The extension will show a notice and stop saving new leads to the cloud. You can still extract locally and export — just no more cloud storage." },
-                { q: "Can I cancel anytime?", a: "Yes. Cancel from your dashboard and you keep Pro access until the end of your billing period." },
-                { q: "Is my data safe?", a: "Your leads are stored in a private PostgreSQL database. Only you can see them from your dashboard." },
-              ].map(({ q, a }) => (
+              {PRICING_FAQ.map(({ q, a }) => (
                 <div key={q} className="bg-card border border-border rounded-xl p-5">
                   <div className="font-semibold mb-1">{q}</div>
                   <div className="text-sm text-muted-foreground">{a}</div>

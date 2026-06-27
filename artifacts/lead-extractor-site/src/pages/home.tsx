@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Download, Map, Zap, Search, Chrome, FileSpreadsheet, Lock, Shield, Settings2, Code2, Users, Database, Pin, MousePointerClick, Play, CheckCircle2, Package, Globe, Star, MapPin, Building2, Calendar, Share2, TrendingUp } from "lucide-react";
 import { SiGoogle, SiGooglechrome, SiFacebook, SiYelp } from "react-icons/si";
@@ -53,6 +53,57 @@ function PhotoSlot({ icon, label, hint }: { icon: React.ReactNode; label: string
 }
 
 export default function Home() {
+  useEffect(() => {
+    const schema = {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: [
+        {
+          "@type": "Question",
+          name: "Is it really free?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Yes. Completely free. There are no paid tiers, no credits, and no paywalls. If you get value out of the tool and close deals, we provide an option to drop a tip, but it is never required.",
+          },
+        },
+        {
+          "@type": "Question",
+          name: "Where is the data stored?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Nowhere but your own hard drive. The extension runs entirely in your browser's local memory and exports directly to your Downloads folder. We do not have servers, databases, or tracking telemetry.",
+          },
+        },
+        {
+          "@type": "Question",
+          name: "Why are there two different extensions?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Google Maps and Bing Maps have completely different underlying architectures. To provide the fastest, most resilient lead finding possible, we built dedicated engines for each platform rather than a bloated, fragile hybrid.",
+          },
+        },
+        {
+          "@type": "Question",
+          name: "Does it get emails?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Yes. While map platforms rarely list emails directly, our optional \"Website Enrichment\" feature instructs the extension to visit the business's linked website in the background, scan the HTML, and extract any public email addresses or social media links it finds.",
+          },
+        },
+      ],
+    };
+    const script = document.createElement("script");
+    script.type = "application/ld+json";
+    script.id = "faqpage-jsonld-home";
+    script.text = JSON.stringify(schema);
+    const existing = document.getElementById("faqpage-jsonld-home");
+    if (existing) existing.remove();
+    document.head.appendChild(script);
+    return () => {
+      document.getElementById("faqpage-jsonld-home")?.remove();
+    };
+  }, []);
+
   useSeo({
     title: "Map Lead Extractor — Find Google & Bing Maps Leads to CSV",
     description: "Extract local business leads from Google Maps & Bing Maps — names, phones, emails, websites & ratings — and export to CSV in seconds. Or buy ready-scored leads by industry and city.",

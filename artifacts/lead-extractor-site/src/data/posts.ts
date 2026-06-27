@@ -1,17 +1,34 @@
+export interface TextPart {
+  type: "text";
+  value: string;
+}
+
+export interface LinkPart {
+  type: "link";
+  href: string;
+  value: string;
+}
+
+export type Part = TextPart | LinkPart;
+
+interface Section {
+  type: "h2" | "h3" | "p" | "ul" | "ol" | "tip";
+  text?: string;
+  parts?: Part[];
+  items?: string[];
+}
+
 export interface Post {
   slug: string;
   title: string;
   description: string;
   date: string;
+  datePublished: string;
+  dateModified?: string;
   readTime: string;
   category: string;
+  authorName: string;
   content: Section[];
-}
-
-interface Section {
-  type: "h2" | "h3" | "p" | "ul" | "ol" | "tip";
-  text?: string;
-  items?: string[];
 }
 
 export const posts: Post[] = [
@@ -20,12 +37,18 @@ export const posts: Post[] = [
     title: "How to Find Google Maps Leads in 2025 (No Code Required)",
     description: "A step-by-step guide to extracting business names, phone numbers, emails, and websites from Google Maps without writing a single line of code.",
     date: "June 18, 2025",
+    datePublished: "2025-06-18",
     readTime: "6 min read",
     category: "Tutorial",
+    authorName: "MapLeadExtractor Team",
     content: [
       { type: "p", text: "Google Maps holds contact information for over 200 million businesses worldwide. For sales teams, agencies, and freelancers, it's the most up-to-date B2B database on the planet — and it's free to browse." },
       { type: "p", text: "The problem? Manually copying names, phones, and websites one by one is brutally slow. A search for 'plumbers in Chicago' returns hundreds of results. Even at 30 seconds per listing, that's hours of copy-paste work." },
-      { type: "p", text: "This guide shows you how to extract leads from Google Maps in bulk — automatically — without writing any code." },
+      { type: "p", parts: [
+        { type: "text", value: "This guide shows you how to extract leads from Google Maps in bulk — automatically — without writing any code. Before you start, it's worth understanding " },
+        { type: "link", href: "/blog/google-maps-vs-data-providers", value: "how Google Maps compares to paid lead databases" },
+        { type: "text", value: " so you can choose the right tool for each campaign." },
+      ]},
       { type: "h2", text: "What You'll Extract" },
       { type: "ul", items: ["Business name", "Phone number", "Website URL", "Full address", "Star rating & review count", "Google Maps URL (direct link to the listing)", "Plus code location"] },
       { type: "h2", text: "Step 1: Install the Extension" },
@@ -38,7 +61,11 @@ export const posts: Post[] = [
       { type: "p", text: "In the extension side panel, press the green 'Start Extracting' button. The extension will automatically scroll through every result in the sidebar, open each listing, and harvest all available contact data." },
       { type: "p", text: "Speed depends on how many results Google returns. Typically, you'll see 100–400 leads extracted per 10 minutes." },
       { type: "h2", text: "Step 4: Export to CSV" },
-      { type: "p", text: "When the extraction finishes (or whenever you want to pause), hit 'Export CSV'. You get a clean spreadsheet with column headers that opens directly in Excel or Google Sheets — ready to import into any CRM." },
+      { type: "p", parts: [
+        { type: "text", value: "When the extraction finishes (or whenever you want to pause), hit 'Export CSV'. You get a clean spreadsheet with column headers that opens directly in Excel or Google Sheets — ready to import into any CRM. Once you have your list, see our guide on " },
+        { type: "link", href: "/blog/cold-email-from-google-maps-leads", value: "cold emails that convert Google Maps leads into booked calls" },
+        { type: "text", value: "." },
+      ]},
       { type: "h2", text: "Frequently Asked Questions" },
       { type: "h3", text: "Is this legal?" },
       { type: "p", text: "The data on Google Maps is publicly visible to anyone with a browser. The extension reads the same data you'd see if you clicked each listing manually — it just does it faster. Review Google's Terms of Service for your specific use case." },
@@ -53,10 +80,16 @@ export const posts: Post[] = [
     title: "Google Maps vs. Paid Lead Databases: Which Is Better in 2025?",
     description: "We compare real-time Google Maps extraction against ZoomInfo, Apollo, and Hunter to find out which source gives you more accurate, more actionable leads.",
     date: "June 10, 2025",
+    datePublished: "2025-06-10",
     readTime: "8 min read",
     category: "Comparison",
+    authorName: "MapLeadExtractor Team",
     content: [
-      { type: "p", text: "Sales teams have two main options for B2B contact data: pay for a database subscription (ZoomInfo, Apollo, Hunter, Lusha) or extract it fresh from Google Maps. Both have real advantages. Here's an honest breakdown." },
+      { type: "p", parts: [
+        { type: "text", value: "Sales teams have two main options for B2B contact data: pay for a database subscription (ZoomInfo, Apollo, Hunter, Lusha) or " },
+        { type: "link", href: "/blog/how-to-scrape-google-maps-leads", value: "extract it fresh from Google Maps" },
+        { type: "text", value: ". Both have real advantages. Here's an honest breakdown." },
+      ]},
       { type: "h2", text: "Data Freshness" },
       { type: "p", text: "This is where Google Maps wins by a large margin. ZoomInfo data has a known decay rate — studies estimate 30% of B2B contact data goes stale every year. Numbers change, businesses close, staff move on." },
       { type: "p", text: "Google Maps data is live. If a business updated their phone number yesterday, Google Maps shows it today. When you extract from Maps, you're pulling the same data a customer would see right now." },
@@ -69,7 +102,11 @@ export const posts: Post[] = [
       { type: "h2", text: "Best Use Cases for Google Maps Extraction" },
       { type: "ul", items: ["Local agency prospecting (web design, SEO, social media)", "Home services outreach (HVAC, plumbing, electrical contractors)", "Restaurant and hospitality industry outreach", "Healthcare and medical practice prospecting", "Real estate and mortgage lead gen", "Franchise development research"] },
       { type: "h2", text: "Verdict" },
-      { type: "p", text: "Use Google Maps Lead Extractor for local and SMB outreach where freshness matters more than depth. Use a paid database when you need named contacts at large enterprises. Many serious sales teams use both — Maps for volume and freshness, paid databases for specific decision-maker targeting." },
+      { type: "p", parts: [
+        { type: "text", value: "Use Google Maps Lead Extractor for local and SMB outreach where freshness matters more than depth. Use a paid database when you need named contacts at large enterprises. Many serious sales teams use both — Maps for volume and freshness, paid databases for specific decision-maker targeting. Ready to get started? " },
+        { type: "link", href: "/blog/how-to-scrape-google-maps-leads", value: "Follow our step-by-step extraction guide" },
+        { type: "text", value: " to pull your first list in under 10 minutes." },
+      ]},
     ],
   },
   {
@@ -77,8 +114,10 @@ export const posts: Post[] = [
     title: "Why Bing Maps Is an Untapped Lead Source Your Competitors Are Ignoring",
     description: "Bing Maps has 15% of the map search market and frequently shows different — sometimes better — local business data than Google. Here's how to use it for lead generation.",
     date: "June 3, 2025",
+    datePublished: "2025-06-03",
     readTime: "5 min read",
     category: "Strategy",
+    authorName: "MapLeadExtractor Team",
     content: [
       { type: "p", text: "Every sales tool, every prospecting guide, every lead generation course tells you to use Google Maps. Which means every one of your competitors is fishing in the same pond." },
       { type: "p", text: "Bing Maps has 15% of the map search market — roughly 900 million monthly searches. More importantly, the business listings on Bing are sourced differently than Google, which means the data isn't always identical." },
@@ -88,7 +127,11 @@ export const posts: Post[] = [
       { type: "p", text: "For lead generation, this data divergence is actually an opportunity. Running the same search on both platforms and combining the results can increase your total leads by 15–25%." },
       { type: "h2", text: "How to Extract Leads from Bing Maps" },
       { type: "p", text: "Map Lead Extractor (v2.5.5) works identically to the Google Maps version but on Bing Maps. Install it from the Chrome Web Store, navigate to bing.com/maps, search for your target business type, and press Start." },
-      { type: "tip", text: "Strategy: run the same search on Google Maps first, export to CSV, then run the same search on Bing Maps. Combine both spreadsheets and deduplicate by phone number or business name. You'll end up with a bigger, more complete lead list than either platform alone." },
+      { type: "tip", parts: [
+        { type: "text", value: "Strategy: " },
+        { type: "link", href: "/blog/how-to-scrape-google-maps-leads", value: "run the Google Maps extraction first" },
+        { type: "text", value: ", export to CSV, then run the same search on Bing Maps. Combine both spreadsheets and deduplicate by phone number or business name. You'll end up with a bigger, more complete lead list than either platform alone." },
+      ]},
       { type: "h2", text: "Best Markets to Target on Bing Maps" },
       { type: "p", text: "Bing's user base skews older (35+), higher income, and more Windows-desktop. This makes it particularly strong for:" },
       { type: "ul", items: ["Financial services (accountants, advisors, tax professionals)", "Healthcare and medical practices", "Legal services", "Home improvement and contracting", "Insurance agencies"] },
@@ -101,10 +144,16 @@ export const posts: Post[] = [
     title: "How to Write Cold Emails That Actually Convert Google Maps Leads",
     description: "Extracting leads is step one. Here's the proven cold email framework that turns Google Maps data into booked calls and paying clients.",
     date: "May 27, 2025",
+    datePublished: "2025-05-27",
     readTime: "7 min read",
     category: "Outreach",
+    authorName: "MapLeadExtractor Team",
     content: [
-      { type: "p", text: "You've extracted 300 leads from Google Maps. Now what? Raw data is worthless without a system to convert it. Here's the cold email approach that actually works for local B2B outreach." },
+      { type: "p", parts: [
+        { type: "text", value: "You've extracted 300 leads from Google Maps — if you haven't yet, start with our guide on " },
+        { type: "link", href: "/blog/how-to-scrape-google-maps-leads", value: "how to extract Google Maps leads in bulk" },
+        { type: "text", value: ". Raw data is worthless without a system to convert it. Here's the cold email approach that actually works for local B2B outreach." },
+      ]},
       { type: "h2", text: "The Core Principle: Be Specific" },
       { type: "p", text: "Generic cold emails die in the spam folder. The advantage of Google Maps leads is that you know exactly what kind of business you're contacting, where they are, and how they're performing (rating, review count). Use that." },
       { type: "p", text: "Bad: 'Hi, I help businesses grow online.'" },
@@ -130,8 +179,10 @@ export const posts: Post[] = [
     title: "The Freelance Web Designer's Guide to Finding Clients on Google Maps",
     description: "How to use Google Maps to find local businesses with bad websites, extract their contact info, and pitch them a redesign that converts.",
     date: "May 20, 2025",
+    datePublished: "2025-05-20",
     readTime: "6 min read",
     category: "Use Cases",
+    authorName: "MapLeadExtractor Team",
     content: [
       { type: "p", text: "Finding clients is the hardest part of freelancing. Most designers spend hours on job boards competing against a hundred other applicants for the same gig. There's a better way." },
       { type: "p", text: "Google Maps lists every local business in your area — and most of them have websites that desperately need a redesign. They just don't know it yet. Your job is to find them, reach out, and make the case." },
@@ -141,7 +192,11 @@ export const posts: Post[] = [
       { type: "p", text: "Extract 200 leads from a target category, open each website, and flag the worst ones. You're looking for sites that are: not mobile-responsive, haven't been updated since 2018, have no online booking, or have broken links/images." },
       { type: "h2", text: "The Audit Pitch" },
       { type: "p", text: "Don't cold pitch a redesign. Pitch a free audit. 'I did a quick review of your website and found 5 things that are probably costing you customers — happy to send the full breakdown?' is far less threatening than 'I want to redesign your website for $3,000.'" },
-      { type: "p", text: "The audit gets you a reply. The reply starts a conversation. The conversation leads to a project." },
+      { type: "p", parts: [
+        { type: "text", value: "The audit gets you a reply. The reply starts a conversation. The conversation leads to a project. For the outreach itself, our guide on " },
+        { type: "link", href: "/blog/cold-email-from-google-maps-leads", value: "cold emails that convert local leads" },
+        { type: "text", value: " walks you through a proven framework for getting replies from the businesses you find." },
+      ]},
       { type: "h2", text: "Realistic Numbers" },
       { type: "p", text: "Based on real users of this tool:" },
       { type: "ul", items: ["200 leads extracted → ~40 emails sent (after filtering) → 8–12 replies → 3–5 calls → 1–2 projects", "Average local business web project: $1,500–$5,000", "Monthly prospecting time: 4–6 hours"] },
@@ -156,13 +211,19 @@ export const posts: Post[] = [
     title: "Is Finding Leads on Google Maps Legal? GDPR, ToS, and What You Need to Know",
     description: "A plain-language breakdown of the legal landscape around Google Maps data extraction — what's fine, what's risky, and how to stay compliant.",
     date: "May 13, 2025",
+    datePublished: "2025-05-13",
     readTime: "5 min read",
     category: "Legal",
+    authorName: "MapLeadExtractor Team",
     content: [
       { type: "p", text: "This is not legal advice. But here's what you should understand about the legal landscape before building a lead gen workflow on Google Maps data." },
       { type: "h2", text: "The Data Is Publicly Visible" },
       { type: "p", text: "Business name, phone number, address, hours, website — all of this information is publicly displayed on Google Maps to anyone with a browser. Businesses put it there intentionally so customers can find them." },
-      { type: "p", text: "In most jurisdictions, extracting publicly visible business contact data for legitimate commercial outreach is legal. You're not accessing any non-public system or bypassing any security measure." },
+      { type: "p", parts: [
+        { type: "text", value: "In most jurisdictions, extracting publicly visible business contact data for legitimate commercial outreach is legal. For a practical overview of how to do this responsibly, see our guide on " },
+        { type: "link", href: "/blog/how-to-scrape-google-maps-leads", value: "extracting leads from Google Maps" },
+        { type: "text", value: "." },
+      ]},
       { type: "h2", text: "Google's Terms of Service" },
       { type: "p", text: "Google's ToS restricts automated data extraction from their services. Our extension works differently — it runs in your browser, on your account, reading the same page you'd see manually. It doesn't hit Google's API or backend directly." },
       { type: "p", text: "Google could theoretically take action against accounts that appear to be extracting data at scale. In practice, the extension throttles its speed to stay within normal browsing patterns." },
@@ -182,15 +243,21 @@ export const posts: Post[] = [
     title: "How to Find Local Businesses With No Website in 2026",
     description: "The fastest ways to find local businesses with no website — the warmest prospects for web designers, agencies, and SEO freelancers. Free and paid methods.",
     date: "June 20, 2026",
+    datePublished: "2026-06-20",
     readTime: "7 min read",
     category: "Strategy",
+    authorName: "MapLeadExtractor Team",
     content: [
       { type: "p", text: "A local business with no website is the single warmest lead a web designer or marketing agency can find. The gap is obvious, the owner usually knows it, and the pitch practically writes itself: 'I noticed you don't have a website — here's what it's costing you.'" },
       { type: "p", text: "This guide shows you three ways to find businesses with no website, from a free DIY method to buying a ready-made, pre-scored list." },
       { type: "h2", text: "Why no-website businesses are the best leads" },
       { type: "ul", items: ["A clear, undeniable problem you can solve", "Almost no competition reaching out about it", "A fast yes/no — they either want one or they don't", "High lifetime value once you build it and host it", "Natural upsells: SEO, Google Business Profile, ads, booking"] },
       { type: "h2", text: "Method 1: Extract them from Google Maps for free" },
-      { type: "p", text: "Search a business type and city on Google Maps — for example, 'plumbers in Tampa'. Many listings show a 'Website' button; the ones missing it usually have no site at all. Doing this by hand is slow, so use a lead extractor to pull every listing at once with a Website column you can sort." },
+      { type: "p", parts: [
+        { type: "text", value: "Search a business type and city on Google Maps — for example, 'plumbers in Tampa'. Many listings show a 'Website' button; the ones missing it usually have no site at all. Doing this by hand is slow, so " },
+        { type: "link", href: "/connect-extension", value: "install Map Lead Extractor" },
+        { type: "text", value: " to pull every listing at once with a Website column you can sort." },
+      ]},
       { type: "p", text: "Run Map Lead Extractor on the search, export to CSV, then filter the Website column for blanks. What's left is a list of local businesses with no website — your prospect list." },
       { type: "tip", text: "Pro tip: target trades and service businesses (roofers, plumbers, landscapers, salons). They convert far better than retail because a single new customer is worth hundreds or thousands of dollars to them." },
       { type: "h2", text: "Method 2: Buy a ready-made, pre-scored list" },
@@ -199,7 +266,11 @@ export const posts: Post[] = [
       { type: "p", text: "The hottest prospects fail more than one test: no website AND few reviews AND a low rating. Those owners feel invisible online and are the most receptive to help. Score each lead on these signals and work the highest-scoring ones first." },
       { type: "h2", text: "How to pitch a no-website business" },
       { type: "ol", items: ["Lead with the gap: 'You came up on Google Maps but I couldn't find a website.'", "Quantify the cost: customers who can't find you go to a competitor who has one.", "Make it easy: offer a simple 3–5 page site for a flat price with hosting included.", "Stack the value: add Google Business Profile cleanup and reviews as an upsell."] },
-      { type: "p", text: "Whether you extract them yourself or buy a list, no-website businesses are the lowest-friction sale in local marketing. Build your list, work the trades first, and lead with the gap." },
+      { type: "p", parts: [
+        { type: "text", value: "Whether you extract them yourself or buy a list, no-website businesses are the lowest-friction sale in local marketing. Build your list, work the trades first, and lead with the gap. Once you have your leads, see our guide on " },
+        { type: "link", href: "/blog/lead-generation-for-web-designers", value: "finding clients on Google Maps as a freelance web designer" },
+        { type: "text", value: " for a full pitching playbook." },
+      ]},
     ],
   },
   {
@@ -207,8 +278,10 @@ export const posts: Post[] = [
     title: "Where to Buy Local Business Leads That Actually Convert (2026)",
     description: "A practical guide to buying local business leads — what makes a lead worth paying for, what to avoid, and how to get pre-scored leads by industry and city.",
     date: "June 16, 2026",
+    datePublished: "2026-06-16",
     readTime: "6 min read",
     category: "Strategy",
+    authorName: "MapLeadExtractor Team",
     content: [
       { type: "p", text: "Buying local business leads can save you hours of prospecting — but only if the leads are fresh, accurate, and matched to what you sell. Here's how to buy leads that actually convert, and how to avoid the lists that waste your money." },
       { type: "h2", text: "What makes a local lead worth paying for" },
@@ -221,7 +294,11 @@ export const posts: Post[] = [
       { type: "p", text: "We sell local business leads extracted from Google and Bing Maps, scored for opportunity and value, and filtered by lead type, industry, and city or state. Each pack arrives as a clean CSV with name, phone, email, website, category and ratings — ready to load into your CRM or dialer." },
       { type: "tip", text: "Start small: buy one tightly-targeted pack (e.g., 'no-website roofers in Phoenix'), run your pitch, measure the close rate, then scale the niches that work." },
       { type: "h2", text: "Buy vs. extract yourself" },
-      { type: "p", text: "If you have time, our extension lets you build lists for free. If you'd rather spend that time selling, buying a ready-scored pack is the faster path. Many users do both — extract their core market and buy packs for new territories." },
+      { type: "p", parts: [
+        { type: "text", value: "If you have time, " },
+        { type: "link", href: "/connect-extension", value: "our extension lets you build lists for free" },
+        { type: "text", value: ". If you'd rather spend that time selling, buying a ready-scored pack is the faster path. Many users do both — extract their core market and buy packs for new territories." },
+      ]},
     ],
   },
   {
@@ -229,8 +306,10 @@ export const posts: Post[] = [
     title: "How to Extract Emails From Google Maps (Free, No Code)",
     description: "Google Maps doesn't show emails — but you can still get them. Here's how to extract business emails from Google Maps listings automatically and export to CSV.",
     date: "June 12, 2026",
+    datePublished: "2026-06-12",
     readTime: "5 min read",
     category: "Tutorial",
+    authorName: "MapLeadExtractor Team",
     content: [
       { type: "p", text: "Google Maps lists phone numbers and websites, but it almost never shows a business email directly. The good news: the email is usually one click away — on the business's own website — and you can collect it automatically." },
       { type: "h2", text: "Why emails aren't on the Maps listing" },
@@ -239,7 +318,11 @@ export const posts: Post[] = [
       { type: "p", text: "Run a Google Maps search for your target, then use Map Lead Extractor to pull every listing, including the website URL for each business. That website is the key to finding the email." },
       { type: "h2", text: "Step 2: Turn on email enrichment" },
       { type: "p", text: "With enrichment enabled, the extension quietly visits each business's website in the background and finds any contact emails and social links there — no manual clicking, no copy-paste." },
-      { type: "tip", text: "Enrichment works best on businesses that have a website. For no-website businesses, the phone number is your channel — and those are often your most valuable prospects anyway." },
+      { type: "tip", parts: [
+        { type: "text", value: "Enrichment works best on businesses that have a website. For " },
+        { type: "link", href: "/blog/how-to-find-businesses-with-no-website", value: "no-website businesses" },
+        { type: "text", value: ", the phone number is your channel — and those are often your most valuable prospects anyway." },
+      ]},
       { type: "h2", text: "Step 3: Export to CSV" },
       { type: "p", text: "When the run finishes, export to CSV. You get a spreadsheet with name, phone, website, social profiles, and any emails found — ready for your outreach tool or CRM." },
       { type: "h2", text: "Is extracting business emails allowed?" },
@@ -251,8 +334,10 @@ export const posts: Post[] = [
     title: "Lead Generation for Marketing Agencies: The 2026 Playbook",
     description: "A complete lead generation playbook for digital marketing and SMMA agencies — how to find, score, and close local business clients from Google and Bing Maps.",
     date: "June 8, 2026",
+    datePublished: "2026-06-08",
     readTime: "9 min read",
     category: "Use Cases",
+    authorName: "MapLeadExtractor Team",
     content: [
       { type: "p", text: "Every digital marketing agency lives or dies by its pipeline. The fastest, cheapest source of qualified local clients isn't paid ads or cold lists — it's the businesses already visible on Google and Bing Maps that have an obvious marketing gap." },
       { type: "h2", text: "Step 1: Pick a niche and a service" },
@@ -266,7 +351,11 @@ export const posts: Post[] = [
       { type: "p", text: "Because you scored each lead, your first line writes itself: 'I saw your shop on Google Maps but couldn't find a website.' Specific, true observations beat generic templates every time." },
       { type: "tip", text: "Track status per lead — new, contacted, converted — so you can follow up systematically. Most local sales happen on the 2nd–4th touch, not the first." },
       { type: "h2", text: "Step 5: Don't want to prospect? Buy the list" },
-      { type: "p", text: "If your team would rather sell than build lists, you can buy pre-scored lead packs filtered by industry and city. It turns prospecting from a daily chore into a one-time purchase, so your closers spend their time closing." },
+      { type: "p", parts: [
+        { type: "text", value: "If your team would rather sell than build lists, you can " },
+        { type: "link", href: "/blog/where-to-buy-local-business-leads", value: "buy pre-scored lead packs filtered by industry and city" },
+        { type: "text", value: ". It turns prospecting from a daily chore into a one-time purchase, so your closers spend their time closing." },
+      ]},
       { type: "h2", text: "Putting it together" },
       { type: "p", text: "Niche down, build a scored list from Google and Bing Maps (or buy one), lead with the specific gap, and follow up. That loop — repeated weekly — is how agencies keep a full pipeline without burning cash on ads." },
     ],
