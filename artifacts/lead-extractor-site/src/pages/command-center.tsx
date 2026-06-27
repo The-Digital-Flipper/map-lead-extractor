@@ -61,7 +61,7 @@ export default function CommandCenter() {
   const [bulkPhones, setBulkPhones] = useState("");
   const [bulkMessage, setBulkMessage] = useState("");
   const [bulkSending, setBulkSending] = useState(false);
-  const [bulkResult, setBulkResult] = useState<{ sent: number; failed: number } | null>(null);
+  const [bulkResult, setBulkResult] = useState<{ sent: number; failed: number; errors: { phone: string; error: string }[] } | null>(null);
   const [tab, setTab] = useState<"inbox" | "bulk">(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("tab") === "bulk" ? "bulk" : "inbox";
@@ -208,8 +208,11 @@ export default function CommandCenter() {
         body: JSON.stringify({ phones, message: bulkMessage.trim() }),
       });
       const d = await r.json();
-      setBulkResult({ sent: d.sent ?? 0, failed: d.failed ?? 0 });
-    } catch { setBulkResult({ sent: 0, failed: phones.length }); }
+      const errors = (d.results ?? [])
+        .filter((r: { ok: boolean; phone: string; error?: string }) => !r.ok)
+        .map((r: { ok: boolean; phone: string; error?: string }) => ({ phone: r.phone, error: r.error ?? "Unknown error" }));
+      setBulkResult({ sent: d.sent ?? 0, failed: d.failed ?? 0, errors });
+    } catch { setBulkResult({ sent: 0, failed: phones.length, errors: [] }); }
     finally { setBulkSending(false); }
   };
 
@@ -351,11 +354,23 @@ export default function CommandCenter() {
             </div>
 
             {bulkResult && (
-              <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold mb-4 ${bulkResult.failed === 0 ? "bg-primary/10 border border-primary/30 text-primary" : "bg-yellow-500/10 border border-yellow-500/30 text-yellow-400"}`}>
-                {bulkResult.failed === 0
-                  ? `✓ ${bulkResult.sent} message${bulkResult.sent !== 1 ? "s" : ""} sent!`
-                  : `${bulkResult.sent} sent, ${bulkResult.failed} failed — verify numbers are in E.164 (+15551234567)`
-                }
+              <div className={`rounded-lg text-xs mb-4 border ${bulkResult.failed === 0 ? "bg-primary/10 border-primary/30 text-primary px-3 py-2 font-semibold" : "bg-yellow-500/10 border-yellow-500/30 text-yellow-400"}`}>
+                {bulkResult.failed === 0 ? (
+                  <span className="font-semibold">✓ {bulkResult.sent} message{bulkResult.sent !== 1 ? "s" : ""} sent!</span>
+                ) : (
+                  <div className="p-3">
+                    <p className="font-semibold mb-2">{bulkResult.sent} sent, {bulkResult.failed} failed</p>
+                    {bulkResult.errors.length > 0 && (
+                      <ul className="space-y-1 max-h-32 overflow-y-auto">
+                        {bulkResult.errors.map((e, i) => (
+                          <li key={i} className="font-mono text-[10px] leading-relaxed opacity-90">
+                            <span className="text-yellow-300">{e.phone}</span> — {e.error}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
