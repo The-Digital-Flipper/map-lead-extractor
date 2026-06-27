@@ -6,6 +6,18 @@ import { eq, desc, sql } from "drizzle-orm";
 
 const router = Router();
 
+/**
+ * Normalize a phone number to E.164 format (+1XXXXXXXXXX for US numbers).
+ * Handles: (555) 123-4567, 555-123-4567, 5551234567, 15551234567, +15551234567, etc.
+ */
+function toE164(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  if (raw.trimStart().startsWith("+") && digits.length >= 10) return `+${digits}`;
+  return raw.trim(); // return as-is; Twilio will reject unknown formats
+}
+
 function getTwilioClient() {
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
@@ -117,11 +129,12 @@ router.post("/reply", async (req, res) => {
   const client = getTwilioClient();
   if (!client) { res.status(503).json({ error: "SMS not configured." }); return; }
 
-  const { phone, message } = req.body as { phone?: string; message?: string };
-  if (!phone || !message?.trim()) {
+  const { phone: rawPhone, message } = req.body as { phone?: string; message?: string };
+  if (!rawPhone || !message?.trim()) {
     res.status(400).json({ error: "phone and message are required" });
     return;
   }
+  const phone = toE164(rawPhone);
 
   const from = process.env.TWILIO_FROM_NUMBER!;
   try {
@@ -159,7 +172,8 @@ router.post("/send", async (req, res) => {
   const results: { phone: string; ok: boolean; error?: string }[] = [];
 
   await Promise.allSettled(
-    phones.map(async (phone) => {
+    phones.map(async (rawPhone) => {
+      const phone = toE164(rawPhone);
       try {
         await client.messages.create({ from, to: phone, body: message.trim() });
         await db.insert(smsMessages).values({
