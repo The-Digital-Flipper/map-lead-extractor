@@ -15,6 +15,7 @@ import Pricing from "@/pages/pricing";
 import ConnectExtension from "@/pages/connect-extension";
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
+const CommandCenter = lazy(() => import("@/pages/command-center"));
 const Admin = lazy(() => import("@/pages/admin"));
 const AdminLogin = lazy(() => import("@/pages/admin-login"));
 
@@ -191,6 +192,12 @@ function ClerkProviderWithRoutes() {
             <Route path="/blog" component={Blog} />
             <Route path="/blog/:slug" component={BlogPost} />
             <Route path="/connect-extension" component={ConnectExtension} />
+            <Route path="/command-center" component={() => (
+              <Suspense fallback={null}>
+                <Show when="signed-in"><CommandCenter /></Show>
+                <Show when="signed-out"><Redirect to="/sign-in" /></Show>
+              </Suspense>
+            )} />
             <Route component={NotFound} />
           </Switch>
           <Toaster />

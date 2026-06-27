@@ -5,7 +5,7 @@ import {
   Zap, Copy, Check, Download, LogOut, Star, Phone, Mail, Globe,
   Search, Share2, Crown, ArrowUpRight, CreditCard, Trash2,
   RefreshCw, ChevronLeft, ChevronRight, BarChart2, X,
-  CheckSquare, Square, CheckCheck, ShieldCheck,
+  CheckSquare, Square, CheckCheck, ShieldCheck, MessageSquare,
   Settings, Bookmark, Plus, Pin, StickyNote, Tag, Bell,
 } from "lucide-react";
 import {
@@ -680,6 +680,10 @@ export default function Dashboard() {
             )}
             <a href={STORE_URL} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-primary hover:opacity-80 transition-opacity hidden md:block">
               Install Extension
+            </a>
+            <a href={`${basePath}/command-center`}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-bold hover:bg-blue-500/20 transition-colors">
+              <MessageSquare className="w-3.5 h-3.5" /> Command Center
             </a>
             <button onClick={() => signOut({ redirectUrl: basePath || "/" })}
               className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
