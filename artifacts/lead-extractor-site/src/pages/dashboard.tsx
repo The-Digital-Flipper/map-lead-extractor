@@ -1132,9 +1132,10 @@ export default function Dashboard() {
                     <table className={`w-full text-sm ${densityCls}`}>
                       <thead>
                         <tr className="border-b border-border bg-background/50">
-                          <th className="px-4 py-3 w-10">
-                            <button onClick={toggleAll} className="text-muted-foreground hover:text-foreground transition-colors">
-                              {allSelected ? <CheckCheck className="w-4 h-4 text-primary" /> : selected.size > 0 ? <CheckSquare className="w-4 h-4 text-primary/60" /> : <Square className="w-4 h-4" />}
+                          <th className="px-3 py-3 w-12">
+                            <button onClick={toggleAll}
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all border ${allSelected || selected.size > 0 ? "bg-primary/20 border-primary/60 text-primary" : "border-border text-muted-foreground hover:border-primary/40 hover:text-primary/60 hover:bg-primary/5"}`}>
+                              {allSelected ? <CheckCheck className="w-4 h-4" /> : selected.size > 0 ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
                             </button>
                           </th>
                           <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Name</th>
@@ -1158,10 +1159,12 @@ export default function Dashboard() {
                       <tbody>
                         {displayLeads.map((lead, i) => (
                           <tr key={lead.id}
-                            className={`border-b border-border/50 transition-colors ${selected.has(lead.id) ? "bg-primary/5" : pinned.has(lead.id) ? "bg-primary/[0.04]" : i % 2 === 0 ? "hover:bg-white/[0.02]" : "bg-white/[0.01] hover:bg-white/[0.03]"}`}>
-                            <td className="px-4 py-3">
-                              <button onClick={() => toggleSelect(lead.id)} className="text-muted-foreground hover:text-foreground transition-colors">
-                                {selected.has(lead.id) ? <CheckSquare className="w-4 h-4 text-primary" /> : <Square className="w-4 h-4" />}
+                            className={`border-b transition-colors ${selected.has(lead.id) ? "border-primary/20 bg-primary/10" : pinned.has(lead.id) ? "border-border/50 bg-primary/[0.04]" : i % 2 === 0 ? "border-border/50 hover:bg-white/[0.02]" : "border-border/50 bg-white/[0.01] hover:bg-white/[0.03]"}`}
+                            style={selected.has(lead.id) ? { boxShadow: "inset 3px 0 0 #00E676" } : undefined}>
+                            <td className="px-3 py-3">
+                              <button onClick={() => toggleSelect(lead.id)}
+                                className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all border ${selected.has(lead.id) ? "bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/40" : "border-border text-muted-foreground hover:border-primary/50 hover:text-primary/70 hover:bg-primary/5"}`}>
+                                {selected.has(lead.id) ? <Check className="w-4 h-4" /> : <Square className="w-3.5 h-3.5" />}
                               </button>
                             </td>
                             <td className="px-4 py-3">
