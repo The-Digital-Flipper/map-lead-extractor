@@ -20,7 +20,7 @@ app.use((req, res, next) => {
   const host = req.hostname ?? "";
   if (host.endsWith(".replit.dev") || host.endsWith(".riker.replit.dev")) {
     const target = `https://mapleadextractor.net${req.originalUrl}`;
-    return res.redirect(301, target);
+    return res.redirect(308, target);
   }
   next();
 });
