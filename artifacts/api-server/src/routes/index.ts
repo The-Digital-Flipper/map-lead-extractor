@@ -7,6 +7,7 @@ import userRouter from "./user.js";
 import adminRouter from "./admin.js";
 import chatRouter from "./chat.js";
 import v1Router from "./v1.js";
+import extRouter from "./ext.js";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,12 @@ router.use("/user", userRouter);
 router.use("/admin", adminRouter);
 router.use("/chat", chatRouter);
 router.use("/v1", v1Router);
+
+// Extension-facing routes (no Clerk session, auth via X-Api-Key)
+router.use("/auth", extRouter);           // POST /api/auth/token
+router.use("/config", extRouter);         // GET  /api/config/docking
+router.use("/user", extRouter);           // GET  /api/user/info
+router.use("/telemetry", extRouter);      // POST /api/telemetry/log
+router.use("/delete-account", extRouter); // POST /api/delete-account
 
 export default router;

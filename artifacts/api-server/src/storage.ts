@@ -1,4 +1,4 @@
-import { db, users } from "@workspace/db";
+import { db, users, leads } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 
@@ -52,6 +52,12 @@ export class Storage {
       sql`SELECT * FROM stripe.subscriptions WHERE customer = ${customerId} AND status = 'active' LIMIT 1`
     );
     return result.rows[0] ?? null;
+  }
+
+  /** GDPR delete: removes the user row and all their leads. */
+  async deleteUser(userId: string) {
+    await db.delete(leads).where(eq(leads.clerkUserId, userId));
+    await db.delete(users).where(eq(users.id, userId));
   }
 }
 
