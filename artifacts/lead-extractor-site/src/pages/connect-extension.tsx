@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { useUser, SignIn } from "@clerk/react";
+import { useUser } from "@clerk/react";
+import { useSignIn } from "@clerk/react/legacy";
 import { CheckCircle, Plug, AlertCircle, Loader2 } from "lucide-react";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -43,21 +44,28 @@ function sendToExtension(
   });
 }
 
-// ── Sign-in screen: custom Google button that triggers Clerk's hidden OAuth ──
+// ── Sign-in screen ───────────────────────────────────────────────────────────
 function SignInScreen() {
+  const { signIn, isLoaded } = useSignIn();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  function handleGoogleClick() {
+  async function handleGoogleClick() {
+    if (!isLoaded || !signIn) return;
     setLoading(true);
-    // Find and click the real Clerk Google OAuth button
-    const clerkBtn = document.querySelector<HTMLButtonElement>(
-      '#clerk-hidden-signin [data-provider="google"]'
-    );
-    if (clerkBtn) {
-      clerkBtn.click();
-    } else {
-      // Fallback: navigate to the sign-in page with redirect back here
-      window.location.href = `${basePath}/sign-in?redirect_url=${encodeURIComponent(window.location.href)}`;
+    setError("");
+    try {
+      await signIn.authenticateWithRedirect({
+        strategy: "oauth_google",
+        // Clerk's SSO callback is handled by the /sign-in route (routing="path")
+        redirectUrl: `${window.location.origin}${basePath}/sign-in/sso-callback`,
+        // After auth completes, land back here to connect the extension
+        redirectUrlComplete: `${window.location.origin}${basePath}/connect-extension`,
+      });
+    } catch (err) {
+      setError("Google sign-in failed. Try again.");
+      setLoading(false);
+      console.error("Google sign-in error:", err);
     }
   }
 
@@ -72,16 +80,6 @@ function SignInScreen() {
       padding: "24px",
       fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
     }}>
-
-      {/* Clerk SignIn hidden off-screen — just here to handle the OAuth flow */}
-      <div id="clerk-hidden-signin" style={{ position: "absolute", opacity: 0, pointerEvents: "none", left: -9999, top: -9999, height: 0, overflow: "hidden" }}>
-        <SignIn
-          routing="hash"
-          forceRedirectUrl={`${basePath}/connect-extension`}
-          signUpForceRedirectUrl={`${basePath}/connect-extension`}
-          appearance={{}}
-        />
-      </div>
 
       {/* Icon */}
       <div style={{
@@ -104,10 +102,10 @@ function SignInScreen() {
         One click — your leads sync automatically after every extraction.
       </p>
 
-      {/* Custom Google button */}
+      {/* Google button */}
       <button
         onClick={handleGoogleClick}
-        disabled={loading}
+        disabled={loading || !isLoaded}
         style={{
           display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
           width: 280, minHeight: 50,
@@ -116,13 +114,13 @@ function SignInScreen() {
           fontSize: 15, fontWeight: 600,
           fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
           boxShadow: "0 2px 16px rgba(0,0,0,0.35)",
-          cursor: loading ? "wait" : "pointer",
-          opacity: loading ? 0.75 : 1,
+          cursor: (loading || !isLoaded) ? "wait" : "pointer",
+          opacity: (loading || !isLoaded) ? 0.75 : 1,
           transition: "transform 0.12s, box-shadow 0.12s",
           padding: "0 24px",
         }}
-        onMouseEnter={e => { if (!loading) (e.currentTarget).style.transform = "translateY(-1px)"; }}
-        onMouseLeave={e => { (e.currentTarget).style.transform = "translateY(0)"; }}
+        onMouseEnter={e => { if (!loading) e.currentTarget.style.transform = "translateY(-1px)"; }}
+        onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; }}
       >
         {loading ? (
           <Loader2 style={{ width: 20, height: 20, flexShrink: 0, animation: "spin 1s linear infinite" }} />
@@ -134,17 +132,32 @@ function SignInScreen() {
             <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
           </svg>
         )}
-        {loading ? "Opening Google…" : "Continue with Google"}
+        {loading ? "Redirecting to Google…" : "Continue with Google"}
       </button>
+
+      {error && (
+        <p style={{ color: "#ef4444", fontSize: 12, marginTop: 12, textAlign: "center" }}>{error}</p>
+      )}
 
       <p style={{ color: "#3a5070", fontSize: 11, marginTop: 20, textAlign: "center" }}>
         🔒 Only your email is shared with the extension
+      </p>
+
+      {/* Email fallback */}
+      <p style={{ color: "#3a5070", fontSize: 11, marginTop: 12, textAlign: "center" }}>
+        Prefer email?{" "}
+        <a
+          href={`${basePath}/sign-in?redirect_url=${encodeURIComponent(`${window.location.origin}${basePath}/connect-extension`)}`}
+          style={{ color: "#00E676", textDecoration: "none" }}
+        >
+          Sign in here
+        </a>
       </p>
     </div>
   );
 }
 
-// ── Connected panel (after sign-in) ──────────────────────────
+// ── Connected panel (after sign-in) ──────────────────────────────────────────
 function ConnectPanel({ apiKey, email }: { apiKey: string; email: string }) {
   const [bingStatus, setBingStatus] = useState<Status>("idle");
   const [googleStatus, setGoogleStatus] = useState<Status>("idle");
@@ -176,6 +189,7 @@ function ConnectPanel({ apiKey, email }: { apiKey: string; email: string }) {
         setGoogleStatus("not_installed");
       }
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const extensions = [
@@ -269,24 +283,33 @@ function ConnectPanel({ apiKey, email }: { apiKey: string; email: string }) {
         <p className="text-xs text-muted-foreground text-center mt-6">
           Only your email and API key are shared — no passwords.
         </p>
+
+        <div className="mt-6 p-4 rounded-xl bg-card border border-border">
+          <p className="text-xs font-semibold text-muted-foreground mb-2">Your API Key</p>
+          <code className="block font-mono text-xs text-primary bg-background border border-border rounded-lg px-3 py-2 break-all select-all">
+            {apiKey}
+          </code>
+          <p className="text-xs text-muted-foreground mt-2">
+            The extension uses this automatically — no copying needed.
+          </p>
+        </div>
       </div>
     </div>
   );
 }
 
-// ── Main export ──────────────────────────────────────────────
+// ── Main export ───────────────────────────────────────────────────────────────
 export default function ConnectExtension() {
   const { isLoaded, isSignedIn, user } = useUser();
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [keyError, setKeyError] = useState(false);
 
-  // Resolve the member's key: use Clerk metadata if present, else get-or-create
-  // it from our API. Tries POST then GET, and NEVER spins forever — on failure
-  // it surfaces a retry instead of an endless loader.
   async function resolveKey() {
     setKeyError(false);
+    // Fast path: Clerk has already synced the key to publicMetadata
     const fromClerk = user?.publicMetadata?.apiKey as string | undefined;
     if (fromClerk) { setApiKey(fromClerk); return; }
+    // Slow path: ask server to get-or-create
     for (const method of ["POST", "GET"] as const) {
       try {
         const r = await fetch(`${basePath}/api/user/api-key`, { method, credentials: "include" });
