@@ -135,8 +135,9 @@ router.post("/reply", async (req, res) => {
     return;
   }
   const phone = toE164(rawPhone);
+  const from = toE164(process.env.TWILIO_FROM_NUMBER ?? "");
 
-  const from = process.env.TWILIO_FROM_NUMBER!;
+  req.log.info({ from, to: phone }, "SMS reply attempt");
   try {
     await client.messages.create({ from, to: phone, body: message.trim() });
     await db.insert(smsMessages).values({
@@ -149,7 +150,7 @@ router.post("/reply", async (req, res) => {
     res.json({ ok: true });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    req.log.error({ phone, err: msg }, "SMS reply failed");
+    req.log.error({ from, phone, err: msg }, "SMS reply failed");
     res.status(500).json({ error: msg });
   }
 });
@@ -168,7 +169,8 @@ router.post("/send", async (req, res) => {
   }
   if (!message?.trim()) { res.status(400).json({ error: "message is required" }); return; }
 
-  const from = process.env.TWILIO_FROM_NUMBER!;
+  const from = toE164(process.env.TWILIO_FROM_NUMBER ?? "");
+  req.log.info({ from, count: phones.length }, "SMS bulk send attempt");
   const results: { phone: string; ok: boolean; error?: string }[] = [];
 
   await Promise.allSettled(
@@ -187,7 +189,7 @@ router.post("/send", async (req, res) => {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         results.push({ phone, ok: false, error: msg });
-        req.log.warn({ phone, err: msg }, "SMS send failed");
+        req.log.warn({ from, phone, err: msg }, "SMS send failed");
       }
     })
   );

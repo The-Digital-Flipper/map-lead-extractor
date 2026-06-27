@@ -360,9 +360,9 @@ export default function CommandCenter() {
                 ) : (
                   <div className="p-3">
                     <p className="font-semibold mb-2">{bulkResult.sent} sent, {bulkResult.failed} failed</p>
-                    {bulkResult.errors.length > 0 && (
+                    {(bulkResult.errors ?? []).length > 0 && (
                       <ul className="space-y-1 max-h-32 overflow-y-auto">
-                        {bulkResult.errors.map((e, i) => (
+                        {(bulkResult.errors ?? []).map((e, i) => (
                           <li key={i} className="font-mono text-[10px] leading-relaxed opacity-90">
                             <span className="text-yellow-300">{e.phone}</span> — {e.error}
                           </li>
