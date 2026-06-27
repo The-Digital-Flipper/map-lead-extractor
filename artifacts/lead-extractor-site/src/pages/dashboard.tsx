@@ -349,6 +349,10 @@ export default function Dashboard() {
   const [showCharts, setShowCharts] = useState(() => loadPrefs().chartsDefault);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [emailCopied, setEmailCopied] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   // Money mode: rank by opportunity (weakest businesses first) — the leads
@@ -967,15 +971,31 @@ export default function Dashboard() {
                   <h2 className="text-lg font-display font-bold">
                     Saved Leads {total > 0 && <span className="text-muted-foreground text-sm font-normal">({total.toLocaleString()})</span>}
                   </h2>
-                  {selected.size > 0 && (
-                    <button
-                      onClick={handleBulkDelete}
-                      disabled={deleting}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-semibold hover:bg-red-500/20 transition-colors disabled:opacity-50"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" /> Delete {selected.size}
-                    </button>
-                  )}
+                  {selected.size > 0 && (() => {
+                    const selEmails = [...new Set(
+                      leads.filter(l => selected.has(l.id) && l.emails)
+                        .flatMap(l => l.emails!.split(",").map(e => e.trim()).filter(Boolean))
+                    )];
+                    return (
+                      <>
+                        {selEmails.length > 0 && (
+                          <button
+                            onClick={() => { setShowEmailModal(true); setEmailCopied(false); }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/30 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors"
+                          >
+                            <Mail className="w-3.5 h-3.5" /> Email {selEmails.length}
+                          </button>
+                        )}
+                        <button
+                          onClick={handleBulkDelete}
+                          disabled={deleting}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-semibold hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Delete {selected.size}
+                        </button>
+                      </>
+                    );
+                  })()}
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="relative">
@@ -1261,6 +1281,85 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Bulk email composer modal */}
+      <AnimatePresence>
+        {showEmailModal && (() => {
+          const selEmails = [...new Set(
+            leads.filter(l => selected.has(l.id) && l.emails)
+              .flatMap(l => l.emails!.split(",").map(e => e.trim()).filter(Boolean))
+          )];
+          const mailtoHref = `mailto:?bcc=${encodeURIComponent(selEmails.join(","))}&subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+          const gmailHref = `https://mail.google.com/mail/?view=cm&bcc=${encodeURIComponent(selEmails.join(","))}&su=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+          return (
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+              onClick={() => setShowEmailModal(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+                onClick={e => e.stopPropagation()}
+                className="bg-card border border-border rounded-2xl p-6 w-full max-w-lg shadow-2xl"
+              >
+                <div className="flex items-center gap-2 mb-4">
+                  <Mail className="w-4 h-4 text-primary" />
+                  <h3 className="font-display font-bold">Bulk Email</h3>
+                  <span className="ml-1 text-xs text-muted-foreground">{selEmails.length} recipient{selEmails.length !== 1 ? "s" : ""}</span>
+                  <button onClick={() => setShowEmailModal(false)} className="ml-auto text-muted-foreground hover:text-foreground">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Recipient chips */}
+                <div className="mb-4 max-h-28 overflow-y-auto flex flex-wrap gap-1.5 p-3 bg-background border border-border rounded-lg">
+                  {selEmails.map(em => (
+                    <span key={em} className="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 border border-primary/30 text-primary text-xs font-mono">
+                      {em}
+                    </span>
+                  ))}
+                </div>
+
+                <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Subject</label>
+                <input
+                  type="text" value={emailSubject} onChange={e => setEmailSubject(e.target.value)}
+                  placeholder="e.g. Quick question about your business"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 mb-4"
+                />
+
+                <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Message</label>
+                <textarea
+                  value={emailBody} onChange={e => setEmailBody(e.target.value)}
+                  rows={5} placeholder="Hi there, I noticed your business could benefit from…"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-none mb-5"
+                />
+
+                <div className="flex flex-wrap gap-2 justify-between">
+                  <button
+                    onClick={async () => {
+                      try { await navigator.clipboard.writeText(selEmails.join(", ")); setEmailCopied(true); setTimeout(() => setEmailCopied(false), 2000); } catch {}
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {emailCopied ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+                    {emailCopied ? "Copied!" : "Copy emails"}
+                  </button>
+                  <div className="flex gap-2">
+                    <a href={mailtoHref}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
+                      <Mail className="w-3.5 h-3.5" /> Mail app
+                    </a>
+                    <a href={gmailHref} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity">
+                      <ArrowUpRight className="w-3.5 h-3.5" /> Open in Gmail
+                    </a>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
 
       {/* Note & tags editor modal */}
       <AnimatePresence>
