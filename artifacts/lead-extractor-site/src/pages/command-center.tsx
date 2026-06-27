@@ -207,12 +207,23 @@ export default function CommandCenter() {
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ phones, message: bulkMessage.trim() }),
       });
-      const d = await r.json();
+      const text = await r.text();
+      console.log("[SMS send raw response]", r.status, text);
+      let d: { sent?: number; failed?: number; results?: { ok: boolean; phone: string; error?: string }[]; error?: string } = {};
+      try { d = JSON.parse(text); } catch { /* not JSON */ }
+      if (!r.ok) {
+        const errMsg = d.error ?? `Server error ${r.status}: ${text.slice(0, 300)}`;
+        setBulkResult({ sent: 0, failed: phones.length, errors: phones.map(p => ({ phone: p, error: errMsg })) });
+        return;
+      }
       const errors = (d.results ?? [])
-        .filter((r: { ok: boolean; phone: string; error?: string }) => !r.ok)
-        .map((r: { ok: boolean; phone: string; error?: string }) => ({ phone: r.phone, error: r.error ?? "Unknown error" }));
+        .filter(res => !res.ok)
+        .map(res => ({ phone: res.phone, error: res.error ?? "Unknown error" }));
       setBulkResult({ sent: d.sent ?? 0, failed: d.failed ?? 0, errors });
-    } catch { setBulkResult({ sent: 0, failed: phones.length, errors: [] }); }
+    } catch (ex) {
+      const msg = ex instanceof Error ? ex.message : String(ex);
+      setBulkResult({ sent: 0, failed: phones.length, errors: phones.map(p => ({ phone: p, error: msg })) });
+    }
     finally { setBulkSending(false); }
   };
 
