@@ -361,6 +361,14 @@ export default function Dashboard() {
   // Table vs Kanban board (pipeline) view.
   const [viewMode, setViewMode] = useState<"table" | "board">("table");
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
+  // Show the "Connect extension" card unless dismissed or extension already linked
+  const [showConnectCard, setShowConnectCard] = useState<boolean>(() => {
+    try { return localStorage.getItem("mle_ext_connected") !== "1"; } catch { return true; }
+  });
+  const dismissConnectCard = () => {
+    setShowConnectCard(false);
+    try { localStorage.setItem("mle_ext_connected", "1"); } catch { /* ignore */ }
+  };
 
   // Persist + apply preferences. Accent overrides the global --primary token.
   const updatePrefs = (patch: Partial<DashPrefs>) => {
@@ -511,6 +519,26 @@ export default function Dashboard() {
 
   // Load the member's open follow-up reminders once on mount.
   useEffect(() => { fetchReminders(); }, [fetchReminders]);
+
+  // Silently ping the extension on load — if it responds as connected, hide the card.
+  useEffect(() => {
+    if (!showConnectCard) return;
+    const GOOGLE_EXT_ID = "ahhfkbclbkgkbmobkjcahdbgnnlcomjl";
+    const BING_EXT_ID = "hdcllknjhfjlgifobniljjgfgmdjhfmg";
+    const ping = (extId: string) => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const cr = (window as any).chrome?.runtime;
+        if (!cr) return;
+        cr.sendMessage(extId, { type: "MLE_GET_STATUS" }, (res: { connected?: boolean } | undefined) => {
+          if (cr.lastError) return;
+          if (res?.connected) dismissConnectCard();
+        });
+      } catch { /* not in a Chrome page */ }
+    };
+    ping(GOOGLE_EXT_ID);
+    ping(BING_EXT_ID);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounce search
   useEffect(() => {
@@ -811,21 +839,29 @@ export default function Dashboard() {
           {/* Plan banner */}
           <PlanBanner plan={plan} total={total} onManageBilling={handleManageBilling} onUpgrade={handleUpgrade} />
 
-          {/* Connect Extension card — one-click via Google, no API key to copy */}
+          {/* Connect Extension card — hidden once connected or dismissed */}
+          {showConnectCard && (
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.1 }} className="mb-8">
             <div className="bg-card border border-border rounded-2xl p-6 flex items-center justify-between gap-4 flex-wrap">
-              <div>
+              <div className="flex-1 min-w-0">
                 <h2 className="text-lg font-display font-bold mb-1">Connect your extension</h2>
                 <p className="text-sm text-muted-foreground">
-                  One click — sign in with Google and the extension links to your account automatically. Every extraction then auto-saves here.
+                  Sign in with Google in the extension popup — your leads will auto-save here after every extraction.
                 </p>
               </div>
-              <a href={`${basePath}/connect-extension`}
-                className="flex items-center gap-2 px-5 py-3 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity shrink-0">
-                <Zap className="w-4 h-4" /> Connect Extension
-              </a>
+              <div className="flex items-center gap-3 shrink-0">
+                <a href={`${basePath}/connect-extension`}
+                  className="flex items-center gap-2 px-5 py-3 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity">
+                  <Zap className="w-4 h-4" /> Connect Extension
+                </a>
+                <button onClick={dismissConnectCard} title="Dismiss"
+                  className="text-muted-foreground hover:text-foreground transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </motion.div>
+          )}
 
           {/* Stats row */}
           {prefs.showStats && (
