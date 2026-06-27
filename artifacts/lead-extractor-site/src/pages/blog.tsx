@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { ArrowRight, Clock, Tag, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { posts } from "@/data/posts";
+import { useSeo } from "@/lib/seo";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
 
@@ -20,6 +21,11 @@ const categoryColors: Record<string, string> = {
 };
 
 export default function Blog() {
+  useSeo({
+    title: "Blog — Google & Bing Maps Lead Generation Guides | Map Lead Extractor",
+    description: "Tutorials and guides on scraping Google Maps leads, cold email outreach, lead-gen for agencies and web designers, and staying compliant.",
+    path: "/blog",
+  });
   const [featured, ...rest] = posts;
 
   return (

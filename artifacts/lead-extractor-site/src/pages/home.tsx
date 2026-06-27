@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import ChatWidget from "@/components/chat-widget";
+import { useSeo } from "@/lib/seo";
 
 import gmleIcon128 from "@assets/gmle-icon-128.png";
 import gmleIcon512 from "@assets/gmle-icon-512.png";
@@ -52,6 +53,11 @@ function PhotoSlot({ icon, label, hint }: { icon: React.ReactNode; label: string
 }
 
 export default function Home() {
+  useSeo({
+    title: "Map Lead Extractor — Scrape Google & Bing Maps Leads to CSV",
+    description: "Extract local business leads from Google Maps & Bing Maps — names, phones, emails, websites & ratings — and export to CSV in seconds. Or buy ready-scored leads by industry and city.",
+    path: "/",
+  });
   return (
     <div className="min-h-screen bg-background text-foreground overflow-x-hidden selection:bg-primary selection:text-primary-foreground">
       {/* Navbar */}

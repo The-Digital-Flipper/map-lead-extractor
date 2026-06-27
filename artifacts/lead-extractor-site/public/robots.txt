@@ -1,3 +1,13 @@
 User-agent: *
 Allow: /
-Sitemap: https://mapleadextractor.com/sitemap.xml
+
+# Keep private / non-content routes out of the index
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /admin-login
+Disallow: /sign-in
+Disallow: /sign-up
+Disallow: /connect-extension
+Disallow: /api/
+
+Sitemap: https://mapleadextractor.net/sitemap.xml

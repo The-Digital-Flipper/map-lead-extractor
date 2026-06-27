@@ -3,6 +3,7 @@ import { ArrowLeft, Clock, Zap } from "lucide-react";
 import { useParams } from "wouter";
 import { posts, type Post } from "@/data/posts";
 import NotFound from "@/pages/not-found";
+import { useSeo } from "@/lib/seo";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
 
@@ -76,6 +77,13 @@ function renderContent(post: Post) {
 export default function BlogPost() {
   const { slug } = useParams<{ slug: string }>();
   const post = posts.find((p) => p.slug === slug);
+
+  // Per-article title + description so each post ranks on its own keywords.
+  useSeo({
+    title: post ? `${post.title} | Map Lead Extractor` : "Article Not Found | Map Lead Extractor",
+    description: post?.description,
+    path: `/blog/${slug ?? ""}`,
+  });
 
   if (!post) return <NotFound />;
 

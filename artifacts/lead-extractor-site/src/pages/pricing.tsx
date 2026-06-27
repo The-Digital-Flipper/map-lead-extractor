@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useUser } from "@clerk/react";
 import { motion } from "framer-motion";
 import { Zap, Check, Star } from "lucide-react";
+import { useSeo } from "@/lib/seo";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -39,6 +40,11 @@ const PRO_FEATURES = [
 ];
 
 export default function Pricing() {
+  useSeo({
+    title: "Pricing — Map Lead Extractor | Free & Pro Plans",
+    description: "Start free, upgrade to Pro for unlimited lead saves and the full money-lead scoring suite. Simple pricing for Google & Bing Maps lead extraction.",
+    path: "/pricing",
+  });
   const { isSignedIn } = useUser();
   const [billingInterval, setBillingInterval] = useState<"month" | "year">("month");
   const [products, setProducts] = useState<Product[]>([]);

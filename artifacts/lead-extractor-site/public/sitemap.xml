@@ -1,59 +1,78 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://mapleadextractor.com/</loc>
+    <loc>https://mapleadextractor.net/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://mapleadextractor.com/pricing</loc>
+    <loc>https://mapleadextractor.net/pricing</loc>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://mapleadextractor.com/connect-extension</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://mapleadextractor.com/blog</loc>
+    <loc>https://mapleadextractor.net/blog</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://mapleadextractor.com/blog/how-to-scrape-google-maps-leads</loc>
+    <loc>https://mapleadextractor.net/blog/how-to-scrape-google-maps-leads</loc>
     <lastmod>2025-06-18</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://mapleadextractor.com/blog/google-maps-vs-data-providers</loc>
+    <loc>https://mapleadextractor.net/blog/google-maps-vs-data-providers</loc>
     <lastmod>2025-06-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://mapleadextractor.com/blog/bing-maps-lead-generation</loc>
+    <loc>https://mapleadextractor.net/blog/bing-maps-lead-generation</loc>
     <lastmod>2025-06-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://mapleadextractor.com/blog/cold-email-from-google-maps-leads</loc>
+    <loc>https://mapleadextractor.net/blog/cold-email-from-google-maps-leads</loc>
     <lastmod>2025-05-27</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://mapleadextractor.com/blog/lead-generation-for-web-designers</loc>
+    <loc>https://mapleadextractor.net/blog/lead-generation-for-web-designers</loc>
     <lastmod>2025-05-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://mapleadextractor.com/blog/gdpr-google-maps-scraping</loc>
+    <loc>https://mapleadextractor.net/blog/gdpr-google-maps-scraping</loc>
     <lastmod>2025-05-13</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://mapleadextractor.net/blog/how-to-find-businesses-with-no-website</loc>
+    <lastmod>2026-06-20</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://mapleadextractor.net/blog/where-to-buy-local-business-leads</loc>
+    <lastmod>2026-06-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://mapleadextractor.net/blog/how-to-extract-emails-from-google-maps</loc>
+    <lastmod>2026-06-12</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://mapleadextractor.net/blog/lead-generation-for-marketing-agencies</loc>
+    <lastmod>2026-06-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
   </url>
 </urlset>
