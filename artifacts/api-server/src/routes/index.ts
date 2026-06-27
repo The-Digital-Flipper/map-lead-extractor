@@ -5,6 +5,8 @@ import leadsRouter from "./leads.js";
 import stripeRouter from "./stripe.js";
 import userRouter from "./user.js";
 import adminRouter from "./admin.js";
+import chatRouter from "./chat.js";
+import v1Router from "./v1.js";
 
 const router: IRouter = Router();
 
@@ -14,5 +16,7 @@ router.use("/leads", leadsRouter);
 router.use("/stripe", stripeRouter);
 router.use("/user", userRouter);
 router.use("/admin", adminRouter);
+router.use("/chat", chatRouter);
+router.use("/v1", v1Router);
 
 export default router;

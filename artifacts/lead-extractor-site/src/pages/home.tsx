@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Download, Map, Zap, Search, Chrome, FileSpreadsheet, Lock, Shield, Settings2, Code2, Users, Database, Pin, MousePointerClick, Play, CheckCircle2, Package } from "lucide-react";
+import { ArrowRight, Download, Map, Zap, Search, Chrome, FileSpreadsheet, Lock, Shield, Settings2, Code2, Users, Database, Pin, MousePointerClick, Play, CheckCircle2, Package, Globe, Star, MapPin, Building2, Calendar, Share2, TrendingUp } from "lucide-react";
 import { SiGoogle, SiGooglechrome, SiFacebook } from "react-icons/si";
 import { Show } from "@clerk/react";
 
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import ChatWidget from "@/components/chat-widget";
 
 import gmleIcon128 from "@assets/gmle-icon-128.png";
 import gmleIcon512 from "@assets/gmle-icon-512.png";
@@ -62,6 +63,8 @@ export default function Home() {
           </a>
           <nav className="hidden md:flex gap-8 text-sm font-medium text-muted-foreground">
             <a href="#extensions" className="hover:text-foreground transition-colors">Products</a>
+            <a href="#leads-for-sale" className="text-primary hover:opacity-80 transition-opacity font-semibold">Buy Leads</a>
+            <a href="#developer-api" className="hover:text-foreground transition-colors">API</a>
             <a href="#how-it-works" className="hover:text-foreground transition-colors">How it Works</a>
             <a href="#data" className="hover:text-foreground transition-colors">Data Fields</a>
             <a href="#features" className="hover:text-foreground transition-colors">Engine</a>
@@ -572,6 +575,95 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Section: Leads For Sale */}
+        <section id="leads-for-sale" className="py-32 border-y border-border bg-card/20 relative">
+          <div className="container mx-auto px-6">
+            <div className="text-center mb-16">
+              <Badge className="mb-4 bg-primary/15 text-primary border-primary/30">💰 Leads For Sale</Badge>
+              <h2 className="text-4xl md:text-5xl font-display font-bold mb-6 tracking-tight">We Sell Leads.</h2>
+              <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+                Targeted local-business leads — scored, organized, and ready to close. Every lead is a business with a gap you can fill. Pick the type that matches what you sell.
+              </p>
+            </div>
+
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[
+                { icon: Globe, title: "No-Website Businesses", desc: "Local businesses with no website at all — the easiest, highest-value web-design sale.", sell: "Sell: website builds" },
+                { icon: Code2, title: "Outdated / Broken Sites", desc: "Sites that are dead, not mobile-friendly, or years out of date.", sell: "Sell: redesigns" },
+                { icon: Star, title: "Few or No Reviews", desc: "Businesses with little to no social proof — prime for review generation.", sell: "Sell: reputation" },
+                { icon: TrendingUp, title: "Low-Rating Businesses", desc: "Under 4 stars — owners actively worried about their reputation.", sell: "Sell: reputation mgmt" },
+                { icon: Share2, title: "No Social Presence", desc: "No Facebook, Instagram, or socials — wide open for social setup.", sell: "Sell: social media" },
+                { icon: Calendar, title: "No Online Booking", desc: "No scheduling or booking system — ready for automation tools.", sell: "Sell: automation" },
+                { icon: MapPin, title: "Weak Map Profiles", desc: "Incomplete Google / Bing listings missing hours, photos, or info.", sell: "Sell: local SEO" },
+                { icon: Building2, title: "By Industry", desc: "Dentists, lawyers, roofers, HVAC, plumbers, contractors, salons, restaurants & more.", sell: "High-LTV verticals" },
+                { icon: Map, title: "By Territory", desc: "Filtered to any US state or city you want to work — exclusive areas available.", sell: "Pick your market" },
+              ].map((lead, i) => (
+                <motion.div key={i} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn} custom={i}>
+                  <Card className="bg-card/40 border-border hover:bg-card hover:border-primary/30 transition-all h-full">
+                    <CardContent className="p-7">
+                      <lead.icon className="w-9 h-9 text-primary mb-5" />
+                      <h4 className="text-lg font-bold mb-2">{lead.title}</h4>
+                      <p className="text-muted-foreground leading-relaxed text-sm mb-4">{lead.desc}</p>
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-primary/10 border border-primary/30 text-primary text-xs font-semibold">{lead.sell}</span>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))}
+            </div>
+
+            <div className="text-center mt-14">
+              <p className="text-muted-foreground mb-6 max-w-xl mx-auto">
+                Delivered as clean CSV with phone, email, website, ratings & more. Buy a single niche pack or a full territory — filtered by industry, city, or state.
+              </p>
+              <a href="/pricing"
+                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity">
+                <Download className="w-5 h-5" /> Get a Lead Pack
+              </a>
+            </div>
+          </div>
+        </section>
+
+        {/* Section: Developer API */}
+        <section id="developer-api" className="py-32 relative">
+          <div className="container mx-auto px-6">
+            <div className="grid lg:grid-cols-2 gap-12 items-center">
+              <div>
+                <Badge className="mb-4 bg-primary/15 text-primary border-primary/30">⚡ Developer API</Badge>
+                <h2 className="text-4xl md:text-5xl font-display font-bold mb-6 tracking-tight">Pull leads with code.</h2>
+                <p className="text-xl text-muted-foreground mb-6">
+                  A simple REST API to query the lead catalog programmatically — filter by industry, location, opportunity, and value, with pagination. Authenticate with your API key.
+                </p>
+                <ul className="space-y-2 text-muted-foreground mb-8">
+                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0" /> Clean JSON — name, phone, email, website, scores & needs</li>
+                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0" /> Filters: <code className="text-primary text-sm">category, state, minOpportunity, minValue, search</code></li>
+                  <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-primary shrink-0" /> Auth via <code className="text-primary text-sm">X-Api-Key</code> from your dashboard</li>
+                </ul>
+                <a href="/dashboard" className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity">
+                  <Code2 className="w-5 h-5" /> Get your API key
+                </a>
+              </div>
+              <div className="bg-secondary text-secondary-foreground rounded-2xl border border-border p-6 font-mono text-sm overflow-x-auto">
+                <div className="text-muted-foreground mb-3"># Get high-value dentist leads in Texas</div>
+                <pre className="whitespace-pre-wrap leading-relaxed"><span className="text-primary">curl</span> https://mapleadextractor.net/api/v1/leads \
+  -H <span className="text-green-400">"X-Api-Key: YOUR_KEY"</span> \
+  --data-urlencode <span className="text-green-400">"category=dentist"</span> \
+  --data-urlencode <span className="text-green-400">"state=TX"</span> \
+  --data-urlencode <span className="text-green-400">"minValue=60"</span> -G</pre>
+                <div className="text-muted-foreground mt-5 mb-2"># Response</div>
+                <pre className="whitespace-pre-wrap leading-relaxed text-muted-foreground">{`{
+  "data": [
+    { "id": 1842, "name": "Bright Smile Dental",
+      "phone": "...", "website": null,
+      "opportunityScore": 85, "valueScore": 72,
+      "needs": ["No website","Few reviews"] }
+  ],
+  "pagination": { "page": 1, "limit": 25, "total": 318, "pages": 13 }
+}`}</pre>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* Section 6: User Personas (Social Proof Proxy) */}
         <section className="py-24 bg-card/30 border-t border-border">
           <div className="container mx-auto px-6 text-center">
@@ -785,6 +877,9 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {/* Floating sales chat (ChatGPT-powered) */}
+      <ChatWidget />
     </div>
   );
 }
