@@ -45,6 +45,7 @@ export const leads = pgTable("leads", {
   plusCode: text("plus_code"),
   raw: jsonb("raw"),
   status: text("status").default("new"), // new | contacted | converted | not_interested
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

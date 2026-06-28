@@ -6,6 +6,7 @@
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "backfill-opportunity": "tsx ./src/backfill-opportunity.ts",
+    "social-posts": "tsx ./src/social-posts.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
@@ -13,6 +14,7 @@
     "tsx": "catalog:"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.0",
     "@workspace/db": "workspace:*",
     "drizzle-orm": "catalog:",
     "stripe": "^22.3.0",

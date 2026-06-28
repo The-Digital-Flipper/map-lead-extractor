@@ -2,7 +2,7 @@ import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { createHash } from "node:crypto";
 import { db, leads, leadNotes, computeScore, computeOpportunity, computeDemand, computeValue } from "@workspace/db";
-import { sql, ilike, or, gte, and, count, eq, inArray } from "drizzle-orm";
+import { sql, ilike, or, gte, and, count, eq, inArray, isNull, type SQL } from "drizzle-orm";
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
 
@@ -223,9 +223,9 @@ router.get("/", async (req, res) => {
   const sort = String(req.query.sort ?? "");
   const offset = (page - 1) * limit;
 
-  const conditions = [];
+  const conditions: SQL[] = [isNull(leads.deletedAt)];
   if (search) {
-    conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`)));
+    conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`))!);
   }
   if (minScore > 0) conditions.push(gte(leads.score, minScore));
   if (minOpportunity > 0) conditions.push(gte(leads.opportunityScore, minOpportunity));
@@ -234,7 +234,7 @@ router.get("/", async (req, res) => {
     conditions.push(eq(leads.status, status));
   }
 
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const where = and(...conditions)!;
 
   const [rows, [{ total }]] = await Promise.all([
     db.select().from(leads).where(where).orderBy(orderForSort(sort)).limit(limit).offset(offset),
@@ -403,15 +403,15 @@ router.patch("/:id/status", async (req, res) => {
   res.json({ ok: true, id, status });
 });
 
-// ---- DELETE /:id — delete a lead --------------------------------------------
+// ---- DELETE /:id — soft-delete a lead (recoverable from admin) --------------
 router.delete("/:id", async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  await db.delete(leads).where(eq(leads.id, id));
+  await db.update(leads).set({ deletedAt: new Date() }).where(eq(leads.id, id));
   res.json({ ok: true, id });
 });
 
-// ---- DELETE /bulk — delete multiple leads -----------------------------------
+// ---- DELETE /bulk — soft-delete multiple leads ------------------------------
 router.delete("/bulk", async (req, res) => {
   const { ids } = req.body as { ids: number[] };
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -419,7 +419,7 @@ router.delete("/bulk", async (req, res) => {
     return;
   }
   const validIds = ids.map(Number).filter(n => !isNaN(n) && n > 0);
-  await db.execute(sql`DELETE FROM leads WHERE id = ANY(${sql.raw(`ARRAY[${validIds.join(",")}]::int[]`)})`);
+  await db.execute(sql`UPDATE leads SET deleted_at = NOW() WHERE id = ANY(${sql.raw(`ARRAY[${validIds.join(",")}]::int[]`)})`);
   res.json({ ok: true, deleted: validIds.length });
 });
 
@@ -433,8 +433,8 @@ router.get("/export.csv", async (req, res) => {
   const state = String(req.query.state ?? "").trim().toUpperCase();
   const sort = String(req.query.sort ?? "");
 
-  const conditions = [];
-  if (search) conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`)));
+  const conditions: SQL[] = [isNull(leads.deletedAt)];
+  if (search) conditions.push(or(ilike(leads.name, `%${search}%`), ilike(leads.address, `%${search}%`))!);
   if (minScore > 0) conditions.push(gte(leads.score, minScore));
   if (minOpportunity > 0) conditions.push(gte(leads.opportunityScore, minOpportunity));
   if (category) conditions.push(ilike(leads.category, `%${category}%`));
@@ -442,8 +442,7 @@ router.get("/export.csv", async (req, res) => {
   if (/^[A-Z]{2}$/.test(state)) conditions.push(sql`address ~ ${"\\y" + state + "\\s+\\d{5}"}`);
   if (status && VALID_STATUSES.includes(status as LeadStatus)) conditions.push(eq(leads.status, status));
 
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
-  const rows = await db.select().from(leads).where(where).orderBy(orderForSort(sort));
+  const rows = await db.select().from(leads).where(and(...conditions)!).orderBy(orderForSort(sort));
 
   const dateStr = new Date().toISOString().slice(0, 10);
   const isMoney = sort === "opportunity" || sort === "value" || sort === "demand" || minOpportunity > 0;
@@ -520,12 +519,11 @@ router.get("/pack-download", async (req, res) => {
   const state = (meta.pack_state ?? "").toUpperCase();
   const minOpp = parseInt(meta.pack_min_opp ?? "0", 10) || 0;
 
-  const conditions = [];
+  const conditions: SQL[] = [isNull(leads.deletedAt)];
   if (category) conditions.push(ilike(leads.category, `%${category}%`));
   if (/^[A-Z]{2}$/.test(state)) conditions.push(sql`address ~ ${"\\y" + state + "\\s+\\d{5}"}`);
   if (minOpp > 0) conditions.push(gte(leads.opportunityScore, minOpp));
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
-  const rows = await db.select().from(leads).where(where).orderBy(sql`value_score DESC, opportunity_score DESC`);
+  const rows = await db.select().from(leads).where(and(...conditions)!).orderBy(sql`value_score DESC, opportunity_score DESC`);
 
   const dateStr = new Date().toISOString().slice(0, 10);
   res.setHeader("Content-Type", "text/csv");

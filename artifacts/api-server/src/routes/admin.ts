@@ -1,6 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { db, leads, users, logs, computeOpportunity, computeValue } from "@workspace/db";
-import { sql, count, gte, eq, desc } from "drizzle-orm";
+import { sql, count, gte, eq, desc, isNull, isNotNull } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 
 const router = Router();
@@ -405,6 +405,39 @@ router.get("/leads", async (req, res) => {
   ]);
 
   res.json({ leads: rows, total: Number(total), page, pages: Math.ceil(Number(total) / limit) || 1 });
+});
+
+// ---- GET /admin/deleted-leads — list soft-deleted leads --------------------
+router.get("/deleted-leads", requireAdmin, async (req, res) => {
+  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10) || 50));
+  const offset = (page - 1) * limit;
+
+  const [rows, [{ total }]] = await Promise.all([
+    db.select().from(leads).where(isNotNull(leads.deletedAt)).orderBy(desc(leads.deletedAt)).limit(limit).offset(offset),
+    db.select({ total: count() }).from(leads).where(isNotNull(leads.deletedAt)),
+  ]);
+
+  res.json({ leads: rows, total: Number(total), page, pages: Math.ceil(Number(total) / limit) || 1 });
+});
+
+// ---- POST /admin/restore/:id — restore a soft-deleted lead -----------------
+router.post("/restore/:id", requireAdmin, async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  await db.update(leads).set({ deletedAt: null, updatedAt: new Date() }).where(eq(leads.id, id));
+  res.json({ ok: true, id });
+});
+
+// ---- POST /admin/restore-bulk — restore multiple soft-deleted leads --------
+router.post("/restore-bulk", requireAdmin, async (req, res) => {
+  const { ids } = req.body as { ids: number[] };
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: "ids must be a non-empty array" }); return;
+  }
+  const validIds = ids.map(Number).filter(n => !isNaN(n) && n > 0);
+  await db.execute(sql`UPDATE leads SET deleted_at = NULL, updated_at = NOW() WHERE id = ANY(${sql.raw(`ARRAY[${validIds.join(",")}]::int[]`)})`);
+  res.json({ ok: true, restored: validIds.length });
 });
 
 export default router;

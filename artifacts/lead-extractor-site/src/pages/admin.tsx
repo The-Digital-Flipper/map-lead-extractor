@@ -6,7 +6,7 @@ import {
   Zap, Download, LogOut, Users, Star, TrendingUp, Calendar,
   MapPin, ChevronLeft, ChevronRight, DollarSign, CreditCard,
   UserCheck, UserX, Crown, BarChart2, RefreshCw,
-  Flame, Globe, Target, Sparkles, Package, Phone,
+  Flame, Globe, Target, Sparkles, Package, Phone, Trash2, RotateCcw,
 } from "lucide-react";
 import {
   ComposableMap, Geographies, Geography, ZoomableGroup,
@@ -51,7 +51,7 @@ interface Lead {
   score: number | null; opportunityScore: number | null; needs: string[] | null;
   valueScore: number | null; demandScore: number | null;
   timesExtracted: number | null; extractedBy: string[] | null;
-  status: string | null; createdAt: string | null;
+  status: string | null; createdAt: string | null; deletedAt: string | null;
 }
 interface AdminUser {
   id: string; email: string | null; plan: string;
@@ -196,7 +196,14 @@ export default function Admin() {
       return next;
     });
   };
-  const [activeTab, setActiveTab] = useState<"command" | "overview" | "users" | "leads" | "money">("command");
+  const [activeTab, setActiveTab] = useState<"command" | "overview" | "users" | "leads" | "money" | "deleted">("command");
+  const [deletedLeads, setDeletedLeads] = useState<Lead[]>([]);
+  const [deletedTotal, setDeletedTotal] = useState(0);
+  const [deletedPage, setDeletedPage] = useState(1);
+  const [deletedPages, setDeletedPages] = useState(1);
+  const [loadingDeleted, setLoadingDeleted] = useState(false);
+  const [restoringIds, setRestoringIds] = useState<Set<number>>(new Set());
+  const [restoreResult, setRestoreResult] = useState<string | null>(null);
 
   // Sell-pack modal: owner sets a price for a category/territory pack and gets a
   // shareable Stripe checkout link to send a buyer.
@@ -284,8 +291,54 @@ export default function Admin() {
       .catch(() => {});
   }, [selectedState]);
 
+  const fetchDeletedLeads = useCallback(async () => {
+    setLoadingDeleted(true);
+    try {
+      const r = await fetch(`${basePath}/api/admin/deleted-leads?page=${deletedPage}&limit=50`);
+      const data = await r.json();
+      setDeletedLeads(data.leads ?? []);
+      setDeletedTotal(data.total ?? 0);
+      setDeletedPages(data.pages ?? 1);
+    } catch {}
+    setLoadingDeleted(false);
+  }, [deletedPage]);
+
+  const restoreLead = async (id: number) => {
+    setRestoringIds(prev => new Set(prev).add(id));
+    setRestoreResult(null);
+    try {
+      const r = await fetch(`${basePath}/api/admin/restore/${id}`, { method: "POST" });
+      if (r.ok) {
+        setDeletedLeads(prev => prev.filter(l => l.id !== id));
+        setDeletedTotal(prev => Math.max(0, prev - 1));
+        setRestoreResult("Lead restored successfully.");
+      }
+    } catch {}
+    setRestoringIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+  };
+
+  const restoreAll = async () => {
+    const ids = deletedLeads.map(l => l.id);
+    if (!ids.length) return;
+    setLoadingDeleted(true);
+    setRestoreResult(null);
+    try {
+      const r = await fetch(`${basePath}/api/admin/restore-bulk`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        setRestoreResult(`✓ ${d.restored} lead${d.restored !== 1 ? "s" : ""} restored.`);
+        await fetchDeletedLeads();
+      }
+    } catch {}
+    setLoadingDeleted(false);
+  };
+
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
+  useEffect(() => { if (activeTab === "deleted") fetchDeletedLeads(); }, [fetchDeletedLeads, activeTab]);
 
   if (!isLoaded) {
     return (
@@ -428,11 +481,11 @@ export default function Admin() {
 
           {/* ── TABS ──────────────────────────────────────────────────────── */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.09 }} className="mb-6">
-            <div className="flex gap-1 bg-card border border-border rounded-xl p-1 w-fit">
-              {(["command", "overview", "users", "leads", "money"] as const).map(tab => (
-                <button key={tab} onClick={() => { setActiveTab(tab); if (tab === "leads" || tab === "money") setPage(1); }}
-                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors capitalize ${activeTab === tab ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                  {tab === "command" ? "⚡ Command" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : "💰 Money Leads"}
+            <div className="flex gap-1 bg-card border border-border rounded-xl p-1 w-fit flex-wrap">
+              {(["command", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
+                <button key={tab} onClick={() => { setActiveTab(tab); if (tab === "leads" || tab === "money") setPage(1); if (tab === "deleted") setDeletedPage(1); }}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors capitalize ${activeTab === tab ? tab === "deleted" ? "bg-red-500/80 text-white" : "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                  {tab === "command" ? "⚡ Command" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
                 </button>
               ))}
             </div>
@@ -1132,6 +1185,107 @@ export default function Admin() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ── DELETED LEADS TAB ───────────────────────────────────────────── */}
+      {activeTab === "deleted" && (
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <div className="flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-red-400" />
+              <h2 className="text-lg font-bold text-foreground">Deleted Leads</h2>
+              <span className="px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 text-xs font-semibold">{deletedTotal.toLocaleString()} total</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {restoreResult && (
+                <span className="text-xs text-primary font-semibold">{restoreResult}</span>
+              )}
+              {deletedLeads.length > 0 && (
+                <button onClick={restoreAll} disabled={loadingDeleted}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/15 text-primary text-sm font-semibold hover:bg-primary/25 transition-colors disabled:opacity-50">
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Restore all on page
+                </button>
+              )}
+              <button onClick={fetchDeletedLeads} disabled={loadingDeleted}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-muted-foreground text-sm hover:text-foreground transition-colors">
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingDeleted ? "animate-spin" : ""}`} />
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {loadingDeleted && deletedLeads.length === 0 ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : deletedLeads.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <Trash2 className="w-10 h-10 mx-auto mb-3 opacity-25" />
+              <p className="text-sm">No deleted leads — the bin is empty.</p>
+            </div>
+          ) : (
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Business</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Category</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">Owner</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Deleted</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deletedLeads.map((lead, i) => (
+                    <tr key={lead.id} className={`border-b border-border/50 hover:bg-muted/20 transition-colors ${i % 2 === 0 ? "" : "bg-muted/5"}`}>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-foreground truncate max-w-[180px]">{lead.name ?? "—"}</div>
+                        {lead.phone && <div className="text-xs text-muted-foreground mt-0.5">{lead.phone}</div>}
+                      </td>
+                      <td className="px-4 py-3 hidden sm:table-cell">
+                        <span className="text-xs text-muted-foreground">{lead.category ?? "—"}</span>
+                      </td>
+                      <td className="px-4 py-3 hidden md:table-cell">
+                        <span className="text-xs font-mono text-muted-foreground truncate max-w-[140px] block">{(lead as Lead & { userId?: string }).userId ?? "—"}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-xs text-red-400">
+                          {lead.deletedAt ? new Date(lead.deletedAt).toLocaleDateString() : "—"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button onClick={() => restoreLead(lead.id)} disabled={restoringIds.has(lead.id)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary/15 text-primary text-xs font-semibold hover:bg-primary/25 transition-colors disabled:opacity-50">
+                          {restoringIds.has(lead.id)
+                            ? <><RefreshCw className="w-3 h-3 animate-spin" /> Restoring…</>
+                            : <><RotateCcw className="w-3 h-3" /> Restore</>}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Pagination */}
+              {deletedPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-border/50 bg-muted/10">
+                  <span className="text-xs text-muted-foreground">Page {deletedPage} of {deletedPages}</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => setDeletedPage(p => Math.max(1, p - 1))} disabled={deletedPage === 1 || loadingDeleted}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors">
+                      <ChevronLeft className="w-4 h-4" /> Prev
+                    </button>
+                    <button onClick={() => setDeletedPage(p => Math.min(deletedPages, p + 1))} disabled={deletedPage === deletedPages || loadingDeleted}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors">
+                      Next <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </motion.div>
       )}
     </div>
   );
