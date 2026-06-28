@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useUser } from "@clerk/react";
 import { useSession } from "@clerk/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Phone, Send, RefreshCw, ArrowLeft, MessageSquare, Circle, ChevronRight, Zap, Download, ChevronDown } from "lucide-react";
+import { Phone, Send, RefreshCw, ArrowLeft, MessageSquare, Circle, ChevronRight, Zap, Download, ChevronDown, Upload, Lock, Crown, Smartphone } from "lucide-react";
 import { useSeo } from "@/lib/seo";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -69,6 +69,12 @@ export default function CommandCenter() {
   const [importing, setImporting] = useState(false);
   const [importCount, setImportCount] = useState<number | null>(null);
   const [showImportMenu, setShowImportMenu] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [showSendGate, setShowSendGate] = useState(false);
+  const [phoneStyle, setPhoneStyle] = useState<"iphone" | "android">(
+    () => (localStorage.getItem("mle_cc_phone_style") as "iphone" | "android") || "iphone"
+  );
+  useEffect(() => { localStorage.setItem("mle_cc_phone_style", phoneStyle); }, [phoneStyle]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const importMenuRef = useRef<HTMLDivElement>(null);
 
@@ -227,6 +233,22 @@ export default function CommandCenter() {
     finally { setBulkSending(false); }
   };
 
+  // Chat-bubble look per phone style. iPhone = iMessage (blue, tail corner);
+  // Android = Google Messages (indigo, fully-rounded pill corners).
+  const bubbleClass = (isOut: boolean) => {
+    if (phoneStyle === "android") {
+      return isOut
+        ? "bg-[#0b57d0] text-white rounded-[1.4rem] rounded-br-md"
+        : "bg-[#e3e3e6] text-[#1f1f1f] rounded-[1.4rem] rounded-bl-md";
+    }
+    // iphone (iMessage)
+    return isOut
+      ? "bg-[#0b93f6] text-white rounded-[1.15rem] rounded-br-[5px]"
+      : "bg-[#e5e5ea] text-black rounded-[1.15rem] rounded-bl-[5px]";
+  };
+  // The "phone screen" background behind the bubbles.
+  const threadBg = phoneStyle === "android" ? "bg-[#f1f3f4]" : "bg-white";
+
   if (!isLoaded) return (
     <div className="min-h-screen bg-background flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -253,6 +275,22 @@ export default function CommandCenter() {
             <span className="font-display font-bold">SMS Command Center</span>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            {/* iPhone / Android look toggle */}
+            <div className="flex items-center rounded-lg border border-border overflow-hidden text-[11px] font-bold" title="Switch chat look">
+              {(["iphone", "android"] as const).map((style) => (
+                <button
+                  key={style}
+                  onClick={() => setPhoneStyle(style)}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 transition-colors ${
+                    phoneStyle === style
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Smartphone className="w-3 h-3" /> {style === "iphone" ? "iPhone" : "Android"}
+                </button>
+              ))}
+            </div>
             <button
               onClick={loadConversations}
               className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
@@ -386,15 +424,102 @@ export default function CommandCenter() {
             )}
 
             <button
-              onClick={sendBulk}
-              disabled={bulkSending || !bulkPhones.trim() || !bulkMessage.trim()}
+              onClick={() => setShowSendGate(true)}
+              disabled={!bulkPhones.trim() || !bulkMessage.trim()}
               className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-40"
             >
-              {bulkSending
-                ? <><div className="w-4 h-4 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" /> Sending…</>
-                : <><Zap className="w-4 h-4" /> Send Bulk Text</>
-              }
+              <Zap className="w-4 h-4" /> Send Bulk Text
             </button>
+          </div>
+
+          {/* ── Upload Your Own List — Pro upsell (locked) ─────────────── */}
+          <div className="relative bg-gradient-to-br from-primary/[0.07] via-card to-card border border-primary/30 rounded-2xl p-6 mt-6 overflow-hidden">
+            {/* glow accent */}
+            <div className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full bg-primary/20 blur-3xl" />
+
+            <div className="relative flex items-center gap-2 mb-1">
+              <h2 className="font-display font-bold text-lg">Upload Your Own List</h2>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 border border-primary/40 text-primary text-[10px] font-bold uppercase tracking-wide">
+                <Crown className="w-3 h-3" /> Pro
+              </span>
+            </div>
+            <p className="relative text-xs text-muted-foreground mb-4">
+              Stop being limited to extracted leads. Drop in a CSV of <span className="text-foreground font-semibold">your own customers, past buyers, or cold lists</span> and blast them all in one click.
+            </p>
+
+            {/* benefit bullets */}
+            <ul className="relative grid sm:grid-cols-2 gap-2 mb-5">
+              {[
+                "Unlimited contact uploads",
+                "Text customers you already have",
+                "CSV & spreadsheet import",
+                "No per-message limits",
+              ].map((b) => (
+                <li key={b} className="flex items-center gap-2 text-xs text-foreground/90">
+                  <span className="w-4 h-4 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
+                    <Zap className="w-2.5 h-2.5 text-primary" />
+                  </span>
+                  {b}
+                </li>
+              ))}
+            </ul>
+
+            {/* Dropzone (locked — opens upgrade) */}
+            <button
+              onClick={() => setShowUpgrade(true)}
+              className="relative w-full border-2 border-dashed border-primary/30 rounded-xl px-4 py-9 flex flex-col items-center justify-center gap-2 text-center hover:border-primary/60 hover:bg-primary/[0.04] transition-colors group"
+            >
+              <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/30 flex items-center justify-center group-hover:scale-105 transition-transform">
+                <Upload className="w-5 h-5 text-primary" />
+              </div>
+              <p className="text-sm font-semibold text-foreground">Drag &amp; drop a CSV, or click to upload</p>
+              <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                <Lock className="w-3 h-3" /> Unlock with Pro
+              </p>
+            </button>
+
+            {/* Upgrade overlay */}
+            <AnimatePresence>
+              {showUpgrade && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-10 bg-card/85 backdrop-blur-md flex flex-col items-center justify-center gap-4 text-center px-6"
+                >
+                  <motion.div
+                    initial={{ scale: 0.9, y: 8 }}
+                    animate={{ scale: 1, y: 0 }}
+                    className="flex flex-col items-center gap-4"
+                  >
+                    <div className="w-14 h-14 rounded-2xl bg-primary/15 border border-primary/40 flex items-center justify-center">
+                      <Crown className="w-7 h-7 text-primary" />
+                    </div>
+                    <div>
+                      <p className="font-display font-bold text-lg mb-1">Unlock unlimited uploads</p>
+                      <p className="text-xs text-muted-foreground max-w-xs leading-relaxed">
+                        Upgrade to <span className="text-foreground font-semibold">Pro</span> to upload your own contact lists and reach everyone — your customers, past buyers, and cold lists — not just extracted leads.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={`${basePath}/pricing`}
+                        className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 transition-opacity shadow-lg shadow-primary/20"
+                      >
+                        Upgrade to Pro →
+                      </a>
+                      <button
+                        onClick={() => setShowUpgrade(false)}
+                        className="px-4 py-2.5 rounded-xl text-muted-foreground text-sm hover:text-foreground transition-colors"
+                      >
+                        Maybe later
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground/70">Cancel anytime · Instant access</p>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       ) : (
@@ -461,10 +586,23 @@ export default function CommandCenter() {
           {/* Thread view */}
           <div className={`flex-1 flex flex-col ${activePhone ? "flex" : "hidden md:flex"}`}>
             {!activePhone ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-8">
-                <MessageSquare className="w-10 h-10 text-muted-foreground/20" />
-                <p className="font-semibold text-muted-foreground">Select a conversation</p>
-                <p className="text-xs text-muted-foreground/60">Choose a thread on the left to view messages and reply.</p>
+              <div className={`flex-1 flex flex-col items-center justify-center gap-6 px-6 ${threadBg}`}>
+                {/* Live sample preview — changes with the iPhone / Android toggle */}
+                <div className="w-full max-w-xs flex flex-col gap-2">
+                  <div className="flex justify-start">
+                    <div className={`max-w-[78%] px-3.5 py-2 text-sm ${bubbleClass(false)}`}>Hi, is the car still available?</div>
+                  </div>
+                  <div className="flex justify-end">
+                    <div className={`max-w-[78%] px-3.5 py-2 text-sm ${bubbleClass(true)}`}>Yes it is! When can you come look?</div>
+                  </div>
+                  <div className="flex justify-start">
+                    <div className={`max-w-[78%] px-3.5 py-2 text-sm ${bubbleClass(false)}`}>Tomorrow morning 👍</div>
+                  </div>
+                </div>
+                <div className="text-center">
+                  <p className="font-bold text-sm text-gray-700">{phoneStyle === "iphone" ? "📱 iPhone (iMessage)" : "🤖 Android (Messages)"} preview</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Toggle iPhone / Android up top. Pick a conversation to start texting.</p>
+                </div>
               </div>
             ) : (
               <>
@@ -486,7 +624,7 @@ export default function CommandCenter() {
                 </div>
 
                 {/* Messages */}
-                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
+                <div className={`flex-1 overflow-y-auto p-4 flex flex-col gap-2 ${threadBg}`}>
                   {loadingThread && messages.length === 0 ? (
                     <div className="flex-1 flex items-center justify-center">
                       <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -498,13 +636,9 @@ export default function CommandCenter() {
                       const isOut = msg.direction === "outbound";
                       return (
                         <div key={msg.id} className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
-                          <div className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm leading-relaxed ${
-                            isOut
-                              ? "bg-primary text-primary-foreground rounded-br-sm"
-                              : "bg-card border border-border text-foreground rounded-bl-sm"
-                          }`}>
+                          <div className={`max-w-[75%] px-3.5 py-2 text-sm leading-relaxed ${bubbleClass(isOut)}`}>
                             {msg.body}
-                            <div className={`text-[10px] mt-1 ${isOut ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
+                            <div className={`text-[10px] mt-1 ${isOut ? "text-white/70" : "text-black/40"}`}>
                               {formatTime(msg.createdAt)}
                             </div>
                           </div>
@@ -524,20 +658,17 @@ export default function CommandCenter() {
                     <textarea
                       value={reply}
                       onChange={e => { setReply(e.target.value); setSendError(null); }}
-                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
+                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (reply.trim()) setShowSendGate(true); } }}
                       rows={2}
                       placeholder="Type a reply… (Enter to send, Shift+Enter for newline)"
                       className="flex-1 bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-none"
                     />
                     <button
-                      onClick={sendReply}
-                      disabled={!reply.trim() || sending}
+                      onClick={() => setShowSendGate(true)}
+                      disabled={!reply.trim()}
                       className="px-4 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center gap-1.5 self-end py-2"
                     >
-                      {sending
-                        ? <div className="w-4 h-4 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
-                        : <Send className="w-4 h-4" />
-                      }
+                      <Send className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
@@ -546,6 +677,53 @@ export default function CommandCenter() {
           </div>
         </div>
       )}
+
+      {/* ── Membership gate when sending texts ─────────────────────── */}
+      <AnimatePresence>
+        {showSendGate && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowSendGate(false)}
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.94, y: 12 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.94, y: 12 }}
+              onClick={e => e.stopPropagation()}
+              className="relative w-full max-w-md bg-card border border-primary/30 rounded-2xl p-7 text-center overflow-hidden"
+            >
+              <div className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full bg-primary/20 blur-3xl" />
+              <div className="relative flex flex-col items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-primary/15 border border-primary/40 flex items-center justify-center">
+                  <Crown className="w-7 h-7 text-primary" />
+                </div>
+                <div>
+                  <p className="font-display font-bold text-lg mb-1">Membership required to send</p>
+                  <p className="text-xs text-muted-foreground max-w-sm leading-relaxed">
+                    Sending texts is a <span className="text-foreground font-semibold">Pro membership</span> feature. Upgrade now to fire off your message and start reaching every lead — replies land right back in this inbox.
+                  </p>
+                </div>
+                <a
+                  href={`${basePath}/pricing`}
+                  className="w-full px-5 py-3 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 transition-opacity shadow-lg shadow-primary/20"
+                >
+                  Get Pro Membership →
+                </a>
+                <button
+                  onClick={() => setShowSendGate(false)}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Maybe later
+                </button>
+                <p className="text-[10px] text-muted-foreground/70">Cancel anytime · Instant access</p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

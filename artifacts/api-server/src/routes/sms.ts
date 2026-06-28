@@ -18,28 +18,26 @@ function toE164(raw: string): string {
   return raw.trim(); // return as-is; Twilio will reject unknown formats
 }
 
+// The real Twilio Account SID (AC...). Not sensitive — it appears in every
+// Twilio REST API URL. Used as a last-resort fallback because TWILIO_ACCOUNT_SID
+// in Secrets was mistakenly set to an API Key (SK...). Env always wins, so this
+// can be overridden without a code change.
+const ACCOUNT_SID_FALLBACK = "AC8dcc703ff000ad04c2750a748ea762ea";
+
 function getTwilioClient() {
+  // Standard auth: Account SID (AC...) + Auth Token. TWILIO_AUTH_TOKEN holds the
+  // account Auth Token (verified working).
   const token = process.env.TWILIO_AUTH_TOKEN;
   if (!token) return null;
 
-  // Standard auth: Account SID (AC...) + Auth Token. Prefer an explicit AC SID
-  // (TWILIO_ACCOUNT_SID_AC) so a misconfigured TWILIO_ACCOUNT_SID holding an
-  // API Key (SK...) doesn't break account-token auth.
   const accountSid =
     process.env.TWILIO_ACCOUNT_SID_AC ||
     (process.env.TWILIO_ACCOUNT_SID?.startsWith("AC")
       ? process.env.TWILIO_ACCOUNT_SID
-      : undefined);
-  if (accountSid) return twilio(accountSid, token);
+      : undefined) ||
+    ACCOUNT_SID_FALLBACK;
 
-  // Fallback: API Key SID (SK...) + API Key Secret — requires the real Account
-  // SID passed as an option. (TWILIO_AUTH_TOKEN must be the API key secret here.)
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  if (sid?.startsWith("SK") && process.env.TWILIO_ACCOUNT_SID_AC) {
-    return twilio(sid, token, { accountSid: process.env.TWILIO_ACCOUNT_SID_AC });
-  }
-
-  return sid ? twilio(sid, token) : null;
+  return twilio(accountSid, token);
 }
 
 /** GET /api/sms/config */
