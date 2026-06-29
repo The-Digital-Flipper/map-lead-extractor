@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { CsvCleaner } from "@/components/tools/csv-cleaner";
 
 const usd = (n: number) =>
   isFinite(n) ? n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }) : "—";
@@ -299,10 +300,11 @@ export function SubjectLineTester() {
   );
 }
 
-export function Calculator({ kind }: { kind: "roi" | "leadValue" | "agencyPricing" | "leadScore" | "subjectTester" }) {
+export function Calculator({ kind }: { kind: "roi" | "leadValue" | "agencyPricing" | "leadScore" | "subjectTester" | "csvCleaner" }) {
   if (kind === "roi") return <RoiCalculator />;
   if (kind === "leadValue") return <LeadValueCalculator />;
   if (kind === "agencyPricing") return <AgencyPricingCalculator />;
   if (kind === "leadScore") return <LeadScoreCalculator />;
-  return <SubjectLineTester />;
+  if (kind === "subjectTester") return <SubjectLineTester />;
+  return <CsvCleaner />;
 }

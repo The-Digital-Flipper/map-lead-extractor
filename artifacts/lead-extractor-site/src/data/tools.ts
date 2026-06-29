@@ -12,8 +12,8 @@ export interface ToolFaq {
 
 export interface Tool {
   slug: string;
-  /** Which calculator widget to render. */
-  kind: "roi" | "leadValue" | "agencyPricing" | "leadScore" | "subjectTester";
+  /** Which interactive widget to render. */
+  kind: "roi" | "leadValue" | "agencyPricing" | "leadScore" | "subjectTester" | "csvCleaner";
   /** Short name for cards/nav. */
   name: string;
   /** One-line value prop. */
@@ -209,6 +209,45 @@ export const tools: Tool[] = [
     ],
     relatedTools: ["lead-value-calculator", "roi-calculator"],
     relatedPosts: ["cold-email-from-google-maps-leads", "how-to-extract-emails-from-google-maps"],
+  },
+  {
+    slug: "csv-cleaner",
+    kind: "csvCleaner",
+    name: "Lead List CSV Cleaner",
+    tagline: "Dedupe, validate, and clean a leads CSV — entirely in your browser.",
+    h1: "Free CSV Cleaner & Deduplicator for Lead Lists",
+    metaTitle: "CSV Cleaner & Deduplicator | Map Lead Extractor",
+    metaDescription:
+      "Free CSV cleaner for lead lists. Remove duplicates, drop empty rows, normalize phones, validate emails, and export — 100% in your browser. No upload, no signup.",
+    intro: [
+      "Exported a messy leads CSV? This free tool removes duplicate businesses, drops rows with no contact info, normalizes phone numbers, validates email addresses, and trims junk whitespace — then lets you download the cleaned file. It is built for the lead lists you pull from Google Maps and Bing Maps.",
+      "Everything happens in your browser. Your file is never uploaded, stored, or sent anywhere — which matters when you are handling real prospect data. No signup required.",
+    ],
+    body: [
+      { type: "h2", text: "What the CSV cleaner does" },
+      { type: "p", text: "Lead lists get messy fast, especially when you merge extractions from multiple cities or sources. This tool fixes the most common problems in one pass and shows you exactly how many rows each step removed or changed." },
+      { type: "ul", items: [
+        "Remove exact duplicate rows.",
+        "Deduplicate by email or by phone number (the same business listed twice with different formatting).",
+        "Drop rows that have neither an email nor a phone — leads you can't action.",
+        "Normalize US phone numbers to a consistent (xxx) xxx-xxxx format.",
+        "Lowercase and validate email addresses, optionally removing invalid ones.",
+        "Trim leading/trailing whitespace from every field.",
+      ] },
+      { type: "h2", text: "How to use it" },
+      { type: "p", text: "Upload a CSV (or paste one), choose which cleanup steps to run, review the before/after counts, and download the cleaned file. It auto-detects the email and phone columns from your headers, so it works with exports from Map Lead Extractor and most other tools." },
+      { type: "tip", text: "Run dedupe-by-phone when merging two city extractions — the same business often appears in both Google and Bing pulls with slightly different names, and phone is the most reliable key." },
+      { type: "h2", text: "Why clean your list before outreach" },
+      { type: "p", text: "Duplicates waste sends and make you look careless when the same prospect gets two identical emails. Invalid addresses hurt your sender reputation and can land your whole domain in spam. A two-minute cleanup protects deliverability and makes your reporting accurate." },
+    ],
+    faq: [
+      { q: "Is my CSV uploaded anywhere?", a: "No. The entire cleanup runs locally in your browser using JavaScript. Your file is never uploaded to a server, stored, or transmitted — so it is safe for real prospect data." },
+      { q: "What duplicate detection does it use?", a: "You can remove exact duplicate rows, or deduplicate by the email column or the phone column. Phone-based dedupe normalizes numbers first, so the same business listed with different formatting is still caught." },
+      { q: "Does it work with exports from other tools?", a: "Yes. It auto-detects common email and phone column names, so CSV exports from Map Lead Extractor and most other lead tools work out of the box." },
+      { q: "Is it free?", a: "Yes — completely free, no signup, and no limits on file size beyond what your browser can hold in memory." },
+    ],
+    relatedTools: ["lead-quality-score", "lead-value-calculator"],
+    relatedPosts: ["how-to-extract-emails-from-google-maps", "how-to-scrape-google-maps-leads"],
   },
 ];
 
