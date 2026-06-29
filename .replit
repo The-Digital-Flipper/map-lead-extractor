@@ -3,6 +3,10 @@ modules = ["nodejs-24", "python-3.11", "postgresql-16"]
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
+# Build the prerendered site (BASE_PATH/PORT satisfy vite.config at build time)
+# and the API server; then the API server serves both /api and the site.
+build = ["sh", "-c", "BASE_PATH=/ PORT=5000 pnpm run build"]
+run = ["sh", "-c", "node artifacts/api-server/dist/index.mjs"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
