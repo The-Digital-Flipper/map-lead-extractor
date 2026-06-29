@@ -8,14 +8,19 @@ import { useClerk } from "@clerk/react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
-import Home from "@/pages/home";
-import Blog from "@/pages/blog";
-import BlogPost from "@/pages/blog-post";
-import Pricing from "@/pages/pricing";
-import ConnectExtension from "@/pages/connect-extension";
-import Privacy from "@/pages/privacy";
-import Terms from "@/pages/terms";
-import IndustryLanding from "@/pages/industry-landing";
+
+// Marketing/content routes are code-split so a first visit to any single page
+// only downloads that page's chunk plus shared vendor chunks.
+const Home = lazy(() => import("@/pages/home"));
+const Blog = lazy(() => import("@/pages/blog"));
+const BlogPost = lazy(() => import("@/pages/blog-post"));
+const Pricing = lazy(() => import("@/pages/pricing"));
+const ConnectExtension = lazy(() => import("@/pages/connect-extension"));
+const Privacy = lazy(() => import("@/pages/privacy"));
+const Terms = lazy(() => import("@/pages/terms"));
+const IndustryLanding = lazy(() => import("@/pages/industry-landing"));
+const ToolsIndex = lazy(() => import("@/pages/tools"));
+const ToolPage = lazy(() => import("@/pages/tool"));
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const CommandCenter = lazy(() => import("@/pages/command-center"));
@@ -184,6 +189,7 @@ function ClerkProviderWithRoutes() {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <ClerkQueryInvalidator />
+          <Suspense fallback={null}>
           <Switch>
             <Route path="/" component={HomeRoute} />
             <Route path="/sign-in/*?" component={SignInPage} />
@@ -198,6 +204,8 @@ function ClerkProviderWithRoutes() {
             <Route path="/privacy" component={Privacy} />
             <Route path="/terms" component={Terms} />
             <Route path="/leads/:industry" component={IndustryLanding} />
+            <Route path="/tools" component={ToolsIndex} />
+            <Route path="/tools/:tool" component={ToolPage} />
             <Route path="/command-center" component={() => (
               <Suspense fallback={null}>
                 <Show when="signed-in"><CommandCenter /></Show>
@@ -206,6 +214,7 @@ function ClerkProviderWithRoutes() {
             )} />
             <Route component={NotFound} />
           </Switch>
+          </Suspense>
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>

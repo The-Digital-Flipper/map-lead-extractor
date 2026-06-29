@@ -11,6 +11,13 @@ A Chrome extension that extracts business leads from Google Maps and Bing Maps �
 - https://mapleadextractor.net/privacy — Privacy policy
 - https://mapleadextractor.net/terms — Terms of service
 
+## Free Tools
+
+- https://mapleadextractor.net/tools — Free lead generation tools and calculators
+- https://mapleadextractor.net/tools/roi-calculator — Google Maps lead generation ROI calculator
+- https://mapleadextractor.net/tools/lead-value-calculator — Lead value and max cost-per-lead calculator
+- https://mapleadextractor.net/tools/agency-pricing-calculator — Agency retainer pricing calculator
+
 ## Leads by Industry
 
 - https://mapleadextractor.net/leads/real-estate-agents — Extract real estate agent & realtor leads from Google Maps

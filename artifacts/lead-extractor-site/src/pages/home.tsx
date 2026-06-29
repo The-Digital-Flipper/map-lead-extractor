@@ -131,6 +131,7 @@ export default function Home() {
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
             <a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a>
             <a href="/blog" className="hover:text-foreground transition-colors">Blog</a>
+            <a href="/tools" className="hover:text-foreground transition-colors">Free Tools</a>
           </nav>
           <div className="flex items-center gap-3">
             <Show when="signed-in">
@@ -932,6 +933,7 @@ export default function Home() {
                 <li><a href={STORE_URL} target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">Bing Maps Extractor</a></li>
                 <li><a href="/pricing" className="hover:text-primary transition-colors">Pricing</a></li>
                 <li><a href="/blog" className="hover:text-primary transition-colors">Blog</a></li>
+                <li><a href="/tools" className="hover:text-primary transition-colors">Free Tools</a></li>
               </ul>
             </div>
             

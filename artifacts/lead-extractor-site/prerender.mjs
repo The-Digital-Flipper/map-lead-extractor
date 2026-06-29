@@ -22,6 +22,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { posts } from "./src/data/posts.ts";
 import { industryPages } from "./src/data/landing-pages.ts";
+import { tools } from "./src/data/tools.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "dist/public");
@@ -56,6 +57,12 @@ const staticRoutes = [
       "Tutorials and guides on finding Google Maps leads, cold email outreach, lead-gen for agencies and web designers, and staying compliant.",
   },
   {
+    path: "/tools",
+    title: "Free Lead Generation Tools & Calculators | Map Lead Extractor",
+    description:
+      "Free tools for local lead generation and agencies: Google Maps ROI calculator, lead value calculator, and agency pricing calculator. No signup required.",
+  },
+  {
     path: "/connect-extension",
     title: "Connect Your Extension — Map Lead Extractor",
     description:
@@ -87,7 +94,13 @@ const landingRoutes = industryPages.map((p) => ({
   description: p.metaDescription,
 }));
 
-const allRoutes = [...staticRoutes, ...blogRoutes, ...landingRoutes];
+const toolRoutes = tools.map((t) => ({
+  path: `/tools/${t.slug}`,
+  title: t.metaTitle,
+  description: t.metaDescription,
+}));
+
+const allRoutes = [...staticRoutes, ...blogRoutes, ...landingRoutes, ...toolRoutes];
 
 // Home FAQ (mirrors the on-page accordion) + product/step summaries.
 const FAQ = [
@@ -137,10 +150,10 @@ const replaceCanonical = (html, url) =>
 // ---------------------------------------------------------------------------
 
 const navHtml = () =>
-  `<nav aria-label="Primary"><a href="/">Map Lead Extractor</a> <a href="/#extensions">Products</a> <a href="/#how-it-works">How it works</a> <a href="/#industries">Industries</a> <a href="/#faq">FAQ</a> <a href="/pricing">Pricing</a> <a href="/blog">Blog</a> <a href="${STORE_URL}" rel="nofollow">Install Free</a></nav>`;
+  `<nav aria-label="Primary"><a href="/">Map Lead Extractor</a> <a href="/#extensions">Products</a> <a href="/#how-it-works">How it works</a> <a href="/#industries">Industries</a> <a href="/#faq">FAQ</a> <a href="/pricing">Pricing</a> <a href="/blog">Blog</a> <a href="/tools">Free Tools</a> <a href="${STORE_URL}" rel="nofollow">Install Free</a></nav>`;
 
 const footerHtml = () =>
-  `<footer><a href="/privacy">Privacy Policy</a> <a href="/terms">Terms of Service</a> <a href="/blog">Blog</a> <a href="/pricing">Pricing</a></footer>`;
+  `<footer><a href="/privacy">Privacy Policy</a> <a href="/terms">Terms of Service</a> <a href="/blog">Blog</a> <a href="/pricing">Pricing</a> <a href="/tools">Free Tools</a></footer>`;
 
 const blogLinksHtml = () =>
   `<ul>${posts.map((p) => `<li><a href="/blog/${p.slug}">${escHtml(p.title)}</a> — ${escHtml(p.description)}</li>`).join("")}</ul>`;
@@ -274,13 +287,46 @@ const legalContent = (h1, body) => `
     ${footerHtml()}
   `;
 
-function contentForRoute(route, post, landing) {
+function toolsIndexContent() {
+  return `
+    ${navHtml()}
+    <main>
+      <h1>Free lead generation tools</h1>
+      <p>Free, no-signup calculators for local lead generation, sales, and agencies. Each runs entirely in your browser.</p>
+      <ul>${tools.map((t) => `<li><a href="/tools/${t.slug}">${escHtml(t.name)}</a> — ${escHtml(t.tagline)}</li>`).join("")}</ul>
+    </main>
+    ${footerHtml()}
+  `;
+}
+
+function toolContent(tool) {
+  const others = tools
+    .filter((t) => t.slug !== tool.slug)
+    .map((t) => `<a href="/tools/${t.slug}">${escHtml(t.name)}</a>`)
+    .join(" ");
+  return `
+    ${navHtml()}
+    <main>
+      <nav aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/tools">Free Tools</a> / <span>${escHtml(tool.name)}</span></nav>
+      <h1>${escHtml(tool.h1)}</h1>
+      ${tool.intro.map((p) => `<p>${escHtml(p)}</p>`).join("")}
+      ${renderSections(tool.body)}
+      <section><h2>Frequently asked questions</h2>${tool.faq.map((f) => `<div><h3>${escHtml(f.q)}</h3><p>${escHtml(f.a)}</p></div>`).join("")}</section>
+      <section><h2>More free tools</h2><p>${others}</p></section>
+    </main>
+    ${footerHtml()}
+  `;
+}
+
+function contentForRoute(route, post, landing, tool) {
   if (post) return blogPostContent(post);
   if (landing) return landingContent(landing);
+  if (tool) return toolContent(tool);
   switch (route.path) {
     case "/": return homeContent();
     case "/pricing": return pricingContent();
     case "/blog": return blogIndexContent();
+    case "/tools": return toolsIndexContent();
     case "/privacy":
       return legalContent("Privacy Policy", "<p>The Map Lead Extractor browser extensions run entirely inside your own browser. Extracted leads are processed locally and exported to your Downloads folder — we do not transmit or store them, and we run no tracking telemetry. Account authentication is handled by Clerk and payments by Stripe.</p><p>Questions? Email support@mapleadextractor.net.</p>");
     case "/terms":
@@ -347,6 +393,35 @@ function landingJsonLd(page) {
   );
 }
 
+function toolJsonLd(tool) {
+  const url = `${SITE}/tools/${tool.slug}`;
+  return (
+    ld({
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      name: tool.name,
+      description: tool.metaDescription,
+      url,
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Any (web browser)",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      publisher: { "@type": "Organization", name: "Map Lead Extractor", url: `${SITE}/` },
+    }) +
+    "\n" +
+    faqJsonLd(tool.faq) +
+    "\n" +
+    ld({
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Home", item: `${SITE}/` },
+        { "@type": "ListItem", position: 2, name: "Free Tools", item: `${SITE}/tools` },
+        { "@type": "ListItem", position: 3, name: tool.name, item: url },
+      ],
+    })
+  );
+}
+
 // Product schema for the pricing page. Only the free tier has a known static
 // price (Pro pricing is fetched live from Stripe), so we assert just that.
 const pricingJsonLd = () =>
@@ -364,7 +439,7 @@ const pricingJsonLd = () =>
 // HTML transformation
 // ---------------------------------------------------------------------------
 
-function buildHtml(template, route, post, landing) {
+function buildHtml(template, route, post, landing, tool) {
   const canonicalUrl = SITE + route.path;
   let html = template;
 
@@ -386,11 +461,12 @@ function buildHtml(template, route, post, landing) {
     head.push(blogPostJsonLd(post));
   }
   if (landing) head.push(landingJsonLd(landing));
+  if (tool) head.push(toolJsonLd(tool));
   if (route.path === "/") head.push(faqJsonLd(FAQ));
   if (route.path === "/pricing") head.push(pricingJsonLd());
   if (head.length) html = html.replace("</head>", `${head.join("\n")}\n</head>`);
 
-  const content = contentForRoute(route, post, landing);
+  const content = contentForRoute(route, post, landing, tool);
   if (content) {
     html = html.replace(
       /<div id="root"><\/div>/,
@@ -428,9 +504,13 @@ function writeSitemaps() {
     { loc: `${SITE}/`, lastmod: BUILD_DATE, changefreq: "weekly", priority: "1.0" },
     { loc: `${SITE}/pricing`, lastmod: BUILD_DATE, changefreq: "monthly", priority: "0.9" },
     { loc: `${SITE}/blog`, lastmod: BUILD_DATE, changefreq: "weekly", priority: "0.8" },
+    { loc: `${SITE}/tools`, lastmod: BUILD_DATE, changefreq: "monthly", priority: "0.7" },
     { loc: `${SITE}/privacy`, lastmod: BUILD_DATE, changefreq: "yearly", priority: "0.3" },
     { loc: `${SITE}/terms`, lastmod: BUILD_DATE, changefreq: "yearly", priority: "0.3" },
   ]);
+  const toolsSm = urlset(
+    tools.map((t) => ({ loc: `${SITE}/tools/${t.slug}`, lastmod: BUILD_DATE, changefreq: "monthly", priority: "0.7" }))
+  );
   const blog = urlset(
     posts.map((p) => ({
       loc: `${SITE}/blog/${p.slug}`,
@@ -453,12 +533,13 @@ function writeSitemaps() {
   writeFileSync(join(DIST, "sitemap-pages.xml"), pages);
   writeFileSync(join(DIST, "sitemap-blog.xml"), blog);
   writeFileSync(join(DIST, "sitemap-landing.xml"), landing);
+  writeFileSync(join(DIST, "sitemap-tools.xml"), toolsSm);
   writeFileSync(join(DIST, "sitemap-images.xml"), images);
   writeFileSync(
     join(DIST, "sitemap.xml"),
-    sitemapIndex(["sitemap-pages.xml", "sitemap-blog.xml", "sitemap-landing.xml", "sitemap-images.xml"])
+    sitemapIndex(["sitemap-pages.xml", "sitemap-blog.xml", "sitemap-landing.xml", "sitemap-tools.xml", "sitemap-images.xml"])
   );
-  console.log("  sitemaps → index + pages/blog/landing/images");
+  console.log("  sitemaps → index + pages/blog/landing/tools/images");
 }
 
 // ---------------------------------------------------------------------------
@@ -468,12 +549,14 @@ function writeSitemaps() {
 const template = readFileSync(join(DIST, "index.html"), "utf-8");
 const postsBySlug = new Map(posts.map((p) => [`/blog/${p.slug}`, p]));
 const landingBySlug = new Map(industryPages.map((p) => [`/leads/${p.slug}`, p]));
+const toolBySlug = new Map(tools.map((t) => [`/tools/${t.slug}`, t]));
 
 let count = 0;
 for (const route of allRoutes) {
   const post = postsBySlug.get(route.path);
   const landing = landingBySlug.get(route.path);
-  const html = buildHtml(template, route, post, landing);
+  const tool = toolBySlug.get(route.path);
+  const html = buildHtml(template, route, post, landing, tool);
 
   const segments = route.path.replace(/^\//, "").split("/");
   const dir = route.path === "/" ? DIST : join(DIST, ...segments);
