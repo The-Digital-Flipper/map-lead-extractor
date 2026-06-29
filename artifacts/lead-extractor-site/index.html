@@ -75,6 +75,38 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Boot diagnostic: if the app fails to start (or renders nothing), show the
+         error on-screen instead of a blank white page. Cleared once React mounts. -->
+    <script>
+      (function () {
+        var shown = false;
+        function show(title, detail) {
+          if (shown || window.__APP_MOUNTED__) return;
+          shown = true;
+          var r = document.getElementById("root");
+          if (!r) return;
+          r.innerHTML =
+            '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0d1117;color:#e6edf3;font-family:system-ui,sans-serif;padding:2rem;text-align:center">' +
+            '<div style="max-width:640px"><h1 style="font-size:1.2rem;font-weight:700;margin:0 0 .5rem">' + title + '</h1>' +
+            '<pre style="white-space:pre-wrap;text-align:left;background:#161c26;border:1px solid #1e2a3a;border-radius:8px;padding:.75rem;font-size:.78rem;color:#ff8a8a;overflow:auto">' +
+            (detail || "") + '</pre></div></div>';
+        }
+        window.addEventListener("error", function (e) {
+          show("App failed to load", (e.message || "") + "\n" + ((e.error && e.error.stack) || "").slice(0, 1200));
+        });
+        window.addEventListener("unhandledrejection", function (e) {
+          var r = e.reason || {};
+          show("App failed to load (promise)", (r.message || String(r)) + "\n" + ((r.stack) || "").slice(0, 1200));
+        });
+        setTimeout(function () {
+          var r = document.getElementById("root");
+          var txt = r ? (r.innerText || "").trim() : "";
+          if (!window.__APP_MOUNTED__ && txt.length < 5) {
+            show("App rendered nothing", "The app loaded but produced no UI within 10s. Open DevTools (F12) -> Console and copy any red error.");
+          }
+        }, 10000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
