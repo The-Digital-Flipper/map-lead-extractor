@@ -25,6 +25,7 @@ import step1CwsListing from "@assets/step1-cws-listing.png";
 import step4GoogleMaps from "@assets/step4-google-maps-search.png";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
+const YELP_STORE_URL = "https://chromewebstore.google.com/detail/yelp-lead-extractor/ogmnanpogeipkoahnphaelmjmbepdpml";
 
 const fadeIn = {
   hidden: { opacity: 0, y: 20 },
@@ -363,7 +364,7 @@ export default function Home() {
                       <li className="flex gap-4"><ArrowRight className="w-6 h-6 text-primary shrink-0" /> <span className="text-lg">Syncs directly to your lead dashboard</span></li>
                     </ul>
                     <Button variant="outline" className="w-full h-12 text-md group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary transition-all" asChild>
-                      <a href={STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-yelp-install">Install Extractor</a>
+                      <a href={YELP_STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-yelp-install">Install Extractor</a>
                     </Button>
                   </CardContent>
                 </Card>
