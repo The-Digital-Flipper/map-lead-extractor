@@ -1,5 +1,6 @@
 import { Zap } from "lucide-react";
 import { useSeo } from "@/lib/seo";
+import { MobileNav } from "@/components/site/mobile-nav";
 
 const STORE_URL =
   "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
@@ -32,6 +33,7 @@ export default function Terms() {
             <a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a>
             <a href="/blog" className="hover:text-foreground transition-colors">Blog</a>
           </nav>
+          <MobileNav />
           <a
             href={STORE_URL}
             target="_blank"

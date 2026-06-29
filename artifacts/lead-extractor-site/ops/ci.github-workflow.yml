@@ -1,0 +1,54 @@
+# GitHub Actions CI for the Lead Extractor site.
+#
+# NOTE: This file is shipped here (not under .github/workflows/) because the
+# Replit OAuth token used to push lacks the `workflow` scope. To activate it,
+# copy this file to `.github/workflows/ci.yml` from the GitHub UI (or push it
+# with a token that has the `workflow` scope). No changes needed.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  web:
+    name: Lead Extractor site (typecheck · test · build · seo-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: artifacts/lead-extractor-site
+        run: pnpm run typecheck
+
+      - name: Unit tests
+        working-directory: artifacts/lead-extractor-site
+        run: pnpm run test
+
+      - name: Build (Vite + prerender)
+        working-directory: artifacts/lead-extractor-site
+        env:
+          PORT: "5000"
+          BASE_PATH: "/"
+          NODE_ENV: production
+        run: pnpm run build
+
+      - name: SEO audit gate
+        working-directory: artifacts/lead-extractor-site
+        run: pnpm run seo-audit

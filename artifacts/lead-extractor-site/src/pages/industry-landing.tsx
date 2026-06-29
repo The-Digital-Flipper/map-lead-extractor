@@ -7,6 +7,7 @@ import { posts } from "@/data/posts";
 import { Button } from "@/components/ui/button";
 import NotFound from "@/pages/not-found";
 import { useSeo } from "@/lib/seo";
+import { MobileNav } from "@/components/site/mobile-nav";
 
 const STORE_URL =
   "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
@@ -54,6 +55,7 @@ export default function IndustryLanding() {
             <a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a>
             <a href="/blog" className="hover:text-foreground transition-colors">Blog</a>
           </nav>
+          <MobileNav />
           <a
             href={STORE_URL}
             target="_blank"
@@ -99,6 +101,22 @@ export default function IndustryLanding() {
             </motion.div>
           </div>
         </section>
+
+        {/* Long-form body */}
+        {page.body && page.body.length > 0 && (
+          <section className="py-12">
+            <div className="container mx-auto px-6 max-w-3xl prose prose-invert prose-headings:font-display prose-headings:font-bold prose-a:text-primary max-w-none md:max-w-3xl">
+              {page.body.map((s, i) => {
+                if (s.type === "h2") return <h2 key={i} className="text-3xl font-display font-bold mt-10 mb-4">{s.text}</h2>;
+                if (s.type === "h3") return <h3 key={i} className="text-2xl font-display font-semibold mt-8 mb-3">{s.text}</h3>;
+                if (s.type === "p") return <p key={i} className="text-lg text-muted-foreground mb-4 leading-relaxed">{s.text}</p>;
+                if (s.type === "tip") return <p key={i} className="text-lg mb-4 p-4 rounded-lg border border-primary/30 bg-primary/5"><strong className="text-primary">Tip:</strong> {s.text}</p>;
+                if (s.type === "ul") return <ul key={i} className="mb-6 space-y-2">{s.items!.map((it, j) => <li key={j} className="flex gap-3 text-lg text-muted-foreground"><Check className="w-5 h-5 text-primary shrink-0 mt-1" /><span>{it}</span></li>)}</ul>;
+                return null;
+              })}
+            </div>
+          </section>
+        )}
 
         {/* Why target this industry */}
         <section className="py-12 bg-card/30 border-y border-border">

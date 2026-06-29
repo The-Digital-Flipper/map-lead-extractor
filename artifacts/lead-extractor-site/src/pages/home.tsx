@@ -11,6 +11,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import ChatWidget from "@/components/chat-widget";
 import { useSeo } from "@/lib/seo";
 import { industryPages } from "@/data/landing-pages";
+import { MobileNav } from "@/components/site/mobile-nav";
 
 import gmleIcon128 from "@assets/gmle-icon-128.png";
 import gmleIcon512 from "@assets/gmle-icon-512.png";
@@ -25,6 +26,7 @@ import step1CwsListing from "@assets/step1-cws-listing.png";
 import step4GoogleMaps from "@assets/step4-google-maps-search.png";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
+const YELP_STORE_URL = "https://chromewebstore.google.com/detail/yelp-lead-extractor/ogmnanpogeipkoahnphaelmjmbepdpml";
 
 const fadeIn = {
   hidden: { opacity: 0, y: 20 },
@@ -130,6 +132,7 @@ export default function Home() {
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
             <a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a>
             <a href="/blog" className="hover:text-foreground transition-colors">Blog</a>
+            <a href="/tools" className="hover:text-foreground transition-colors">Free Tools</a>
           </nav>
           <div className="flex items-center gap-3">
             <Show when="signed-in">
@@ -142,6 +145,7 @@ export default function Home() {
                 Sign In
               </a>
             </Show>
+            <MobileNav />
             <Button asChild size="sm" className="font-bold">
               <a href={STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-nav-install">
                 <SiGooglechrome className="md:mr-2" />
@@ -363,7 +367,7 @@ export default function Home() {
                       <li className="flex gap-4"><ArrowRight className="w-6 h-6 text-primary shrink-0" /> <span className="text-lg">Syncs directly to your lead dashboard</span></li>
                     </ul>
                     <Button variant="outline" className="w-full h-12 text-md group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary transition-all" asChild>
-                      <a href={STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-yelp-install">Install Extractor</a>
+                      <a href={YELP_STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-yelp-install">Install Extractor</a>
                     </Button>
                   </CardContent>
                 </Card>
@@ -931,6 +935,7 @@ export default function Home() {
                 <li><a href={STORE_URL} target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">Bing Maps Extractor</a></li>
                 <li><a href="/pricing" className="hover:text-primary transition-colors">Pricing</a></li>
                 <li><a href="/blog" className="hover:text-primary transition-colors">Blog</a></li>
+                <li><a href="/tools" className="hover:text-primary transition-colors">Free Tools</a></li>
               </ul>
             </div>
             

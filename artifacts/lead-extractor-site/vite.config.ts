@@ -57,6 +57,23 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Split large vendors into separate, long-term-cacheable chunks so a
+        // marketing-page visit doesn't download one monolithic JS bundle.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler|react-is)[\\/]/.test(id)) return "react-vendor";
+          if (id.includes("@clerk")) return "clerk";
+          if (id.includes("@tanstack")) return "query";
+          if (id.includes("framer-motion") || id.includes("motion-dom") || id.includes("motion-utils")) return "motion";
+          if (id.includes("react-icons")) return "icons";
+          if (id.includes("recharts") || id.includes("/d3-") || id.includes("victory")) return "charts";
+          if (id.includes("@radix-ui")) return "radix";
+          if (id.includes("react-simple-maps") || id.includes("topojson")) return "maps";
+        },
+      },
+    },
   },
   server: {
     port,
