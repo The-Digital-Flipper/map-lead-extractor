@@ -5,6 +5,7 @@ import { useParams } from "wouter";
 import { posts, type Post } from "@/data/posts";
 import NotFound from "@/pages/not-found";
 import { useSeo } from "@/lib/seo";
+import { MobileNav } from "@/components/site/mobile-nav";
 
 const SITE = "https://mapleadextractor.net";
 const DEFAULT_IMAGE = `${SITE}/opengraph.jpg`;
@@ -159,6 +160,7 @@ export default function BlogPost() {
             <a href="/#faq" className="hover:text-foreground transition-colors">FAQ</a>
             <a href="/blog" className="hover:text-foreground transition-colors">Blog</a>
           </nav>
+          <MobileNav />
           <a
             href={STORE_URL}
             target="_blank"

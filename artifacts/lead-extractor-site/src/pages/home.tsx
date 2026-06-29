@@ -11,6 +11,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import ChatWidget from "@/components/chat-widget";
 import { useSeo } from "@/lib/seo";
 import { industryPages } from "@/data/landing-pages";
+import { MobileNav } from "@/components/site/mobile-nav";
 
 import gmleIcon128 from "@assets/gmle-icon-128.png";
 import gmleIcon512 from "@assets/gmle-icon-512.png";
@@ -144,6 +145,7 @@ export default function Home() {
                 Sign In
               </a>
             </Show>
+            <MobileNav />
             <Button asChild size="sm" className="font-bold">
               <a href={STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-nav-install">
                 <SiGooglechrome className="md:mr-2" />

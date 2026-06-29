@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Calculator } from "@/components/tools/calculators";
 import NotFound from "@/pages/not-found";
 import { useSeo } from "@/lib/seo";
+import { MobileNav } from "@/components/site/mobile-nav";
 
 const STORE_URL =
   "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
@@ -41,6 +42,7 @@ export default function ToolPage() {
             <a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a>
             <a href="/blog" className="hover:text-foreground transition-colors">Blog</a>
           </nav>
+          <MobileNav />
           <a href={STORE_URL} target="_blank" rel="noopener noreferrer" className="hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity">
             Install Free
           </a>

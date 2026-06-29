@@ -3,6 +3,7 @@ import { ArrowRight, Clock, Tag, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { posts } from "@/data/posts";
 import { useSeo } from "@/lib/seo";
+import { MobileNav } from "@/components/site/mobile-nav";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
 
@@ -44,6 +45,7 @@ export default function Blog() {
             <a href="/#faq" className="hover:text-foreground transition-colors">FAQ</a>
             <a href="/blog" className="text-primary font-semibold">Blog</a>
           </nav>
+          <MobileNav />
           <a
             href={STORE_URL}
             target="_blank"
