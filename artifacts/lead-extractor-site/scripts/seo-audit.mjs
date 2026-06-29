@@ -52,7 +52,10 @@ for (const f of files) {
     try { JSON.parse(m[1]); } catch (e) { problems.push(`${r}: invalid JSON-LD (${e.message})`); }
   }
 
-  const h1 = (html.match(/<h1[ >]/g) || []).length;
+  // Count headings in the actual markup only — strip <script> contents so a
+  // literal "<h1" inside an inline script string isn't miscounted as a heading.
+  const markup = html.replace(/<script[\s\S]*?<\/script>/gi, "");
+  const h1 = (markup.match(/<h1[ >]/g) || []).length;
   if (h1 !== 1 && !NO_H1_OK.has(r)) problems.push(`${r}: expected 1 <h1>, found ${h1}`);
 
   const title = (html.match(/<title>([^<]*)<\/title>/) || [])[1] || "";
