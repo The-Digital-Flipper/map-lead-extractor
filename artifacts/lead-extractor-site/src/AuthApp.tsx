@@ -103,14 +103,17 @@ function SignUpPage() {
 }
 
 function HomeRoute() {
+  // Render the marketing home IMMEDIATELY (not gated behind <Show>). Gating the
+  // whole page on Clerk's signed-out state means a blank white screen whenever
+  // Clerk is slow or fails to initialize (e.g. an unauthorized preview domain).
+  // The signed-in → dashboard redirect is a non-blocking enhancement layered on
+  // top: it fires only once Clerk resolves, and renders nothing otherwise.
   return (
     <>
       <Show when="signed-in">
         <Redirect to="/dashboard" />
       </Show>
-      <Show when="signed-out">
-        <Home />
-      </Show>
+      <Home />
     </>
   );
 }
