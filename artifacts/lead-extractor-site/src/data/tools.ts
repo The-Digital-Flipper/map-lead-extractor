@@ -13,7 +13,7 @@ export interface ToolFaq {
 export interface Tool {
   slug: string;
   /** Which calculator widget to render. */
-  kind: "roi" | "leadValue" | "agencyPricing";
+  kind: "roi" | "leadValue" | "agencyPricing" | "leadScore" | "subjectTester";
   /** Short name for cards/nav. */
   name: string;
   /** One-line value prop. */
@@ -135,6 +135,80 @@ export const tools: Tool[] = [
     ],
     relatedTools: ["roi-calculator", "lead-value-calculator"],
     relatedPosts: ["lead-generation-for-marketing-agencies", "lead-generation-for-web-designers"],
+  },
+  {
+    slug: "lead-quality-score",
+    kind: "leadScore",
+    name: "Lead Quality Score Calculator",
+    tagline: "Score how good a local business is as a prospect before you reach out.",
+    h1: "Lead Quality & Opportunity Score Calculator",
+    metaTitle: "Lead Quality Score Calculator | Map Lead Extractor",
+    metaDescription:
+      "Free lead quality & opportunity score calculator. Rate any local business as a prospect from its website, rating, reviews, and listing. No signup.",
+    intro: [
+      "Not every local business is an equally good prospect. This free calculator turns the signals you can see on a Google Maps listing — whether the business has a website, its star rating, review count, and whether the profile is claimed — into a single 0–100 opportunity score, so you can prioritize the leads most likely to need (and buy) your services.",
+      "It is built for agencies, web designers, and SaaS sellers who want to work the warmest prospects first. Scoring is transparent and runs entirely in your browser — no signup, nothing stored.",
+    ],
+    body: [
+      { type: "h2", text: "How the opportunity score works" },
+      { type: "p", text: "The score rewards the gaps you can fix. A business with no website, a weak reputation, or an unclaimed profile is a higher-opportunity prospect for marketing, web, and reputation services than one that already has everything dialed in. Each signal contributes points toward a 0–100 total." },
+      { type: "ul", items: [
+        "No website (or an outdated one) — the single strongest buying signal for web and SEO services.",
+        "Low review count — room for a review-generation or reputation offer.",
+        "Mediocre star rating — a clear reputation-management angle.",
+        "Unclaimed or unverified listing — an easy Google Business Profile win.",
+        "Not running ads — an opening for paid-acquisition services.",
+      ] },
+      { type: "h2", text: "How to use the score" },
+      { type: "p", text: "After extracting a batch of leads with Map Lead Extractor, score the borderline ones to decide where to spend your outreach time. A high opportunity score means an obvious, nameable problem you can lead your pitch with; a low score usually means the business is already well-served and harder to win." },
+      { type: "tip", text: "Pair this with the website and review-count columns in your exported CSV. Sort by opportunity score and work top-down — your reply rate climbs when every first line names a real gap." },
+      { type: "h2", text: "Example" },
+      { type: "p", text: "A plumber with no website, a 3.7 rating, 18 reviews, and an unclaimed listing scores very high — a near-ideal prospect for a web designer or local-SEO agency. A competitor with a modern site, 4.9 stars, 400 reviews, and active ads scores low: already sorted, and a tougher sell." },
+    ],
+    faq: [
+      { q: "What makes a local business a good prospect?", a: "Visible, fixable gaps: no website or a dated one, few or poor reviews, an unclaimed Google Business Profile, or no advertising. Each is a concrete problem you can solve, which makes outreach relevant and easier to convert." },
+      { q: "Is the lead score based on AI?", a: "No — it is a transparent, rules-based score you can see and adjust. Every input maps to a clear point value, so you always know why a prospect scored the way it did." },
+      { q: "Is the tool free?", a: "Yes. It is free, requires no signup, and runs entirely in your browser. Nothing you enter is stored or sent anywhere." },
+    ],
+    relatedTools: ["lead-value-calculator", "roi-calculator"],
+    relatedPosts: ["how-to-find-businesses-with-no-website", "lead-generation-for-web-designers"],
+  },
+  {
+    slug: "email-subject-line-tester",
+    kind: "subjectTester",
+    name: "Cold Email Subject Line Tester",
+    tagline: "Score a cold email subject line for opens and deliverability.",
+    h1: "Cold Email Subject Line Tester",
+    metaTitle: "Cold Email Subject Line Tester | Map Lead Extractor",
+    metaDescription:
+      "Free cold email subject line tester. Score any subject for length, spam triggers, personalization, and deliverability. Get instant tips. No signup.",
+    intro: [
+      "Your subject line decides whether a cold email gets opened or ignored. Paste any subject line below and this free tool scores it on the factors that actually move open rates and protect deliverability — length, spam-trigger words, personalization, capitalization, and punctuation — then gives you specific fixes.",
+      "It is perfect for the outreach you run after extracting leads from Google Maps. Everything is analyzed in your browser, with no signup and nothing stored.",
+    ],
+    body: [
+      { type: "h2", text: "What the tester checks" },
+      { type: "p", text: "Cold email open rates live and die on a few well-understood factors. The tester scores each one and explains what to change." },
+      { type: "ul", items: [
+        "Length — short subjects (about 3–7 words / under ~50 characters) usually win, especially on mobile.",
+        "Spam triggers — words like 'free', 'guarantee', or '$$$' hurt deliverability and trust.",
+        "Personalization — a token like a first name or city signals relevance and lifts opens.",
+        "Capitalization — ALL CAPS reads as shouting and trips spam filters.",
+        "Punctuation — multiple exclamation or question marks look like spam.",
+      ] },
+      { type: "h2", text: "Why subject lines matter even more in cold outreach" },
+      { type: "p", text: "When you reach a prospect who has never heard of you, the subject is your entire first impression and your deliverability gatekeeper at once. A subject that lands in spam never gets a chance, and a generic one gets archived unread. Small, specific, personalized subjects consistently outperform clever or salesy ones." },
+      { type: "tip", text: "Reference something real about the business — its city, niche, or a visible gap like a missing website. Specificity beats cleverness in cold outreach almost every time." },
+      { type: "h2", text: "Example" },
+      { type: "p", text: "“FREE WEBSITE AUDIT!!!” scores poorly: all caps, a spam-trigger word, and triple punctuation. “Quick idea for {{company}}'s Google listing” scores well: short, personalized, specific, and clean — far more likely to be opened." },
+    ],
+    faq: [
+      { q: "What's a good cold email subject line length?", a: "Aim for roughly 3–7 words and under about 50 characters so it isn't truncated on mobile. Short, specific subjects almost always beat long or clever ones in cold outreach." },
+      { q: "Which words trigger spam filters?", a: "Words and symbols associated with promotions — 'free', 'guarantee', 'act now', 'cash', '$$$', and excessive punctuation or all caps — can hurt deliverability. The tester flags the ones it finds in your subject." },
+      { q: "Is the subject line tester free?", a: "Yes. It is free, needs no signup, and analyzes your subject line entirely in your browser without storing or sending it anywhere." },
+    ],
+    relatedTools: ["lead-value-calculator", "roi-calculator"],
+    relatedPosts: ["cold-email-from-google-maps-leads", "how-to-extract-emails-from-google-maps"],
   },
 ];
 

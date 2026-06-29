@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 const usd = (n: number) =>
   isFinite(n) ? n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }) : "—";
@@ -159,8 +160,149 @@ export function AgencyPricingCalculator() {
   );
 }
 
-export function Calculator({ kind }: { kind: "roi" | "leadValue" | "agencyPricing" }) {
+function Toggle({ id, label, checked, onChange }: { id: string; label: string; checked: boolean; onChange: (b: boolean) => void }) {
+  return (
+    <label htmlFor={id} className="flex items-center justify-between gap-4 cursor-pointer rounded-xl border border-border bg-card/40 p-4">
+      <span className="text-sm font-medium">{label}</span>
+      <Switch id={id} checked={checked} onCheckedChange={onChange} data-testid={`toggle-${id}`} />
+    </label>
+  );
+}
+
+export function LeadScoreCalculator() {
+  const [hasWebsite, setHasWebsite] = useState(false);
+  const [outdatedSite, setOutdatedSite] = useState(false);
+  const [claimed, setClaimed] = useState(false);
+  const [runsAds, setRunsAds] = useState(false);
+  const [rating, setRating] = useState(3.8);
+  const [reviews, setReviews] = useState(20);
+
+  const r = useMemo(() => {
+    let score = 0;
+    const parts: { label: string; pts: number }[] = [];
+    const add = (label: string, pts: number) => { if (pts) { score += pts; parts.push({ label, pts }); } };
+    // No website is the strongest opportunity; outdated site is a softer one.
+    if (!hasWebsite) add("No website", 35);
+    else if (outdatedSite) add("Outdated website", 20);
+    if (reviews < 10) add("Very few reviews", 20);
+    else if (reviews < 50) add("Low review count", 12);
+    else if (reviews < 150) add("Moderate review count", 4);
+    if (rating < 3.5) add("Weak rating (reputation gap)", 18);
+    else if (rating < 4.2) add("Mediocre rating", 10);
+    if (!claimed) add("Unclaimed / unverified listing", 15);
+    if (!runsAds) add("Not advertising", 12);
+    score = Math.min(100, score);
+    const tier = score >= 70 ? "High-opportunity prospect" : score >= 40 ? "Worth pursuing" : "Lower priority — already well-served";
+    return { score, parts, tier };
+  }, [hasWebsite, outdatedSite, claimed, runsAds, rating, reviews]);
+
+  return (
+    <Card className="border-border bg-background">
+      <CardContent className="p-6 md:p-8 grid md:grid-cols-2 gap-8">
+        <div className="space-y-4">
+          <Toggle id="hasWebsite" label="Business has a website" checked={hasWebsite} onChange={setHasWebsite} />
+          {hasWebsite && <Toggle id="outdated" label="…but it looks outdated / not mobile-friendly" checked={outdatedSite} onChange={setOutdatedSite} />}
+          <Toggle id="claimed" label="Google listing is claimed / verified" checked={claimed} onChange={setClaimed} />
+          <Toggle id="runsAds" label="Business is running ads" checked={runsAds} onChange={setRunsAds} />
+          <Field id="rating" label="Google star rating" value={rating} onChange={setRating} suffix="★" step={0.1} />
+          <Field id="reviews" label="Number of reviews" value={reviews} onChange={setReviews} step={5} />
+        </div>
+        <div className="space-y-4 self-start">
+          <Result label="Opportunity score" value={`${r.score} / 100`} highlight />
+          <Result label="Verdict" value={r.tier} />
+          <div className="rounded-xl border border-border bg-card/40 p-5">
+            <div className="text-sm text-muted-foreground mb-2">Why this score</div>
+            {r.parts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Strong online presence — limited obvious gaps to pitch.</p>
+            ) : (
+              <ul className="space-y-1">
+                {r.parts.map((p, i) => (
+                  <li key={i} className="flex justify-between text-sm"><span>{p.label}</span><span className="text-primary font-semibold">+{p.pts}</span></li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const SPAM_WORDS = ["free", "guarantee", "guaranteed", "act now", "buy now", "cash", "cheap", "discount", "earn", "income", "limited time", "offer", "risk-free", "winner", "$$$", "click here", "urgent", "100%"];
+
+export function SubjectLineTester() {
+  const [subject, setSubject] = useState("Quick idea for {{company}}'s Google listing");
+
+  const r = useMemo(() => {
+    const s = subject.trim();
+    const chars = s.length;
+    const words = s ? s.split(/\s+/).length : 0;
+    const issues: string[] = [];
+    const wins: string[] = [];
+    let score = 100;
+
+    if (chars === 0) return { score: 0, issues: ["Enter a subject line to test."], wins: [], chars, words };
+    if (chars > 60) { score -= 20; issues.push(`Too long (${chars} chars) — aim for under ~50 so it isn't cut off on mobile.`); }
+    else if (chars <= 50) wins.push("Good length for mobile inboxes.");
+    if (words > 9) { score -= 10; issues.push(`Wordy (${words} words) — short subjects (3–7 words) open better.`); }
+
+    const lower = s.toLowerCase();
+    const foundSpam = SPAM_WORDS.filter((w) => lower.includes(w));
+    if (foundSpam.length) { score -= Math.min(30, foundSpam.length * 12); issues.push(`Spam-trigger words: ${foundSpam.join(", ")}.`); }
+    else wins.push("No common spam-trigger words.");
+
+    const capsWords = (s.match(/\b[A-Z]{3,}\b/g) || []);
+    if (capsWords.length) { score -= 15; issues.push(`Avoid ALL CAPS (${capsWords.join(", ")}) — it reads as shouting and trips filters.`); }
+
+    const bangs = (s.match(/[!?]/g) || []).length;
+    if (bangs >= 2) { score -= 12; issues.push("Too much punctuation (!! or ?!) looks like spam."); }
+
+    const personalized = /\{\{?\s*[\w.]+\s*\}?\}|\[[\w ]+\]|\b(your|you'?re|you)\b/i.test(s);
+    if (personalized) wins.push("Personalized / relevant to the reader.");
+    else { score -= 12; issues.push("No personalization — add a name, company, or city token."); }
+
+    if (/^\s*(re:|fwd:)/i.test(s)) { score -= 20; issues.push("Fake 'Re:'/'Fwd:' is deceptive and erodes trust."); }
+
+    score = Math.max(0, Math.min(100, score));
+    return { score, issues, wins, chars, words };
+  }, [subject]);
+
+  const grade = r.score >= 80 ? "Strong" : r.score >= 55 ? "Okay" : "Needs work";
+
+  return (
+    <Card className="border-border bg-background">
+      <CardContent className="p-6 md:p-8 space-y-6">
+        <div className="space-y-2">
+          <Label htmlFor="subject" className="text-sm font-medium">Your subject line</Label>
+          <Input id="subject" value={subject} onChange={(e) => setSubject(e.target.value)} className="h-12 text-lg" placeholder="e.g. Quick idea for {{company}}" data-testid="input-subject" />
+          <p className="text-xs text-muted-foreground">{r.chars} characters · {r.words} words</p>
+        </div>
+        <div className="grid sm:grid-cols-3 gap-4">
+          <Result label="Score" value={`${r.score} / 100`} highlight />
+          <Result label="Grade" value={grade} />
+          <Result label="Length" value={`${r.chars} chars`} />
+        </div>
+        {r.issues.length > 0 && (
+          <div>
+            <div className="text-sm font-semibold mb-2 text-foreground">Fix these</div>
+            <ul className="space-y-1">{r.issues.map((it, i) => <li key={i} className="text-sm text-muted-foreground">• {it}</li>)}</ul>
+          </div>
+        )}
+        {r.wins.length > 0 && (
+          <div>
+            <div className="text-sm font-semibold mb-2 text-primary">Working well</div>
+            <ul className="space-y-1">{r.wins.map((it, i) => <li key={i} className="text-sm text-muted-foreground">✓ {it}</li>)}</ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function Calculator({ kind }: { kind: "roi" | "leadValue" | "agencyPricing" | "leadScore" | "subjectTester" }) {
   if (kind === "roi") return <RoiCalculator />;
   if (kind === "leadValue") return <LeadValueCalculator />;
-  return <AgencyPricingCalculator />;
+  if (kind === "agencyPricing") return <AgencyPricingCalculator />;
+  if (kind === "leadScore") return <LeadScoreCalculator />;
+  return <SubjectLineTester />;
 }

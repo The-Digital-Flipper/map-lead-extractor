@@ -132,18 +132,22 @@ const STEPS = [
 const escAttr = (s) =>
   String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const escHtml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// Escape `$` so dynamic content is never interpreted as a String.replace
+// substitution pattern ($$, $&, $', $`). Required when content can contain `$`.
+const escRep = (s) => String(s).replace(/\$/g, "$$$$");
 
 function replaceMeta(html, selector, attr, value) {
   const escaped = escAttr(selector);
+  const safe = escRep(escAttr(value));
   const re1 = new RegExp(`(<meta[^>]+(?:name|property)="${escaped}"[^>]*${attr}=")([^"]*)(")`, "i");
-  const out = html.replace(re1, `$1${escAttr(value)}$3`);
+  const out = html.replace(re1, `$1${safe}$3`);
   if (out !== html) return out;
   const re2 = new RegExp(`(<meta[^>]+${attr}=")([^"]*)("[^>]*(?:name|property)="${escaped}")`, "i");
-  return html.replace(re2, `$1${escAttr(value)}$3`);
+  return html.replace(re2, `$1${safe}$3`);
 }
-const replaceTitle = (html, t) => html.replace(/<title>[^<]*<\/title>/, `<title>${escAttr(t)}</title>`);
+const replaceTitle = (html, t) => html.replace(/<title>[^<]*<\/title>/, () => `<title>${escAttr(t)}</title>`);
 const replaceCanonical = (html, url) =>
-  html.replace(/<link rel="canonical"[^>]*>/, `<link rel="canonical" href="${escAttr(url)}" />`);
+  html.replace(/<link rel="canonical"[^>]*>/, () => `<link rel="canonical" href="${escAttr(url)}" />`);
 
 // ---------------------------------------------------------------------------
 // Content rendering (shared nav/footer + per-route bodies)
@@ -464,13 +468,15 @@ function buildHtml(template, route, post, landing, tool) {
   if (tool) head.push(toolJsonLd(tool));
   if (route.path === "/") head.push(faqJsonLd(FAQ));
   if (route.path === "/pricing") head.push(pricingJsonLd());
-  if (head.length) html = html.replace("</head>", `${head.join("\n")}\n</head>`);
+  // Use function replacers so injected JSON/content is never treated as a
+  // String.replace substitution pattern (a `$'`/`$$` in content would corrupt it).
+  if (head.length) html = html.replace("</head>", () => `${head.join("\n")}\n</head>`);
 
   const content = contentForRoute(route, post, landing, tool);
   if (content) {
     html = html.replace(
       /<div id="root"><\/div>/,
-      `<div id="root"><div id="seo-prerender" style="min-height:100vh;background:#0d1117;color:#c9d1d9;font-family:Inter,system-ui,sans-serif;max-width:880px;margin:0 auto;padding:6rem 1.5rem;line-height:1.6">${content}</div></div>`
+      () => `<div id="root"><div id="seo-prerender" style="min-height:100vh;background:#0d1117;color:#c9d1d9;font-family:Inter,system-ui,sans-serif;max-width:880px;margin:0 auto;padding:6rem 1.5rem;line-height:1.6">${content}</div></div>`
     );
   }
   return html;
