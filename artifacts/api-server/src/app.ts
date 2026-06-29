@@ -5,6 +5,7 @@ import { clerkMiddleware } from "@clerk/express";
 import { publishableKeyFromHost } from "@clerk/shared/keys";
 import router from "./routes";
 import privacyRouter from "./routes/privacy.js";
+import { mountSite, resolveSiteDir } from "./serveSite.js";
 import { logger } from "./lib/logger";
 import {
   CLERK_PROXY_PATH,
@@ -81,5 +82,16 @@ app.use(
 
 app.use(privacyRouter);
 app.use("/api", router);
+
+// Serve the prerendered marketing site so each public route returns its OWN
+// HTML (correct per-page title/meta/canonical/JSON-LD), with SPA fallback for
+// app routes like /dashboard. Registered after /api so the API always wins.
+const SITE_DIR = resolveSiteDir();
+if (SITE_DIR) {
+  mountSite(app, SITE_DIR);
+  logger.info({ siteDir: SITE_DIR }, "Serving prerendered site");
+} else {
+  logger.warn("Prerendered site not found — static site serving disabled");
+}
 
 export default app;
