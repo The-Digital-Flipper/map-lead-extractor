@@ -80,8 +80,13 @@
     <script>
       (function () {
         var shown = false;
+        var lastError = "";
+        function rootEmpty() {
+          var r = document.getElementById("root");
+          return !r || (r.innerText || "").trim().length < 5;
+        }
         function show(title, detail) {
-          if (shown || window.__APP_MOUNTED__) return;
+          if (shown) return;
           shown = true;
           var r = document.getElementById("root");
           if (!r) return;
@@ -91,18 +96,17 @@
             '<pre style="white-space:pre-wrap;text-align:left;background:#161c26;border:1px solid #1e2a3a;border-radius:8px;padding:.75rem;font-size:.78rem;color:#ff8a8a;overflow:auto">' +
             (detail || "") + '</pre></div></div>';
         }
+        // Record errors, but only REPLACE the page if it actually ended up blank.
         window.addEventListener("error", function (e) {
-          show("App failed to load", (e.message || "") + "\n" + ((e.error && e.error.stack) || "").slice(0, 1200));
+          lastError = (e.message || "") + "\n" + ((e.error && e.error.stack) || "").slice(0, 1200);
         });
         window.addEventListener("unhandledrejection", function (e) {
-          var r = e.reason || {};
-          show("App failed to load (promise)", (r.message || String(r)) + "\n" + ((r.stack) || "").slice(0, 1200));
+          var x = e.reason || {};
+          lastError = (x.message || String(x)) + "\n" + ((x.stack) || "").slice(0, 1200);
         });
         setTimeout(function () {
-          var r = document.getElementById("root");
-          var txt = r ? (r.innerText || "").trim() : "";
-          if (!window.__APP_MOUNTED__ && txt.length < 5) {
-            show("App rendered nothing", "The app loaded but produced no UI within 10s. Open DevTools (F12) -> Console and copy any red error.");
+          if (rootEmpty()) {
+            show("This page didn't load", lastError || "The app produced no content within 10s. Open DevTools (F12) -> Console and copy any red error here.");
           }
         }, 10000);
       })();
