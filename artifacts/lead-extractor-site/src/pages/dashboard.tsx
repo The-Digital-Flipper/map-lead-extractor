@@ -12,6 +12,7 @@ import {
   PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis,
   ResponsiveContainer, Legend,
 } from "recharts";
+import { CollectionsManager } from "@/components/dashboard/collections-manager";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
 const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL as string;
@@ -358,6 +359,7 @@ export default function Dashboard() {
   });
   const [showCharts, setShowCharts] = useState(() => loadPrefs().chartsDefault);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [showCollections, setShowCollections] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailSubject, setEmailSubject] = useState("");
@@ -1068,6 +1070,13 @@ export default function Dashboard() {
                       </button>
                     )}
                   </div>
+                  <button
+                    onClick={() => setShowCollections(true)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-bold text-foreground hover:border-primary/50 transition-colors"
+                    data-testid="btn-open-collections"
+                  >
+                    <Bookmark className="w-4 h-4" /> Collections{selected.size > 0 ? ` (+${selected.size})` : ""}
+                  </button>
                   <a href={exportUrl}
                     className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity">
                     <Download className="w-4 h-4" /> {moneyMode ? "Export Money Leads" : "Export CSV"}
@@ -1720,6 +1729,15 @@ export default function Dashboard() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <CollectionsManager
+        open={showCollections}
+        onOpenChange={setShowCollections}
+        authFetch={authFetch}
+        basePath={basePath}
+        selectedLeadIds={Array.from(selected)}
+        onAdded={() => setSelected(new Set())}
+      />
     </div>
   );
 }
