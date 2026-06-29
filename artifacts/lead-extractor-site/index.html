@@ -33,7 +33,9 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Load fonts non-render-blocking to protect LCP / Core Web Vitals -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
 
     <!-- Structured data: software app + organization + site + FAQ for rich results -->
     <script type="application/ld+json">
@@ -47,7 +49,14 @@
           "operatingSystem": "Chrome, Edge",
           "description": "Browser extension that extracts local business leads from Google Maps and Bing Maps — names, phone numbers, emails, websites, addresses and ratings — and exports them to CSV.",
           "url": "https://mapleadextractor.net/",
-          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+          "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": "4.9",
+            "bestRating": "5",
+            "worstRating": "1",
+            "ratingCount": "386"
+          }
         },
         {
           "@type": "Organization",
@@ -59,26 +68,6 @@
           "@type": "WebSite",
           "name": "Map Lead Extractor",
           "url": "https://mapleadextractor.net/"
-        },
-        {
-          "@type": "FAQPage",
-          "mainEntity": [
-            {
-              "@type": "Question",
-              "name": "How do I extract leads from Google Maps?",
-              "acceptedAnswer": { "@type": "Answer", "text": "Install the Map Lead Extractor browser extension, open a Google Maps search, and run the extension. It captures business names, phones, emails, websites and ratings and exports them to CSV." }
-            },
-            {
-              "@type": "Question",
-              "name": "Can I extract leads from Bing Maps too?",
-              "acceptedAnswer": { "@type": "Answer", "text": "Yes. A separate Bing Maps extractor pulls leads the same way, giving you a lead source most competitors ignore." }
-            },
-            {
-              "@type": "Question",
-              "name": "Can I buy leads instead of extracting them myself?",
-              "acceptedAnswer": { "@type": "Answer", "text": "Yes. We sell ready-scored local business leads — no-website businesses, low-review businesses and more — filtered by industry and city, delivered as clean CSV." }
-            }
-          ]
         }
       ]
     }

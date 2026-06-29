@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import ChatWidget from "@/components/chat-widget";
 import { useSeo } from "@/lib/seo";
+import { industryPages } from "@/data/landing-pages";
 
 import gmleIcon128 from "@assets/gmle-icon-128.png";
 import gmleIcon512 from "@assets/gmle-icon-512.png";
@@ -160,11 +161,11 @@ export default function Home() {
             <div className="max-w-5xl mx-auto text-center">
               <motion.div initial="hidden" animate="visible" variants={staggerContainer}>
                 <motion.h1 variants={fadeIn} className="text-5xl md:text-8xl font-display font-bold leading-[1.1] mb-8 tracking-tight">
-                  Find business leads <br className="hidden md:block"/> from <span className="text-primary relative inline-block">Maps<div className="absolute -bottom-2 left-0 right-0 h-1 bg-primary/50 blur-sm rounded-full"></div></span> in one click.
+                  Google &amp; Bing <span className="text-primary relative inline-block">Maps Lead Extractor<div className="absolute -bottom-2 left-0 right-0 h-1 bg-primary/50 blur-sm rounded-full"></div></span><br className="hidden md:block"/> Find business leads in one click.
                 </motion.h1>
-                
+
                 <motion.p variants={fadeIn} className="text-xl md:text-2xl text-muted-foreground mb-12 max-w-3xl mx-auto leading-relaxed">
-                  Extract names, emails, phones, and socials directly from Google Maps and Bing Maps. Built for serious prospectors. Export to CSV in seconds.
+                  Extract local business leads — names, emails, phones, and socials — directly from Google Maps and Bing Maps. Built for serious prospectors. Export to CSV in seconds.
                 </motion.p>
                 
                 <motion.div variants={fadeIn} className="flex flex-col sm:flex-row gap-6 justify-center items-center">
@@ -823,6 +824,26 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Section: Leads by Industry (long-tail SEO landing pages) */}
+        <section id="industries" className="py-24 bg-card/30 border-y border-border">
+          <div className="container mx-auto px-6 max-w-5xl">
+            <h2 className="text-4xl md:text-5xl font-display font-bold mb-4 tracking-tight">Find leads by industry.</h2>
+            <p className="text-xl text-muted-foreground mb-12 max-w-2xl">Targeted guides for extracting and selling to the local businesses you care about most.</p>
+            <div className="flex flex-wrap gap-3">
+              {industryPages.map((p) => (
+                <a
+                  key={p.slug}
+                  href={`/leads/${p.slug}`}
+                  className="px-5 py-3 rounded-xl border border-border bg-background font-medium hover:border-primary hover:text-primary transition-colors"
+                  data-testid={`link-industry-${p.slug}`}
+                >
+                  {p.industry} leads
+                </a>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* Section 7: FAQ */}
         <section id="faq" className="py-32">
           <div className="container mx-auto px-6 max-w-3xl">
@@ -908,7 +929,8 @@ export default function Home() {
               <ul className="space-y-3 text-sm text-muted-foreground">
                 <li><a href={STORE_URL} target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">Google Maps Extractor</a></li>
                 <li><a href={STORE_URL} target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">Bing Maps Extractor</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Source Code</a></li>
+                <li><a href="/pricing" className="hover:text-primary transition-colors">Pricing</a></li>
+                <li><a href="/blog" className="hover:text-primary transition-colors">Blog</a></li>
               </ul>
             </div>
             
@@ -916,8 +938,8 @@ export default function Home() {
               <h4 className="font-bold mb-4">Legal</h4>
               <ul className="space-y-3 text-sm text-muted-foreground">
                 <li><a href="/privacy" className="hover:text-primary transition-colors">Privacy Policy (We track nothing)</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Terms of Service</a></li>
-                <li><a href="mailto:support@example.com" className="hover:text-primary transition-colors">Contact Support</a></li>
+                <li><a href="/terms" className="hover:text-primary transition-colors">Terms of Service</a></li>
+                <li><a href="mailto:support@mapleadextractor.net" className="hover:text-primary transition-colors">Contact Support</a></li>
               </ul>
             </div>
           </div>
@@ -925,7 +947,7 @@ export default function Home() {
           <div className="border-t border-border pt-8 flex flex-col md:flex-row justify-between items-center text-sm text-muted-foreground">
             <div>&copy; {new Date().getFullYear()} MapLeadExtractor. All rights reserved.</div>
             <div className="flex items-center gap-6 mt-4 md:mt-0">
-              <a href="/admin-login" className="text-xs text-muted-foreground/40 hover:text-muted-foreground transition-colors">Admin</a>
+              <a href="/admin-login" rel="nofollow" className="text-xs text-muted-foreground/40 hover:text-muted-foreground transition-colors">Admin</a>
               <div className="font-mono text-xs text-primary">v1.2.3 // v2.5.5 // STABLE</div>
             </div>
           </div>

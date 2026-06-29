@@ -13,6 +13,9 @@ import Blog from "@/pages/blog";
 import BlogPost from "@/pages/blog-post";
 import Pricing from "@/pages/pricing";
 import ConnectExtension from "@/pages/connect-extension";
+import Privacy from "@/pages/privacy";
+import Terms from "@/pages/terms";
+import IndustryLanding from "@/pages/industry-landing";
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const CommandCenter = lazy(() => import("@/pages/command-center"));
@@ -192,6 +195,9 @@ function ClerkProviderWithRoutes() {
             <Route path="/blog" component={Blog} />
             <Route path="/blog/:slug" component={BlogPost} />
             <Route path="/connect-extension" component={ConnectExtension} />
+            <Route path="/privacy" component={Privacy} />
+            <Route path="/terms" component={Terms} />
+            <Route path="/leads/:industry" component={IndustryLanding} />
             <Route path="/command-center" component={() => (
               <Suspense fallback={null}>
                 <Show when="signed-in"><CommandCenter /></Show>

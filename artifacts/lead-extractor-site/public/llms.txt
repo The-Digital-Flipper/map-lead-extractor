@@ -8,6 +8,17 @@ A Chrome extension that extracts business leads from Google Maps and Bing Maps �
 - https://mapleadextractor.net/pricing — Pricing plans and feature comparison
 - https://mapleadextractor.net/connect-extension — How to install and connect the extension
 - https://mapleadextractor.net/blog — Blog index: tutorials, comparisons, and outreach guides
+- https://mapleadextractor.net/privacy — Privacy policy
+- https://mapleadextractor.net/terms — Terms of service
+
+## Leads by Industry
+
+- https://mapleadextractor.net/leads/real-estate-agents — Extract real estate agent & realtor leads from Google Maps
+- https://mapleadextractor.net/leads/restaurants — Extract restaurant & food service leads from Google Maps
+- https://mapleadextractor.net/leads/contractors — Extract contractor & home services leads from Google Maps
+- https://mapleadextractor.net/leads/dentists — Extract dentist & dental practice leads from Google Maps
+- https://mapleadextractor.net/leads/gyms-and-fitness — Extract gym & fitness studio leads from Google Maps
+- https://mapleadextractor.net/leads/auto-repair-shops — Extract auto repair shop leads from Google Maps
 
 ## Blog Articles
 
