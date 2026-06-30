@@ -44,6 +44,12 @@ export const leads = pgTable("leads", {
   gmapsUrl: text("gmaps_url"),
   plusCode: text("plus_code"),
   raw: jsonb("raw"),
+  // ── AI lead intelligence (from the analyze pass) ──────────────────────────
+  // High-ticket = AI judged this a big-money client worth prioritizing.
+  highTicket: boolean("high_ticket").default(false),
+  // Short sales bio for high-ticket leads: why valuable · what to pitch ·
+  // how to approach · weak spots found.
+  bio: text("bio"),
   status: text("status").default("new"), // new | contacted | converted | not_interested
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

@@ -302,6 +302,25 @@ export default function Admin() {
     setResearching(false);
   };
 
+  // AI lead intelligence: batch rationale + high-ticket leads with bios.
+  type HighTicketLead = { id: number; name: string | null; category: string | null; phone: string | null; emails: string | null; bio: string };
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysis, setAnalysis] = useState<{ rationale: string; analyzed: number; highTicket: HighTicketLead[] } | null>(null);
+  const [analyzeError, setAnalyzeError] = useState("");
+  const runAnalyze = async () => {
+    if (analyzing) return;
+    setAnalyzing(true); setAnalyzeError("");
+    try {
+      const r = await fetch(`${basePath}/api/admin/analyze`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 30 }),
+      });
+      const d = await r.json();
+      if (r.ok) setAnalysis(d);
+      else setAnalyzeError(d.error ?? "Analyze failed");
+    } catch { setAnalyzeError("Could not reach the server"); }
+    setAnalyzing(false);
+  };
+
   const scrapeOneTarget = async (id: number): Promise<void> => {
     setScrapingTargetId(id);
     const t = targets.find(x => x.id === id);
@@ -1018,6 +1037,54 @@ export default function Admin() {
                     )}
                   </div>
                 </div>
+              </div>
+
+              {/* AI lead intelligence — rationale + high-ticket bios */}
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <Target className="w-5 h-5 text-primary" />
+                  <h2 className="text-lg font-display font-bold">Lead Intelligence</h2>
+                  <button onClick={runAnalyze} disabled={analyzing}
+                    className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
+                    <Sparkles className={`w-4 h-4 ${analyzing ? "animate-pulse" : ""}`} />
+                    {analyzing ? "Analyzing…" : "Analyze latest leads"}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  AI reads your most recent leads, explains why they're worth targeting, and singles out the high-ticket ones with a bio for each.
+                </p>
+                {analyzeError && <p className="text-xs text-red-400 mt-2">⚠ {analyzeError}</p>}
+                {analysis && (
+                  <div className="mt-4 space-y-4">
+                    {analysis.rationale && (
+                      <div className="rounded-xl bg-primary/10 border border-primary/30 p-4">
+                        <div className="text-xs font-bold uppercase tracking-widest text-primary mb-1">Why this batch</div>
+                        <p className="text-sm text-foreground">{analysis.rationale}</p>
+                        <p className="text-xs text-muted-foreground mt-1">Analyzed {analysis.analyzed} leads · {analysis.highTicket.length} high-ticket</p>
+                      </div>
+                    )}
+                    {analysis.highTicket.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {analysis.highTicket.map((l) => (
+                          <div key={l.id} className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40">💎 HIGH TICKET</span>
+                              <span className="font-semibold text-foreground">{l.name}</span>
+                              <span className="text-xs text-muted-foreground">{l.category}</span>
+                            </div>
+                            <p className="text-sm text-muted-foreground">{l.bio}</p>
+                            <div className="flex items-center gap-3 mt-2 text-xs">
+                              {l.phone && <span className="font-mono text-primary">{l.phone}</span>}
+                              {l.emails && <span className="text-primary truncate max-w-[180px]">{l.emails}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No high-ticket leads in this batch.</p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {targets.length > 0 && (

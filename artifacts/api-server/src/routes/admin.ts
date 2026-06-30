@@ -5,6 +5,7 @@ import { sql, count, gte, eq, and, desc, asc, isNull, isNotNull } from "drizzle-
 import { getUncachableStripeClient } from "../stripeClient";
 import { scrapeAndSave } from "../lib/scrape";
 import { researchTargets } from "../lib/research";
+import { analyzeLeads } from "../lib/analyze";
 import { parseProxyLines, testProxy } from "../lib/proxyPool";
 
 const router = Router();
@@ -577,6 +578,49 @@ router.post("/research", requireAuth, async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "ai research failed");
     res.status(500).json({ error: err instanceof Error ? err.message : "Research failed" });
+  }
+});
+
+// ---- POST /analyze — AI lead intelligence: rationale + high-ticket + bios ---
+// Reads a batch of real leads and judges which are high-ticket, writing a sales
+// bio for each. Defaults to the most-recently-touched leads (the latest scrape).
+router.post("/analyze", requireAuth, async (req, res) => {
+  const body = (req.body ?? {}) as { category?: string; limit?: number };
+  const limit = Math.min(40, Math.max(1, Number(body.limit) || 30));
+  const category = String(body.category ?? "").trim();
+
+  const conds = [isNull(leads.deletedAt)];
+  if (category) conds.push(eq(leads.category, category));
+  const batch = await db.select().from(leads).where(and(...conds)).orderBy(sql`updated_at DESC`).limit(limit);
+  if (batch.length === 0) { res.json({ rationale: "", analyzed: 0, highTicket: [] }); return; }
+
+  try {
+    const analysis = await analyzeLeads(batch.map((l) => ({
+      id: l.id, name: l.name, category: l.category, address: l.address, website: l.website,
+      rating: l.rating, reviewCount: l.reviewCount, opportunityScore: l.opportunityScore,
+      needs: (l.needs ?? []) as string[],
+    })));
+
+    const byId = new Map(analysis.verdicts.map((v) => [v.id, v]));
+    await Promise.all(batch.map(async (l) => {
+      const v = byId.get(l.id);
+      if (!v) return;
+      await db.update(leads).set({ highTicket: v.highTicket, bio: v.bio || null }).where(eq(leads.id, l.id));
+    }));
+
+    const highTicket = batch
+      .filter((l) => byId.get(l.id)?.highTicket)
+      .map((l) => ({
+        id: l.id, name: l.name, category: l.category, phone: l.phone, emails: l.emails,
+        website: l.website, address: l.address, opportunityScore: l.opportunityScore,
+        bio: byId.get(l.id)?.bio ?? "",
+      }));
+
+    req.log.info({ analyzed: batch.length, highTicket: highTicket.length }, "lead analysis done");
+    res.json({ rationale: analysis.rationale, analyzed: batch.length, highTicket });
+  } catch (err) {
+    req.log.error({ err }, "lead analysis failed");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Analyze failed" });
   }
 });
 
