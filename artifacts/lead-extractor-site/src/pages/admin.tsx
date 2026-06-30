@@ -342,7 +342,8 @@ export default function Admin() {
   };
 
   // Deep sell-angle recon (ad activity, buying signals, competitor gaps).
-  type ReconLead = { id: number; name: string | null; category: string | null; website: string | null; facebook: string | null; intel: string };
+  type ReconSource = { title: string; url: string };
+  type ReconLead = { id: number; name: string | null; category: string | null; website: string | null; facebook: string | null; intel: string; summary?: string; angle?: string; opener?: string; sources?: ReconSource[]; verified?: boolean };
   const [reconning, setReconning] = useState(false);
   const [reconResult, setReconResult] = useState<{ scanned: number; results: ReconLead[] } | null>(null);
   const [reconError, setReconError] = useState("");
@@ -1194,14 +1195,46 @@ export default function Admin() {
                     {reconResult.results.length === 0
                       ? <p className="text-sm text-muted-foreground">Nothing left to scan — every lead already has recon.</p>
                       : reconResult.results.map((l) => (
-                        <div key={l.id} className="rounded-xl border border-border bg-background/40 p-4">
-                          <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                            <span className="font-semibold text-foreground">{l.name}</span>
-                            <span className="text-xs text-muted-foreground">{l.category}</span>
-                            {l.website && <a href={l.website} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">site</a>}
-                            {l.facebook && <a href={l.facebook} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">fb</a>}
+                        <div key={l.id} className="rounded-xl border border-border bg-background/60 p-5">
+                          <div className="flex items-center gap-2 flex-wrap mb-3">
+                            <span className="text-base font-bold text-white">{l.name}</span>
+                            <span className="text-xs font-medium text-foreground/70">{l.category}</span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${l.verified ? "bg-primary/20 text-primary border-primary/40" : "bg-amber-500/15 text-amber-300 border-amber-500/40"}`}>
+                              {l.verified ? `✓ VERIFIED · ${l.sources?.length} sources` : "⚠ UNVERIFIED"}
+                            </span>
+                            {l.website && <a href={l.website} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-primary hover:underline">site</a>}
+                            {l.facebook && <a href={l.facebook} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-primary hover:underline">fb</a>}
                           </div>
-                          <p className="text-sm text-muted-foreground whitespace-pre-line">{l.intel}</p>
+
+                          {l.summary && <p className="text-[15px] font-semibold text-white leading-relaxed">{l.summary}</p>}
+
+                          {l.angle && (
+                            <div className="mt-3">
+                              <div className="text-xs font-bold uppercase tracking-wider text-primary mb-0.5">How to sell them</div>
+                              <p className="text-sm font-medium text-foreground leading-relaxed">{l.angle}</p>
+                            </div>
+                          )}
+
+                          {l.opener && (
+                            <div className="mt-3 rounded-lg border border-primary/30 bg-primary/10 p-3">
+                              <div className="text-xs font-bold uppercase tracking-wider text-primary mb-0.5">What to say</div>
+                              <p className="text-sm font-semibold text-white leading-relaxed">&ldquo;{l.opener}&rdquo;</p>
+                            </div>
+                          )}
+
+                          {l.sources && l.sources.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-border">
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-foreground/60 mb-1.5">Sources (click to verify)</div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {l.sources.map((s, i) => (
+                                  <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" title={s.url}
+                                    className="text-[11px] font-medium px-2 py-1 rounded-md bg-card border border-border text-foreground/80 hover:text-primary hover:border-primary/40 transition-colors truncate max-w-[200px]">
+                                    {s.title}
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
                   </div>

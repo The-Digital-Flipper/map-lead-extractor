@@ -7,7 +7,7 @@ import { scrapeAndSave } from "../lib/scrape";
 import { researchTargets } from "../lib/research";
 import { analyzeLeads } from "../lib/analyze";
 import { discoverBusinesses } from "../lib/discover";
-import { reconSellAngle } from "../lib/recon";
+import { reconSellAngle, composeBrief, type ReconBrief } from "../lib/recon";
 import { parseProxyLines, testProxy } from "../lib/proxyPool";
 
 const router = Router();
@@ -633,12 +633,18 @@ router.post("/recon", requireAuth, async (req, res) => {
 
   try {
     const results = await Promise.all(batch.map(async (l) => {
-      const intel = await reconSellAngle({
+      const brief = await reconSellAngle({
         name: l.name, category: l.category, address: l.address, website: l.website,
         facebook: l.facebook, instagram: l.instagram, rating: l.rating, reviewCount: l.reviewCount,
-      }).catch(() => "");
+      }).catch((): ReconBrief => ({}));
+      const sources = brief.sources ?? [];
+      const intel = composeBrief(brief);
       if (intel) await db.update(leads).set({ socialIntel: intel }).where(eq(leads.id, l.id));
-      return { id: l.id, name: l.name, category: l.category, website: l.website, facebook: l.facebook, intel };
+      return {
+        id: l.id, name: l.name, category: l.category, website: l.website, facebook: l.facebook,
+        intel, summary: brief.summary ?? "", angle: brief.angle ?? "", opener: brief.opener ?? "",
+        sources, verified: sources.length > 0,
+      };
     }));
     const done = results.filter((r) => r.intel);
     req.log.info({ scanned: done.length }, "sell-angle recon done");

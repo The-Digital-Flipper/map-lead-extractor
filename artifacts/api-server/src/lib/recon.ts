@@ -19,10 +19,12 @@ export type ReconInput = {
   reviewCount: number | null;
 };
 
+type Source = { title: string; url: string };
 type ReconBrief = {
   summary?: string;
   angle?: string;
   opener?: string;
+  sources?: Source[];
 };
 
 // Plain-English brief — reads like a friend explaining what's up with the
@@ -48,7 +50,10 @@ function parseBrief(text: string): ReconBrief {
   }
 }
 
-export async function reconSellAngle(lead: ReconInput): Promise<string> {
+export { composeBrief };
+export type { ReconBrief };
+
+export async function reconSellAngle(lead: ReconInput): Promise<ReconBrief> {
   const key = openAiKey();
   if (!key) throw new Error("No OpenAI key set — add OPENAI_API_KEY (or CHAT_GPT_API) in the Replit Secrets panel.");
 
@@ -59,19 +64,25 @@ export async function reconSellAngle(lead: ReconInput): Promise<string> {
     lead.rating ? `${lead.rating}★ (${lead.reviewCount ?? 0} reviews)` : null,
   ].filter(Boolean).join("; ");
 
-  const input = `You're a sharp sales scout. Research this local business across the web (their website, Facebook/Instagram, Yelp & Google reviews, whether they or competitors run ads, any recent hiring/expansion). Run a few searches and dig.
+  const input = `You're a sharp sales scout. Research this local business across the web (their website, Facebook/Instagram, Yelp & Google reviews, whether they or competitors run ads, any recent hiring/expansion). Run a few searches.
 
 Business: ${lead.name ?? "(unknown)"}${lead.category ? `, a ${lead.category}` : ""}${lead.address ? ` in ${lead.address}` : ""}. Known: ${known}.
 
-Then explain it in PLAIN, SIMPLE English a busy person reads in five seconds — like you're texting a friend. No jargon, no bullet labels, no buzzwords, never write "unknown". Focus on the ONE real, specific thing worth acting on (e.g. "their main competitor down the road runs Facebook ads and they don't" or "great reviews but no website to send people to").
+ACCURACY RULES — this is critical:
+- Only state things you ACTUALLY FOUND in the search results.
+- NEVER invent or guess: no made-up competitor names, review counts, follower numbers, or "they run ads" unless a source shows it.
+- If you can't verify something, leave it out entirely. It is better to say less than to say something unverified.
+- Every concrete claim in your summary must be something a reader could confirm by clicking one of the cited search results.
+
+Then explain it in PLAIN, SIMPLE English a busy person reads in five seconds — like texting a friend. No jargon, no buzzwords, never write "unknown".
 
 Return ONLY this JSON:
 {
-  "summary": "<2-3 plain sentences: what the business is, and the one clear thing about their online presence or competition that matters>",
-  "angle": "<plain: what to sell them and why it would actually help them — explain like to a friend>",
-  "opener": "<a short, friendly first message you'd send them>"
+  "summary": "<2-3 plain sentences, only verified facts: what the business is + the one real thing about their online presence or competition that matters>",
+  "angle": "<plain: what to sell them and why, based on what you actually found>",
+  "opener": "<a short, friendly first message referencing a real, verified detail>"
 }
-If you truly can't find anything useful online, make summary one honest plain sentence and keep angle/opener short.`;
+If your searches turned up little, say so honestly in one short sentence and keep the rest brief.`;
 
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -80,10 +91,29 @@ If you truly can't find anything useful online, make summary one honest plain se
   });
   if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
 
-  const data = (await res.json()) as { output?: { type?: string; content?: { type?: string; text?: string }[] }[] };
+  type Annotation = { type?: string; url?: string; title?: string };
+  type Content = { type?: string; text?: string; annotations?: Annotation[] };
+  const data = (await res.json()) as { output?: { type?: string; content?: Content[] }[] };
+
   let text = "";
+  const seen = new Set<string>();
+  const sources: Source[] = [];
   for (const item of data.output ?? []) {
-    if (item.type === "message") for (const c of item.content ?? []) if (c.type === "output_text") text += c.text ?? "";
+    if (item.type !== "message") continue;
+    for (const c of item.content ?? []) {
+      if (c.type !== "output_text") continue;
+      text += c.text ?? "";
+      for (const a of c.annotations ?? []) {
+        if (a.type === "url_citation" && a.url && !seen.has(a.url)) {
+          seen.add(a.url);
+          sources.push({ title: a.title || a.url, url: a.url });
+        }
+      }
+    }
   }
-  return composeBrief(parseBrief(text));
+
+  const brief = parseBrief(text);
+  // Traceability: every brief carries the real sources it was built from. No
+  // sources found = treat the finding as unverified.
+  return { ...brief, sources: sources.slice(0, 6) };
 }
