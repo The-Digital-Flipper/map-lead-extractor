@@ -321,6 +321,26 @@ export default function Admin() {
     setAnalyzing(false);
   };
 
+  // Live web-search discovery: find net-new businesses on the open web.
+  type DiscoveredBiz = { name: string; city: string | null; state: string | null; website: string | null; phone: string | null; category: string | null; why: string };
+  const [discoverGoal, setDiscoverGoal] = useState("used car dealers on the Mississippi gulf coast with no website");
+  const [discovering, setDiscovering] = useState(false);
+  const [discoverResult, setDiscoverResult] = useState<{ found: number; saved: number; duplicates: number; businesses: DiscoveredBiz[] } | null>(null);
+  const [discoverError, setDiscoverError] = useState("");
+  const runDiscover = async () => {
+    if (!discoverGoal.trim() || discovering) return;
+    setDiscovering(true); setDiscoverError(""); setDiscoverResult(null);
+    try {
+      const r = await fetch(`${basePath}/api/admin/discover`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ goal: discoverGoal.trim() }),
+      });
+      const d = await r.json();
+      if (r.ok) { setDiscoverResult(d); fetch(`${basePath}/api/admin/stats`).then(rr => rr.json()).then(setStats).catch(() => {}); }
+      else setDiscoverError(d.error ?? "Discovery failed");
+    } catch { setDiscoverError("Could not reach the server"); }
+    setDiscovering(false);
+  };
+
   const scrapeOneTarget = async (id: number): Promise<void> => {
     setScrapingTargetId(id);
     const t = targets.find(x => x.id === id);
@@ -1037,6 +1057,52 @@ export default function Admin() {
                     )}
                   </div>
                 </div>
+              </div>
+
+              {/* Live web-search discovery — net-new businesses from the open web */}
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <Globe className="w-5 h-5 text-primary" />
+                  <h2 className="text-lg font-display font-bold">Web Discovery</h2>
+                  <span className="text-xs font-mono bg-primary/10 text-primary border border-primary/30 px-2 py-0.5 rounded-full">LIVE SEARCH</span>
+                </div>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Searches the live web (beyond Google Maps) to find real businesses matching your goal, then saves them as leads.
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <input value={discoverGoal} onChange={e => setDiscoverGoal(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") runDiscover(); }}
+                    placeholder="e.g. roofing companies in Hattiesburg MS with no website"
+                    className="flex-1 min-w-[260px] px-3 py-2 rounded-lg bg-background border border-border text-sm focus:border-primary/50 outline-none" />
+                  <button onClick={runDiscover} disabled={discovering || !discoverGoal.trim()}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
+                    <Globe className={`w-4 h-4 ${discovering ? "animate-spin" : ""}`} />
+                    {discovering ? "Searching the web…" : "Discover on web"}
+                  </button>
+                </div>
+                {discoverError && <p className="text-xs text-red-400 mt-2">⚠ {discoverError}</p>}
+                {discoverResult && (
+                  <div className="mt-4">
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Found {discoverResult.found} · saved {discoverResult.saved} new · {discoverResult.duplicates} already had
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {discoverResult.businesses.map((b, i) => (
+                        <div key={i} className="rounded-xl border border-border bg-background/40 p-3">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-foreground">{b.name}</span>
+                            {(b.city || b.state) && <span className="text-xs text-muted-foreground">{[b.city, b.state].filter(Boolean).join(", ")}</span>}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">{b.why}</p>
+                          <div className="flex items-center gap-3 mt-1.5 text-xs">
+                            {b.phone && <span className="font-mono text-primary">{b.phone}</span>}
+                            {b.website && <a href={b.website} target="_blank" rel="noopener noreferrer" className="text-primary truncate max-w-[180px] hover:underline">{b.website.replace(/^https?:\/\/(www\.)?/, "")}</a>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* AI lead intelligence — rationale + high-ticket bios */}

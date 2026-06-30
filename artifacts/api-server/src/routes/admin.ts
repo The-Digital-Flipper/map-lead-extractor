@@ -6,6 +6,7 @@ import { getUncachableStripeClient } from "../stripeClient";
 import { scrapeAndSave } from "../lib/scrape";
 import { researchTargets } from "../lib/research";
 import { analyzeLeads } from "../lib/analyze";
+import { discoverBusinesses } from "../lib/discover";
 import { parseProxyLines, testProxy } from "../lib/proxyPool";
 
 const router = Router();
@@ -578,6 +579,41 @@ router.post("/research", requireAuth, async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "ai research failed");
     res.status(500).json({ error: err instanceof Error ? err.message : "Research failed" });
+  }
+});
+
+// ---- POST /discover — live web-search lead discovery (net-new businesses) ---
+// Finds real businesses on the open web (not just Maps) and saves them as leads.
+router.post("/discover", requireAuth, async (req, res) => {
+  const body = (req.body ?? {}) as { goal?: string; max?: number };
+  const goal = String(body.goal ?? "").trim();
+  if (!goal) { res.status(400).json({ error: "Describe what to find (e.g. \"used car dealers on the MS gulf coast with no website\")." }); return; }
+
+  try {
+    const found = await discoverBusinesses(goal, typeof body.max === "number" ? body.max : 15);
+    if (found.length === 0) { res.status(502).json({ error: "Web search returned no businesses — try rephrasing." }); return; }
+
+    // Save as leads through the same path the scraper uses (scores + dedupes).
+    const rows = found.map((b) => ({
+      Name: b.name,
+      Phone: b.phone ?? "",
+      Website: b.website ?? "",
+      Address: [b.city, b.state].filter(Boolean).join(", "),
+      Category: b.category || goal,
+    }));
+    let saved = 0, duplicates = 0;
+    try {
+      const r = await fetch(`http://127.0.0.1:${process.env.PORT ?? "5000"}/api/leads/save`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(rows),
+      });
+      if (r.ok) { const d = (await r.json()) as { saved?: number; duplicates?: number }; saved = d.saved ?? 0; duplicates = d.duplicates ?? 0; }
+    } catch { /* save best-effort */ }
+
+    req.log.info({ goal, found: found.length, saved }, "web discovery done");
+    res.json({ found: found.length, saved, duplicates, businesses: found });
+  } catch (err) {
+    req.log.error({ err }, "web discovery failed");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Discovery failed" });
   }
 });
 
