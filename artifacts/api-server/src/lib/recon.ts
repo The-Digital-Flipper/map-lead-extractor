@@ -20,48 +20,31 @@ export type ReconInput = {
 };
 
 type ReconBrief = {
-  whatTheyDo?: string;
-  adActivity?: string;
-  buyingSignals?: string[];
-  competitorGap?: string;
-  reputation?: string;
-  primaryAngle?: string;
+  summary?: string;
+  angle?: string;
   opener?: string;
 };
 
-// Compose the structured findings into a readable, scannable brief (stored on
-// the lead and shown in the UI). Signal/timing/competitive intel first — the
-// non-commodity stuff that actually gets a reply.
+// Plain-English brief — reads like a friend explaining what's up with the
+// business and how to sell them. No labels-soup, no jargon, no "unknown".
 function composeBrief(b: ReconBrief): string {
   const lines: string[] = [];
-  if (b.whatTheyDo) lines.push(`📋 ${b.whatTheyDo}`);
-  if (b.adActivity) lines.push(`📣 Ads: ${b.adActivity}`);
-  if (b.buyingSignals?.length) lines.push(`🔥 Signals: ${b.buyingSignals.join("; ")}`);
-  if (b.competitorGap) lines.push(`🥊 Competitor gap: ${b.competitorGap}`);
-  if (b.reputation) lines.push(`⭐ Reputation: ${b.reputation}`);
-  if (b.primaryAngle) lines.push(`🎯 Best angle: ${b.primaryAngle}`);
-  if (b.opener) lines.push(`💬 Opener: "${b.opener}"`);
-  return lines.join("\n");
+  if (b.summary) lines.push(b.summary);
+  if (b.angle) lines.push(`How to sell them: ${b.angle}`);
+  if (b.opener) lines.push(`What to say: "${b.opener}"`);
+  return lines.join("\n\n");
 }
 
 function parseBrief(text: string): ReconBrief {
   const cleaned = text.replace(/```(?:json)?/gi, "").trim();
   const s = cleaned.indexOf("{"), e = cleaned.lastIndexOf("}");
-  if (s === -1 || e < s) return { primaryAngle: cleaned.slice(0, 300) };
+  if (s === -1 || e < s) return { summary: cleaned.slice(0, 400) };
   try {
     const o = JSON.parse(cleaned.slice(s, e + 1)) as Record<string, unknown>;
-    const arr = (v: unknown) => Array.isArray(v) ? v.map(String).filter(Boolean) : (v ? [String(v)] : []);
-    return {
-      whatTheyDo: o.whatTheyDo ? String(o.whatTheyDo) : undefined,
-      adActivity: o.adActivity ? String(o.adActivity) : undefined,
-      buyingSignals: arr(o.buyingSignals),
-      competitorGap: o.competitorGap ? String(o.competitorGap) : undefined,
-      reputation: o.reputation ? String(o.reputation) : undefined,
-      primaryAngle: o.primaryAngle ? String(o.primaryAngle) : undefined,
-      opener: o.opener ? String(o.opener) : undefined,
-    };
+    const clean = (v: unknown) => { const t = String(v ?? "").trim(); return t && !/^unknown\.?$/i.test(t) ? t : undefined; };
+    return { summary: clean(o.summary), angle: clean(o.angle), opener: clean(o.opener) };
   } catch {
-    return { primaryAngle: cleaned.slice(0, 300) };
+    return { summary: cleaned.slice(0, 400) };
   }
 }
 
@@ -76,26 +59,19 @@ export async function reconSellAngle(lead: ReconInput): Promise<string> {
     lead.rating ? `${lead.rating}★ (${lead.reviewCount ?? 0} reviews)` : null,
   ].filter(Boolean).join("; ");
 
-  const input = `You are an elite sales-intelligence researcher. Generic findings like "they need a website" are worthless — everyone says that and it gets ignored. Your job is to uncover SIGNAL, TIMING and COMPETITIVE intel that proves real research and creates urgency. Run MULTIPLE web searches; dig hard.
+  const input = `You're a sharp sales scout. Research this local business across the web (their website, Facebook/Instagram, Yelp & Google reviews, whether they or competitors run ads, any recent hiring/expansion). Run a few searches and dig.
 
 Business: ${lead.name ?? "(unknown)"}${lead.category ? `, a ${lead.category}` : ""}${lead.address ? ` in ${lead.address}` : ""}. Known: ${known}.
 
-Hunt specifically for the high-signal, non-obvious stuff:
-- AD ACTIVITY: are THEY running paid ads right now (check the Facebook Ad Library, Google/Bing results, promoted posts)? Are their COMPETITORS running ads while they aren't? Roughly how many / what offers?
-- BUYING / TIMING SIGNALS: recent hiring or job posts, a new location or expansion, new ownership, a grand opening, seasonal demand spikes, recent funding or press — anything showing budget + intent right now.
-- COMPETITOR GAP: name a specific local competitor who is clearly winning (ranks above them, more/better reviews, runs ads, stronger social) and exactly how.
-- REPUTATION VELOCITY: review trend (growing/declining), recent negative themes, unanswered reviews, rating vs. competitors.
+Then explain it in PLAIN, SIMPLE English a busy person reads in five seconds — like you're texting a friend. No jargon, no bullet labels, no buzzwords, never write "unknown". Focus on the ONE real, specific thing worth acting on (e.g. "their main competitor down the road runs Facebook ads and they don't" or "great reviews but no website to send people to").
 
-Then return ONLY this JSON — specific, grounded, no invented numbers (say "unknown" if you can't verify):
+Return ONLY this JSON:
 {
-  "whatTheyDo": "<1 sentence: business + positioning>",
-  "adActivity": "<are they/competitors advertising now, where, rough scale — or 'no active ads found'>",
-  "buyingSignals": ["<specific timing/intent signal>", "<another>"],
-  "competitorGap": "<named competitor + exactly how they're winning>",
-  "reputation": "<review trend / themes / rating vs competitors>",
-  "primaryAngle": "<the sharpest, most URGENT angle tied to the strongest signal above — not generic>",
-  "opener": "<one personalized opening line referencing a specific, timely thing you found>"
-}`;
+  "summary": "<2-3 plain sentences: what the business is, and the one clear thing about their online presence or competition that matters>",
+  "angle": "<plain: what to sell them and why it would actually help them — explain like to a friend>",
+  "opener": "<a short, friendly first message you'd send them>"
+}
+If you truly can't find anything useful online, make summary one honest plain sentence and keep angle/opener short.`;
 
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
