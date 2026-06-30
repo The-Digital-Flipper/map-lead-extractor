@@ -4,3 +4,5 @@ export * from "./leadNotes";
 export * from "./logs";
 export * from "./smsMessages";
 export * from "./collections";
+export * from "./scrapeTargets";
+export * from "./proxies";

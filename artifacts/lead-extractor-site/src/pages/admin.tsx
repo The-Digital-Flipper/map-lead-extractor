@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useUser, useClerk } from "@clerk/react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
@@ -9,7 +9,7 @@ import {
   Flame, Globe, Target, Sparkles, Package, Phone, Trash2, RotateCcw,
 } from "lucide-react";
 import {
-  ComposableMap, Geographies, Geography, ZoomableGroup,
+  ComposableMap, Geographies, Geography, ZoomableGroup, Marker,
 } from "react-simple-maps";
 import { Tooltip } from "react-tooltip";
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Cell } from "recharts";
@@ -48,6 +48,9 @@ interface GeoData { byState: Record<string, number>; topCities: { city: string; 
 interface Lead {
   id: number; name: string | null; phone: string | null; emails: string | null;
   website: string | null; address: string | null; category: string | null;
+  social: string | null; facebook: string | null; instagram: string | null;
+  twitter: string | null; linkedin: string | null;
+  rating: string | null; reviewCount: number | null;
   score: number | null; opportunityScore: number | null; needs: string[] | null;
   valueScore: number | null; demandScore: number | null;
   timesExtracted: number | null; extractedBy: string[] | null;
@@ -196,7 +199,7 @@ export default function Admin() {
       return next;
     });
   };
-  const [activeTab, setActiveTab] = useState<"command" | "overview" | "users" | "leads" | "money" | "deleted">("command");
+  const [activeTab, setActiveTab] = useState<"command" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
   const [deletedLeads, setDeletedLeads] = useState<Lead[]>([]);
   const [deletedTotal, setDeletedTotal] = useState(0);
   const [deletedPage, setDeletedPage] = useState(1);
@@ -215,7 +218,7 @@ export default function Admin() {
   const [copiedLink, setCopiedLink] = useState(false);
   // Enrichment pass — crawl lead sites to score bad/old site + booking.
   const [enriching, setEnriching] = useState(false);
-  const [enrichResult, setEnrichResult] = useState<{ enriched: number; remaining: number } | null>(null);
+  const [enrichResult, setEnrichResult] = useState<{ enriched: number; remaining: number; emailsFound?: number; socialsFound?: number; phonesFound?: number } | null>(null);
   const runEnrich = async () => {
     setEnriching(true);
     try {
@@ -224,13 +227,190 @@ export default function Admin() {
       });
       if (r.ok) {
         const d = await r.json();
-        setEnrichResult({ enriched: d.enriched, remaining: d.remaining });
+        setEnrichResult({ enriched: d.enriched, remaining: d.remaining, emailsFound: d.emailsFound, socialsFound: d.socialsFound, phonesFound: d.phonesFound });
         fetch(`${basePath}/api/admin/opportunity-by-category${selectedState ? `?state=${selectedState}` : ""}`)
           .then(rr => rr.json()).then(dd => { setCategoryMoney(dd.categories ?? []); setSummary(dd.summary ?? null); setNeeds(dd.needs ?? []); }).catch(() => {});
       }
     } catch { /* ignore */ }
     setEnriching(false);
   };
+
+  // Live test of the 24/7 Google Maps scraper — drives one search and saves it.
+  const [scrapeCategory, setScrapeCategory] = useState("plumbers");
+  const [scrapeLocation, setScrapeLocation] = useState("Mobile AL");
+  const [scraping, setScraping] = useState(false);
+  const [scrapeResult, setScrapeResult] = useState<{ term: string; places: number; saved: number; duplicates: number; ms: number; enrich?: { enriched: number; emailsFound: number; socialsFound: number } | null } | null>(null);
+  const [scrapeError, setScrapeError] = useState("");
+  const runScrape = async () => {
+    if (!scrapeCategory.trim() || scraping) return;
+    setScraping(true); setScrapeError(""); setScrapeResult(null);
+    try {
+      const r = await fetch(`${basePath}/api/admin/scrape`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: scrapeCategory.trim(), location: scrapeLocation.trim() }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setScrapeResult(d);
+        // Refresh the headline lead counts so the new leads show up.
+        fetch(`${basePath}/api/admin/stats`).then(rr => rr.json()).then(setStats).catch(() => {});
+      } else {
+        setScrapeError(d.error ?? "Scrape failed");
+      }
+    } catch {
+      setScrapeError("Could not reach the server");
+    }
+    setScraping(false);
+  };
+
+  // ── AI Research: find where to scrape, plot on the map, scrape live ────────
+  type ScrapeTarget = {
+    id: number; category: string; location: string;
+    lat: string | null; lng: string | null;
+    priority: number; reason: string | null; estLeads: number | null;
+    active: boolean; leadCount: number | null; lastScrapedAt: string | null;
+  };
+  const [researchGoal, setResearchGoal] = useState("Gulf Coast businesses that need a website");
+  const [researchCount, setResearchCount] = useState(24);
+  const [researching, setResearching] = useState(false);
+  const [researchError, setResearchError] = useState("");
+  const [targets, setTargets] = useState<ScrapeTarget[]>([]);
+  const [scrapingTargetId, setScrapingTargetId] = useState<number | null>(null);
+  const [targetLiveMsg, setTargetLiveMsg] = useState("");
+
+  const loadTargets = useCallback(async () => {
+    try {
+      const r = await fetch(`${basePath}/api/admin/scrape-targets`);
+      const d = await r.json();
+      setTargets(d.targets ?? []);
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => { if (activeTab === "research") loadTargets(); }, [activeTab, loadTargets]);
+
+  const runResearch = async () => {
+    if (!researchGoal.trim() || researching) return;
+    setResearching(true); setResearchError("");
+    try {
+      const r = await fetch(`${basePath}/api/admin/research`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goal: researchGoal.trim(), count: researchCount }),
+      });
+      const d = await r.json();
+      if (r.ok) setTargets(d.targets ?? []);
+      else setResearchError(d.error ?? "Research failed");
+    } catch { setResearchError("Could not reach the server"); }
+    setResearching(false);
+  };
+
+  const scrapeOneTarget = async (id: number): Promise<void> => {
+    setScrapingTargetId(id);
+    const t = targets.find(x => x.id === id);
+    if (t) setTargetLiveMsg(`Scraping ${t.category} in ${t.location}…`);
+    try {
+      const r = await fetch(`${basePath}/api/admin/scrape-targets/${id}/scrape`, { method: "POST" });
+      const d = await r.json();
+      if (r.ok) {
+        setTargets(prev => prev.map(x => x.id === id
+          ? { ...x, leadCount: (x.leadCount ?? 0) + (d.saved ?? 0), lastScrapedAt: new Date().toISOString() }
+          : x));
+        setTargetLiveMsg(`✓ ${t?.location}: ${d.saved} new · ${d.duplicates} dup`);
+        fetch(`${basePath}/api/admin/stats`).then(rr => rr.json()).then(setStats).catch(() => {});
+      } else {
+        setTargetLiveMsg(`⚠ ${d.error ?? "failed"}`);
+      }
+    } catch { setTargetLiveMsg("⚠ request failed"); }
+    setScrapingTargetId(null);
+  };
+
+  const [scrapingAll, setScrapingAll] = useState(false);
+  const stopAllRef = useRef(false);
+  const scrapeAllTargets = async () => {
+    if (scrapingAll) { stopAllRef.current = true; return; } // click again = stop
+    stopAllRef.current = false;
+    setScrapingAll(true);
+    const active = targets.filter(t => t.active);
+    for (const t of active) {
+      if (stopAllRef.current) { setTargetLiveMsg("Stopped."); break; }
+      await scrapeOneTarget(t.id);
+    }
+    if (!stopAllRef.current) setTargetLiveMsg("✓ Finished scraping all targets");
+    setScrapingAll(false);
+  };
+
+  // ── Proxy center ───────────────────────────────────────────────────────────
+  type Proxy = {
+    id: number; label: string | null; protocol: string | null; host: string; port: number;
+    username: string | null; hasPassword: boolean; country: string | null;
+    active: boolean | null; status: string | null; latencyMs: number | null;
+    successCount: number | null; failCount: number | null; lastUsedAt: string | null;
+  };
+  const [proxyList, setProxyList] = useState<Proxy[]>([]);
+  const [proxySummary, setProxySummary] = useState<{ total: number; healthy: number; dead: number; active: number } | null>(null);
+  const [proxyText, setProxyText] = useState("");
+  const [proxyBusy, setProxyBusy] = useState(false);
+  const [proxyMsg, setProxyMsg] = useState("");
+  const [testingProxyId, setTestingProxyId] = useState<number | null>(null);
+
+  const loadProxies = useCallback(async () => {
+    try {
+      const r = await fetch(`${basePath}/api/admin/proxies`);
+      const d = await r.json();
+      setProxyList(d.proxies ?? []);
+      setProxySummary(d.summary ?? null);
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => { if (activeTab === "proxies") loadProxies(); }, [activeTab, loadProxies]);
+
+  const addProxies = async () => {
+    if (!proxyText.trim() || proxyBusy) return;
+    setProxyBusy(true); setProxyMsg("");
+    try {
+      const r = await fetch(`${basePath}/api/admin/proxies`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: proxyText.trim() }),
+      });
+      const d = await r.json();
+      if (r.ok) { setProxyMsg(`Added ${d.added} of ${d.parsed} proxies`); setProxyText(""); loadProxies(); }
+      else setProxyMsg(`⚠ ${d.error ?? "failed"}`);
+    } catch { setProxyMsg("⚠ request failed"); }
+    setProxyBusy(false);
+  };
+
+  const testProxy = async (id: number) => {
+    setTestingProxyId(id);
+    try {
+      const r = await fetch(`${basePath}/api/admin/proxies/${id}/test`, { method: "POST" });
+      const d = await r.json();
+      setProxyMsg(d.ok ? `✓ #${id} healthy (${d.ms}ms)` : `✗ #${id} dead: ${d.error ?? ""}`);
+      loadProxies();
+    } catch { setProxyMsg("⚠ test failed"); }
+    setTestingProxyId(null);
+  };
+
+  const testAllProxies = async () => {
+    if (proxyBusy) return;
+    setProxyBusy(true); setProxyMsg("Testing all proxies…");
+    try {
+      const r = await fetch(`${basePath}/api/admin/proxies/test-all`, { method: "POST" });
+      const d = await r.json();
+      setProxyMsg(`✓ Tested ${d.tested} · ${d.healthy} healthy`);
+      loadProxies();
+    } catch { setProxyMsg("⚠ test failed"); }
+    setProxyBusy(false);
+  };
+
+  const toggleProxy = async (id: number, active: boolean) => {
+    await fetch(`${basePath}/api/admin/proxies/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active }),
+    }).catch(() => {});
+    loadProxies();
+  };
+
+  const deleteProxy = async (id: number) => {
+    await fetch(`${basePath}/api/admin/proxies/${id}`, { method: "DELETE" }).catch(() => {});
+    loadProxies();
+  };
+
   const generateSaleLink = async () => {
     if (!sellPack) return;
     setSellLoading(true); setSellError(""); setSellResult(null);
@@ -482,10 +662,10 @@ export default function Admin() {
           {/* ── TABS ──────────────────────────────────────────────────────── */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.09 }} className="mb-6">
             <div className="flex gap-1 bg-card border border-border rounded-xl p-1 w-fit flex-wrap">
-              {(["command", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
+              {(["command", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
                 <button key={tab} onClick={() => { setActiveTab(tab); if (tab === "leads" || tab === "money") setPage(1); if (tab === "deleted") setDeletedPage(1); }}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors capitalize ${activeTab === tab ? tab === "deleted" ? "bg-red-500/80 text-white" : "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                  {tab === "command" ? "⚡ Command" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
+                  {tab === "command" ? "⚡ Command" : tab === "research" ? "🎯 AI Research" : tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
                 </button>
               ))}
             </div>
@@ -494,6 +674,50 @@ export default function Admin() {
           {/* ── COMMAND CENTER TAB ────────────────────────────────────────── */}
           {activeTab === "command" && (
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
+
+              {/* ── Lead Scraper test ─────────────────────────────────────── */}
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <Globe className="w-5 h-5 text-primary" />
+                  <h2 className="text-lg font-display font-bold">Lead Scraper</h2>
+                  <span className="text-xs font-mono bg-primary/10 text-primary border border-primary/30 px-2 py-0.5 rounded-full">TEST</span>
+                </div>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Run one live Google Maps search and pull the leads in. The 24/7 worker does this on a schedule across your whole query list.
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-muted-foreground">Category</label>
+                    <input value={scrapeCategory} onChange={e => setScrapeCategory(e.target.value)}
+                      placeholder="plumbers"
+                      className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-48 focus:border-primary/50 outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-muted-foreground">Location</label>
+                    <input value={scrapeLocation} onChange={e => setScrapeLocation(e.target.value)}
+                      placeholder="Mobile AL"
+                      onKeyDown={e => { if (e.key === "Enter") runScrape(); }}
+                      className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-48 focus:border-primary/50 outline-none" />
+                  </div>
+                  <button onClick={runScrape} disabled={scraping || !scrapeCategory.trim()}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
+                    <RefreshCw className={`w-4 h-4 ${scraping ? "animate-spin" : ""}`} />
+                    {scraping ? "Scraping…" : "Run test scrape"}
+                  </button>
+                  {scrapeResult && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-xs text-foreground">
+                      ✓ <span className="font-semibold">{scrapeResult.saved} new</span> · {scrapeResult.duplicates} dup · {scrapeResult.places} found
+                      {scrapeResult.enrich ? <span className="text-muted-foreground"> · enriched {scrapeResult.enrich.emailsFound} email / {scrapeResult.enrich.socialsFound} social</span> : null}
+                      <span className="text-muted-foreground">({(scrapeResult.ms / 1000).toFixed(1)}s)</span>
+                    </div>
+                  )}
+                  {scrapeError && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-400">
+                      ⚠ {scrapeError}
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {/* Money KPI strip */}
               <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-6">
@@ -558,12 +782,12 @@ export default function Admin() {
                     </a>
                     <button onClick={runEnrich} disabled={enriching}
                       className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
-                      title="Crawl lead websites to score bad/old sites + online booking">
-                      <RefreshCw className={`w-4 h-4 ${enriching ? "animate-spin" : ""}`} /> {enriching ? "Enriching…" : "Enrich sites (25)"}
+                      title="Crawl lead websites to pull public emails + social links (and score bad/old sites + booking)">
+                      <RefreshCw className={`w-4 h-4 ${enriching ? "animate-spin" : ""}`} /> {enriching ? "Finding emails…" : "Get emails + socials (25)"}
                     </button>
                     {enrichResult && (
                       <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-background/40 border border-border text-xs text-muted-foreground">
-                        ✓ Enriched {enrichResult.enriched} · {enrichResult.remaining} left
+                        ✓ {enrichResult.enriched} sites · {enrichResult.emailsFound ?? 0} email · {enrichResult.socialsFound ?? 0} social · {enrichResult.phonesFound ?? 0} phone · {enrichResult.remaining} left
                       </div>
                     )}
                     {hotPackValue > 0 && (
@@ -758,6 +982,221 @@ export default function Admin() {
                   </p>
                 </div>
               </div>
+            </motion.div>
+          )}
+
+          {/* ── AI RESEARCH TAB: find where to scrape, plot it, scrape live ── */}
+          {activeTab === "research" && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
+
+              {/* Research input */}
+              <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-6">
+                <div className="flex items-center gap-2 mb-1">
+                  <Sparkles className="w-5 h-5 text-primary" />
+                  <h2 className="text-lg font-display font-bold">AI Research — find where to scrape</h2>
+                </div>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Describe your ideal customer. AI ranks the best categories &amp; cities to pull valuable leads from, pins them on the map, then you scrape them.
+                </p>
+                <div className="flex flex-col gap-3">
+                  <textarea value={researchGoal} onChange={e => setResearchGoal(e.target.value)} rows={2}
+                    placeholder="e.g. Gulf Coast home-service businesses that have no website"
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:border-primary/50 outline-none resize-none" />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="text-xs font-semibold text-muted-foreground">How many targets</label>
+                    <input type="number" min={4} max={60} value={researchCount}
+                      onChange={e => setResearchCount(parseInt(e.target.value) || 0)}
+                      onBlur={e => setResearchCount(Math.max(4, Math.min(60, parseInt(e.target.value) || 24)))}
+                      className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-24 focus:border-primary/50 outline-none" />
+                    <button onClick={runResearch} disabled={researching || !researchGoal.trim()}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
+                      <Sparkles className={`w-4 h-4 ${researching ? "animate-pulse" : ""}`} />
+                      {researching ? "Researching…" : "Research targets"}
+                    </button>
+                    {researchError && (
+                      <span className="text-xs text-red-400">⚠ {researchError}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {targets.length > 0 && (
+                <>
+                  {/* Map of targets */}
+                  <div className="rounded-2xl border border-border bg-card p-5">
+                    <div className="flex items-center gap-2 flex-wrap mb-3">
+                      <MapPin className="w-4 h-4 text-primary" />
+                      <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Scrape Map</h3>
+                      <span className="text-xs text-muted-foreground">
+                        {targets.length} targets · ~{targets.reduce((s, t) => s + (t.estLeads ?? 0), 0).toLocaleString()} est. leads · {targets.reduce((s, t) => s + (t.leadCount ?? 0), 0).toLocaleString()} pulled
+                      </span>
+                      <button onClick={scrapeAllTargets}
+                        className={`ml-auto flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${scrapingAll ? "bg-red-500/80 text-white" : "bg-primary text-primary-foreground hover:opacity-90"}`}>
+                        <RefreshCw className={`w-4 h-4 ${scrapingAll ? "animate-spin" : ""}`} />
+                        {scrapingAll ? "Stop" : "Scrape all targets"}
+                      </button>
+                    </div>
+                    {targetLiveMsg && (
+                      <div className="mb-3 text-xs font-mono px-3 py-2 rounded-lg bg-background/60 border border-border text-foreground">{targetLiveMsg}</div>
+                    )}
+                    <ComposableMap projection="geoAlbersUsa" style={{ width: "100%", height: "auto" }}>
+                      <ZoomableGroup zoom={1}>
+                        <Geographies geography={US_TOPO_URL}>
+                          {({ geographies }) => geographies.map((geo) => (
+                            <Geography key={geo.rsmKey} geography={geo}
+                              fill="#161b22" stroke="#0d1117" strokeWidth={0.6}
+                              style={{ default: { outline: "none" }, hover: { outline: "none", fill: "#1c2330" }, pressed: { outline: "none" } }} />
+                          ))}
+                        </Geographies>
+                        {targets.filter(t => t.lat && t.lng).map((t) => {
+                          const lat = parseFloat(t.lat as string), lng = parseFloat(t.lng as string);
+                          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+                          const color = t.priority >= 70 ? "#00E676" : t.priority >= 40 ? "#fbbf24" : "#6b7280";
+                          const active = scrapingTargetId === t.id;
+                          const r = 3 + (t.priority / 100) * 5;
+                          return (
+                            <Marker key={t.id} coordinates={[lng, lat]}>
+                              <circle r={active ? r + 4 : r} fill={color} fillOpacity={active ? 0.9 : 0.65}
+                                stroke={active ? "#fff" : color} strokeWidth={active ? 1.5 : 0.5}>
+                                {active && <animate attributeName="r" values={`${r};${r + 6};${r}`} dur="1s" repeatCount="indefinite" />}
+                              </circle>
+                              <title>{t.category} in {t.location} — opp {t.priority}{t.leadCount ? ` · ${t.leadCount} pulled` : ""}</title>
+                            </Marker>
+                          );
+                        })}
+                      </ZoomableGroup>
+                    </ComposableMap>
+                    <div className="flex items-center gap-4 mt-2 justify-end text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "#00E676" }} /> High (70+)</span>
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "#fbbf24" }} /> Medium</span>
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "#6b7280" }} /> Lower</span>
+                    </div>
+                  </div>
+
+                  {/* Targets table */}
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-background/40 text-muted-foreground">
+                        <tr className="text-left">
+                          <th className="p-3 font-semibold">Opp</th>
+                          <th className="p-3 font-semibold">Category</th>
+                          <th className="p-3 font-semibold">Location</th>
+                          <th className="p-3 font-semibold hidden md:table-cell">Why</th>
+                          <th className="p-3 font-semibold text-right">Pulled</th>
+                          <th className="p-3 font-semibold text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {targets.map((t) => (
+                          <tr key={t.id} className={`border-t border-border ${scrapingTargetId === t.id ? "bg-primary/10" : ""}`}>
+                            <td className="p-3">
+                              <span className={`font-bold ${t.priority >= 70 ? "text-primary" : t.priority >= 40 ? "text-amber-400" : "text-muted-foreground"}`}>{t.priority}</span>
+                            </td>
+                            <td className="p-3 font-medium">{t.category}</td>
+                            <td className="p-3">{t.location}</td>
+                            <td className="p-3 text-muted-foreground hidden md:table-cell">{t.reason}</td>
+                            <td className="p-3 text-right">{t.leadCount ? <span className="text-primary font-semibold">{t.leadCount}</span> : <span className="text-muted-foreground">—</span>}</td>
+                            <td className="p-3 text-right">
+                              <button onClick={() => scrapeOneTarget(t.id)} disabled={scrapingTargetId !== null || scrapingAll}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:border-primary/40 hover:text-foreground text-muted-foreground transition-colors disabled:opacity-40">
+                                <RefreshCw className={`w-3 h-3 ${scrapingTargetId === t.id ? "animate-spin" : ""}`} />
+                                {scrapingTargetId === t.id ? "Scraping…" : "Scrape"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          )}
+
+          {/* ── PROXIES TAB: rotating IP pool that shields the scraper ─────── */}
+          {activeTab === "proxies" && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
+              <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-6">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <Globe className="w-5 h-5 text-primary" />
+                  <h2 className="text-lg font-display font-bold">Proxy Center</h2>
+                  {proxySummary && (
+                    <div className="ml-auto flex items-center gap-3 text-xs">
+                      <span className="text-muted-foreground">{proxySummary.total} total</span>
+                      <span className="text-primary font-semibold">{proxySummary.healthy} healthy</span>
+                      <span className="text-red-400 font-semibold">{proxySummary.dead} dead</span>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mb-4">
+                  The scraper rotates through these IPs (least-recently-used) so Google can't fingerprint one address. Dead proxies are benched automatically.
+                </p>
+                <textarea value={proxyText} onChange={e => setProxyText(e.target.value)} rows={3}
+                  placeholder={"Paste proxies, one per line. Any of:\nhost:port\nhost:port:user:pass\nuser:pass@host:port\nhttp://user:pass@host:port"}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm font-mono focus:border-primary/50 outline-none resize-none" />
+                <div className="flex flex-wrap items-center gap-3 mt-3">
+                  <button onClick={addProxies} disabled={proxyBusy || !proxyText.trim()}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
+                    <Package className="w-4 h-4" /> Add proxies
+                  </button>
+                  <button onClick={testAllProxies} disabled={proxyBusy || proxyList.length === 0}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-50">
+                    <RefreshCw className={`w-4 h-4 ${proxyBusy ? "animate-spin" : ""}`} /> Test all
+                  </button>
+                  {proxyMsg && <span className="text-xs text-muted-foreground font-mono">{proxyMsg}</span>}
+                </div>
+              </div>
+
+              {proxyList.length > 0 && (
+                <div className="rounded-2xl border border-border bg-card overflow-hidden overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-background/40 text-muted-foreground">
+                      <tr className="text-left">
+                        <th className="p-3 font-semibold">Status</th>
+                        <th className="p-3 font-semibold">Endpoint</th>
+                        <th className="p-3 font-semibold">Auth</th>
+                        <th className="p-3 font-semibold text-right">Latency</th>
+                        <th className="p-3 font-semibold text-right">✓ / ✗</th>
+                        <th className="p-3 font-semibold text-center">Active</th>
+                        <th className="p-3 font-semibold text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {proxyList.map((p) => (
+                        <tr key={p.id} className="border-t border-border">
+                          <td className="p-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-semibold ${
+                              p.status === "healthy" ? "bg-primary/15 text-primary border-primary/30"
+                              : p.status === "dead" ? "bg-red-500/15 text-red-400 border-red-500/30"
+                              : "bg-muted-foreground/10 text-muted-foreground border-border"
+                            }`}>{p.status ?? "untested"}</span>
+                          </td>
+                          <td className="p-3 font-mono text-xs">{p.protocol}://{p.host}:{p.port}</td>
+                          <td className="p-3 text-xs text-muted-foreground">{p.username ? `${p.username} : ${p.hasPassword ? "••••" : "—"}` : "none"}</td>
+                          <td className="p-3 text-right text-xs">{p.latencyMs != null ? `${p.latencyMs}ms` : "—"}</td>
+                          <td className="p-3 text-right text-xs"><span className="text-primary">{p.successCount ?? 0}</span> / <span className="text-red-400">{p.failCount ?? 0}</span></td>
+                          <td className="p-3 text-center">
+                            <button onClick={() => toggleProxy(p.id, !p.active)}
+                              className={`w-9 h-5 rounded-full transition-colors relative ${p.active ? "bg-primary" : "bg-muted-foreground/30"}`}>
+                              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${p.active ? "left-[18px]" : "left-0.5"}`} />
+                            </button>
+                          </td>
+                          <td className="p-3 text-right whitespace-nowrap">
+                            <button onClick={() => testProxy(p.id)} disabled={testingProxyId === p.id}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-40 mr-1">
+                              <RefreshCw className={`w-3 h-3 ${testingProxyId === p.id ? "animate-spin" : ""}`} /> Test
+                            </button>
+                            <button onClick={() => deleteProxy(p.id)} title="Delete"
+                              className="inline-flex items-center px-2 py-1 rounded-lg border border-border text-xs text-red-400 hover:bg-red-500/10 hover:border-red-500/40 transition-colors">
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -957,6 +1396,8 @@ export default function Admin() {
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Name</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Phone</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Email</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Social</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Reviews</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Address</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Category</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Score</th>
@@ -970,6 +1411,32 @@ export default function Admin() {
                               <td className="px-4 py-3 font-semibold text-foreground truncate max-w-[160px]">{lead.name ?? "—"}</td>
                               <td className="px-4 py-3 font-mono text-xs text-primary whitespace-nowrap">{lead.phone ?? <span className="text-muted-foreground/40">—</span>}</td>
                               <td className="px-4 py-3 text-xs text-primary truncate max-w-[160px]">{lead.emails ?? <span className="text-muted-foreground/40">—</span>}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                {(() => {
+                                  const socials = [
+                                    { url: lead.facebook, label: "f", title: "Facebook" },
+                                    { url: lead.instagram, label: "IG", title: "Instagram" },
+                                    { url: lead.twitter, label: "X", title: "Twitter/X" },
+                                    { url: lead.linkedin, label: "in", title: "LinkedIn" },
+                                  ].filter(s => s.url);
+                                  if (socials.length === 0) return <span className="text-muted-foreground/40">—</span>;
+                                  return (
+                                    <div className="flex items-center gap-1.5">
+                                      {socials.map(s => (
+                                        <a key={s.title} href={s.url as string} target="_blank" rel="noopener noreferrer" title={s.title}
+                                          className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-primary/15 text-primary text-[10px] font-bold hover:bg-primary/30 transition-colors">
+                                          {s.label}
+                                        </a>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
+                              </td>
+                              <td className="px-4 py-3 text-xs whitespace-nowrap">
+                                {lead.rating ? (
+                                  <span className="text-foreground">{lead.rating} <span className="text-yellow-400">★</span>{lead.reviewCount != null ? <span className="text-muted-foreground"> ({lead.reviewCount})</span> : null}</span>
+                                ) : <span className="text-muted-foreground/40">—</span>}
+                              </td>
                               <td className="px-4 py-3 text-xs text-muted-foreground truncate max-w-[180px]">{lead.address ?? "—"}</td>
                               <td className="px-4 py-3 text-xs text-muted-foreground">{lead.category ?? "—"}</td>
                               <td className="px-4 py-3">

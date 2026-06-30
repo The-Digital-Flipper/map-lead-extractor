@@ -1,0 +1,57 @@
+[
+  { "category": "plumbers", "location": "Mobile AL" },
+  { "category": "plumbers", "location": "Pensacola FL" },
+  { "category": "plumbers", "location": "Gulfport MS" },
+  { "category": "plumbers", "location": "Biloxi MS" },
+  { "category": "plumbers", "location": "Panama City FL" },
+  { "category": "plumbers", "location": "New Orleans LA" },
+
+  { "category": "roofing contractors", "location": "Mobile AL" },
+  { "category": "roofing contractors", "location": "Pensacola FL" },
+  { "category": "roofing contractors", "location": "Gulfport MS" },
+  { "category": "roofing contractors", "location": "Biloxi MS" },
+  { "category": "roofing contractors", "location": "Panama City FL" },
+  { "category": "roofing contractors", "location": "New Orleans LA" },
+
+  { "category": "hvac contractors", "location": "Mobile AL" },
+  { "category": "hvac contractors", "location": "Pensacola FL" },
+  { "category": "hvac contractors", "location": "Gulfport MS" },
+  { "category": "hvac contractors", "location": "Biloxi MS" },
+  { "category": "hvac contractors", "location": "Panama City FL" },
+  { "category": "hvac contractors", "location": "New Orleans LA" },
+
+  { "category": "electricians", "location": "Mobile AL" },
+  { "category": "electricians", "location": "Pensacola FL" },
+  { "category": "electricians", "location": "Gulfport MS" },
+  { "category": "electricians", "location": "Biloxi MS" },
+  { "category": "electricians", "location": "Panama City FL" },
+  { "category": "electricians", "location": "New Orleans LA" },
+
+  { "category": "auto repair", "location": "Mobile AL" },
+  { "category": "auto repair", "location": "Pensacola FL" },
+  { "category": "auto repair", "location": "Gulfport MS" },
+  { "category": "auto repair", "location": "Biloxi MS" },
+  { "category": "auto repair", "location": "Panama City FL" },
+  { "category": "auto repair", "location": "New Orleans LA" },
+
+  { "category": "towing services", "location": "Mobile AL" },
+  { "category": "towing services", "location": "Pensacola FL" },
+  { "category": "towing services", "location": "Gulfport MS" },
+  { "category": "towing services", "location": "Biloxi MS" },
+  { "category": "towing services", "location": "Panama City FL" },
+  { "category": "towing services", "location": "New Orleans LA" },
+
+  { "category": "used car dealers", "location": "Mobile AL" },
+  { "category": "used car dealers", "location": "Pensacola FL" },
+  { "category": "used car dealers", "location": "Gulfport MS" },
+  { "category": "used car dealers", "location": "Biloxi MS" },
+  { "category": "used car dealers", "location": "Panama City FL" },
+  { "category": "used car dealers", "location": "New Orleans LA" },
+
+  { "category": "landscaping", "location": "Mobile AL" },
+  { "category": "landscaping", "location": "Pensacola FL" },
+  { "category": "landscaping", "location": "Gulfport MS" },
+  { "category": "landscaping", "location": "Biloxi MS" },
+  { "category": "landscaping", "location": "Panama City FL" },
+  { "category": "landscaping", "location": "New Orleans LA" }
+]

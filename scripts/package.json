@@ -7,6 +7,7 @@
     "hello": "tsx ./src/hello.ts",
     "backfill-opportunity": "tsx ./src/backfill-opportunity.ts",
     "social-posts": "tsx ./src/social-posts.ts",
+    "scrape": "tsx ./src/scrape/gmaps-scraper.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
@@ -17,6 +18,7 @@
     "@anthropic-ai/sdk": "^0.71.0",
     "@workspace/db": "workspace:*",
     "drizzle-orm": "catalog:",
+    "playwright": "^1.61.1",
     "stripe": "^22.3.0",
     "stripe-replit-sync": "^1.0.0"
   }
