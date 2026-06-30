@@ -7,6 +7,7 @@ import { scrapeAndSave } from "../lib/scrape";
 import { researchTargets } from "../lib/research";
 import { analyzeLeads } from "../lib/analyze";
 import { discoverBusinesses } from "../lib/discover";
+import { reconSellAngle } from "../lib/recon";
 import { parseProxyLines, testProxy } from "../lib/proxyPool";
 
 const router = Router();
@@ -614,6 +615,37 @@ router.post("/discover", requireAuth, async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "web discovery failed");
     res.status(500).json({ error: err instanceof Error ? err.message : "Discovery failed" });
+  }
+});
+
+// ---- POST /recon — deep multi-platform sell-angle recon on leads -----------
+// Hunts ad activity, buying/timing signals, competitor gaps & reputation across
+// the web to surface a sharp, urgent sell angle per lead. Bounded (web search).
+router.post("/recon", requireAuth, async (req, res) => {
+  const body = (req.body ?? {}) as { limit?: number; onlyHighTicket?: boolean };
+  const limit = Math.min(8, Math.max(1, Number(body.limit) || 5));
+
+  const conds = [isNull(leads.deletedAt), isNull(leads.socialIntel)];
+  if (body.onlyHighTicket) conds.push(eq(leads.highTicket, true));
+  const batch = await db.select().from(leads).where(and(...conds))
+    .orderBy(sql`high_ticket DESC, updated_at DESC`).limit(limit);
+  if (batch.length === 0) { res.json({ scanned: 0, results: [] }); return; }
+
+  try {
+    const results = await Promise.all(batch.map(async (l) => {
+      const intel = await reconSellAngle({
+        name: l.name, category: l.category, address: l.address, website: l.website,
+        facebook: l.facebook, instagram: l.instagram, rating: l.rating, reviewCount: l.reviewCount,
+      }).catch(() => "");
+      if (intel) await db.update(leads).set({ socialIntel: intel }).where(eq(leads.id, l.id));
+      return { id: l.id, name: l.name, category: l.category, website: l.website, facebook: l.facebook, intel };
+    }));
+    const done = results.filter((r) => r.intel);
+    req.log.info({ scanned: done.length }, "sell-angle recon done");
+    res.json({ scanned: done.length, results: done });
+  } catch (err) {
+    req.log.error({ err }, "recon failed");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Recon failed" });
   }
 });
 

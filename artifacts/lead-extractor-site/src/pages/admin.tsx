@@ -303,7 +303,7 @@ export default function Admin() {
   };
 
   // AI lead intelligence: batch rationale + high-ticket leads with bios.
-  type HighTicketLead = { id: number; name: string | null; category: string | null; phone: string | null; emails: string | null; bio: string };
+  type HighTicketLead = { id: number; name: string | null; category: string | null; phone: string | null; emails: string | null; website: string | null; bio: string };
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<{ rationale: string; analyzed: number; highTicket: HighTicketLead[] } | null>(null);
   const [analyzeError, setAnalyzeError] = useState("");
@@ -339,6 +339,25 @@ export default function Admin() {
       else setDiscoverError(d.error ?? "Discovery failed");
     } catch { setDiscoverError("Could not reach the server"); }
     setDiscovering(false);
+  };
+
+  // Deep sell-angle recon (ad activity, buying signals, competitor gaps).
+  type ReconLead = { id: number; name: string | null; category: string | null; website: string | null; facebook: string | null; intel: string };
+  const [reconning, setReconning] = useState(false);
+  const [reconResult, setReconResult] = useState<{ scanned: number; results: ReconLead[] } | null>(null);
+  const [reconError, setReconError] = useState("");
+  const runRecon = async () => {
+    if (reconning) return;
+    setReconning(true); setReconError("");
+    try {
+      const r = await fetch(`${basePath}/api/admin/recon`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 5 }),
+      });
+      const d = await r.json();
+      if (r.ok) setReconResult(d);
+      else setReconError(d.error ?? "Recon failed");
+    } catch { setReconError("Could not reach the server"); }
+    setReconning(false);
   };
 
   const scrapeOneTarget = async (id: number): Promise<void> => {
@@ -1139,9 +1158,10 @@ export default function Admin() {
                               <span className="text-xs text-muted-foreground">{l.category}</span>
                             </div>
                             <p className="text-sm text-muted-foreground">{l.bio}</p>
-                            <div className="flex items-center gap-3 mt-2 text-xs">
+                            <div className="flex items-center gap-3 mt-2 text-xs flex-wrap">
                               {l.phone && <span className="font-mono text-primary">{l.phone}</span>}
                               {l.emails && <span className="text-primary truncate max-w-[180px]">{l.emails}</span>}
+                              {l.website && <a href={l.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate max-w-[180px]">{l.website.replace(/^https?:\/\/(www\.)?/, "")}</a>}
                             </div>
                           </div>
                         ))}
@@ -1149,6 +1169,41 @@ export default function Admin() {
                     ) : (
                       <p className="text-sm text-muted-foreground">No high-ticket leads in this batch.</p>
                     )}
+                  </div>
+                )}
+              </div>
+
+              {/* Deep sell-angle recon — signal/timing/competitive intel */}
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <Sparkles className="w-5 h-5 text-primary" />
+                  <h2 className="text-lg font-display font-bold">Sell-Angle Recon</h2>
+                  <span className="text-xs font-mono bg-primary/10 text-primary border border-primary/30 px-2 py-0.5 rounded-full">DEEP</span>
+                  <button onClick={runRecon} disabled={reconning}
+                    className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
+                    <Globe className={`w-4 h-4 ${reconning ? "animate-spin" : ""}`} />
+                    {reconning ? "Digging…" : "Run deep recon (5)"}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Goes past "they need a website." Researches each lead across the web for ad activity, buying/timing signals, competitor gaps, and reputation — then hands you a sharp, urgent angle + opener.
+                </p>
+                {reconError && <p className="text-xs text-red-400 mt-2">⚠ {reconError}</p>}
+                {reconResult && (
+                  <div className="mt-4 space-y-3">
+                    {reconResult.results.length === 0
+                      ? <p className="text-sm text-muted-foreground">Nothing left to scan — every lead already has recon.</p>
+                      : reconResult.results.map((l) => (
+                        <div key={l.id} className="rounded-xl border border-border bg-background/40 p-4">
+                          <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                            <span className="font-semibold text-foreground">{l.name}</span>
+                            <span className="text-xs text-muted-foreground">{l.category}</span>
+                            {l.website && <a href={l.website} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">site</a>}
+                            {l.facebook && <a href={l.facebook} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">fb</a>}
+                          </div>
+                          <p className="text-sm text-muted-foreground whitespace-pre-line">{l.intel}</p>
+                        </div>
+                      ))}
                   </div>
                 )}
               </div>
@@ -1529,6 +1584,7 @@ export default function Admin() {
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Name</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Phone</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Email</th>
+                            <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Site</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Social</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Reviews</th>
                             <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Address</th>
@@ -1544,6 +1600,11 @@ export default function Admin() {
                               <td className="px-4 py-3 font-semibold text-foreground truncate max-w-[160px]">{lead.name ?? "—"}</td>
                               <td className="px-4 py-3 font-mono text-xs text-primary whitespace-nowrap">{lead.phone ?? <span className="text-muted-foreground/40">—</span>}</td>
                               <td className="px-4 py-3 text-xs text-primary truncate max-w-[160px]">{lead.emails ?? <span className="text-muted-foreground/40">—</span>}</td>
+                              <td className="px-4 py-3 text-xs truncate max-w-[150px]">
+                                {lead.website
+                                  ? <a href={lead.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{lead.website.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}</a>
+                                  : <span className="text-muted-foreground/40">—</span>}
+                              </td>
                               <td className="px-4 py-3 whitespace-nowrap">
                                 {(() => {
                                   const socials = [

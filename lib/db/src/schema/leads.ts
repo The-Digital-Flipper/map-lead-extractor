@@ -50,6 +50,9 @@ export const leads = pgTable("leads", {
   // Short sales bio for high-ticket leads: why valuable · what to pitch ·
   // how to approach · weak spots found.
   bio: text("bio"),
+  // Quick business intel gathered from a social/web scan (what they do,
+  // specialties, how active their socials are, useful pitch angles).
+  socialIntel: text("social_intel"),
   status: text("status").default("new"), // new | contacted | converted | not_interested
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
