@@ -41,6 +41,15 @@ export const leads = pgTable("leads", {
   siteLive: boolean("site_live"),       // website actually loads
   siteMobile: boolean("site_mobile"),   // has a mobile viewport (modern-ish)
   hasBooking: boolean("has_booking"),   // online booking link detected
+  // Website-builder platform fingerprinted from the HTML, e.g. "Wix",
+  // "GoDaddy", "Squarespace", "WordPress", "Shopify". DIY builders (Wix/GoDaddy/
+  // Weebly) are a strong "sell them a real site" hook. null = couldn't tell.
+  sitePlatform: text("site_platform"),
+  // Copyright year found in the footer (e.g. 2016). Old year = stale site = hook.
+  siteYear: integer("site_year"),
+  // Google Ads / Meta Pixel tags present = they ALREADY spend on marketing
+  // (warm, higher-budget lead), false = no ad tracking detected.
+  runsAds: boolean("runs_ads"),
   gmapsUrl: text("gmaps_url"),
   plusCode: text("plus_code"),
   raw: jsonb("raw"),

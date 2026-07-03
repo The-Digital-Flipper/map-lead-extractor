@@ -19,6 +19,9 @@ export type LeadForAnalysis = {
   reviewCount: number | null;
   opportunityScore: number | null;
   needs: string[] | null;
+  sitePlatform?: string | null; // builder fingerprint, e.g. "Wix", "GoDaddy"
+  siteYear?: number | null;     // footer copyright year (staleness)
+  runsAds?: boolean | null;     // already advertises = warmer, bigger budget
 };
 
 export type LeadVerdict = { id: number; highTicket: boolean; bio: string };
@@ -28,8 +31,8 @@ const SYSTEM = `You are a sharp B2B sales analyst for an agency that sells websi
 
 Do three things:
 1. rationale: 1-2 sentences on why this batch is a worthwhile target group (the shared opportunity you see in the data).
-2. For EVERY lead, decide highTicket: true only if it's likely a big-money client — high deal size or budget (e.g. auto dealerships, law firms, med spas, multi-location operators, large contractors, specialty medical/dental, anything that clearly spends real money), judged from its name, category, review volume and web presence. Be selective; most leads are not high-ticket.
-3. For each HIGH-TICKET lead, write a 2-4 sentence "bio" covering: why they're valuable, what to pitch them, how to approach them, and the weak spots in their data to use as the hook (no website, few reviews, weak social, etc.). For non-high-ticket leads, set bio to "".
+2. For EVERY lead, decide highTicket: true only if it's likely a big-money client — high deal size or budget (e.g. auto dealerships, law firms, med spas, multi-location operators, large contractors, specialty medical/dental, anything that clearly spends real money), judged from its name, category, review volume and web presence. A lead that "runsAds": true is already paying to advertise, so it has real budget — weigh that toward high-ticket. Be selective; most leads are not high-ticket.
+3. For each HIGH-TICKET lead, write a 2-4 sentence "bio" covering: why they're valuable, what to pitch them, how to approach them, and the weak spots in their data to use as the hook (no website, a cheap DIY builder like Wix/GoDaddy, a stale copyright year, few reviews, weak social, etc.). For non-high-ticket leads, set bio to "".
 
 Judge only from the data given — never invent facts. Return ONLY JSON: {"rationale": string, "leads": [{"id": number, "highTicket": boolean, "bio": string}]}.`;
 
@@ -62,6 +65,9 @@ export async function analyzeLeads(leadsIn: LeadForAnalysis[]): Promise<Analysis
     category: l.category,
     city: (l.address ?? "").split(",").slice(-2).join(",").trim() || null,
     hasWebsite: !!(l.website && l.website.trim()),
+    platform: l.sitePlatform ?? null,   // "Wix"/"GoDaddy" = cheap DIY site
+    siteYear: l.siteYear ?? null,       // old copyright year = stale site
+    runsAds: l.runsAds ?? null,         // already advertises = warmer & bigger budget
     rating: l.rating ? Number(l.rating) : null,
     reviews: l.reviewCount,
     opportunity: l.opportunityScore,

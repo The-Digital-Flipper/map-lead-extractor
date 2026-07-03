@@ -58,13 +58,23 @@ export interface OpportunityResult {
 // Signals from crawling the lead's website (the enrichment pass). Only meaningful
 // when the business HAS a website — they grade how bad/old it is.
 export interface EnrichmentSignals {
-  siteLive?: boolean | null;    // website actually loads
-  siteMobile?: boolean | null;  // has a mobile viewport meta (modern-ish)
-  hasBooking?: boolean | null;  // online booking link detected
+  siteLive?: boolean | null;      // website actually loads
+  siteMobile?: boolean | null;    // has a mobile viewport meta (modern-ish)
+  hasBooking?: boolean | null;    // online booking link detected
+  sitePlatform?: string | null;   // builder fingerprint, e.g. "Wix", "GoDaddy"
+  siteYear?: number | null;       // copyright year in footer (staleness signal)
 }
 export const NEED_DEAD_SITE = "Dead website";
 export const NEED_OLD_SITE = "Outdated website";
 export const NEED_NO_BOOKING = "No online booking";
+export const NEED_DIY_SITE = "DIY website";
+
+// Drag-and-drop builders that signal a cheap, self-made site with weak SEO — the
+// prime "we'll build you a real one" upsell. More capable platforms (WordPress,
+// Shopify, Squarespace, Webflow) are deliberately NOT flagged as DIY.
+const DIY_PLATFORMS = new Set(["Wix", "GoDaddy", "Weebly", "Duda"]);
+// A footer copyright this many years behind "now" reads as an abandoned site.
+const STALE_SITE_YEARS = 3;
 
 // ---- Opportunity score (0-100) ----------------------------------------------
 // Weighting rationale:
@@ -94,9 +104,20 @@ export function computeOpportunity(lead: ScoreableLead, enrichment?: EnrichmentS
     if (enrichment.siteLive === false) {
       opportunityScore += 25;
       needs.push(NEED_DEAD_SITE);
-    } else if (enrichment.siteMobile === false) {
-      opportunityScore += 15;
-      needs.push(NEED_OLD_SITE);
+    } else {
+      // Outdated = no mobile viewport OR a copyright year several years stale.
+      const staleYear =
+        enrichment.siteYear != null &&
+        new Date().getFullYear() - enrichment.siteYear >= STALE_SITE_YEARS;
+      if (enrichment.siteMobile === false || staleYear) {
+        opportunityScore += 15;
+        needs.push(NEED_OLD_SITE);
+      }
+      // Cheap DIY builder = sellable even if the site is otherwise fine.
+      if (enrichment.sitePlatform && DIY_PLATFORMS.has(enrichment.sitePlatform)) {
+        opportunityScore += 8;
+        needs.push(NEED_DIY_SITE);
+      }
     }
     if (enrichment.hasBooking === false) {
       opportunityScore += 10;

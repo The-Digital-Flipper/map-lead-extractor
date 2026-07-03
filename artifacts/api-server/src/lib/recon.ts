@@ -17,6 +17,9 @@ export type ReconInput = {
   instagram: string | null;
   rating: string | null;
   reviewCount: number | null;
+  sitePlatform?: string | null; // builder fingerprint, e.g. "Wix", "GoDaddy"
+  siteYear?: number | null;     // footer copyright year (staleness)
+  runsAds?: boolean | null;     // already advertises (warmer, bigger budget)
 };
 
 type Source = { title: string; url: string };
@@ -59,6 +62,9 @@ export async function reconSellAngle(lead: ReconInput): Promise<ReconBrief> {
 
   const known = [
     lead.website ? `website ${lead.website}` : "no website on file",
+    lead.sitePlatform ? `site built on ${lead.sitePlatform}` : null,
+    lead.siteYear ? `site copyright ${lead.siteYear}` : null,
+    lead.runsAds ? "already running paid ads" : null,
     lead.facebook ? `facebook ${lead.facebook}` : null,
     lead.instagram ? `instagram ${lead.instagram}` : null,
     lead.rating ? `${lead.rating}★ (${lead.reviewCount ?? 0} reviews)` : null,
@@ -72,7 +78,7 @@ ACCURACY RULES — this is critical:
 - Only state things you ACTUALLY FOUND in the search results.
 - NEVER invent or guess: no made-up competitor names, review counts, follower numbers, or "they run ads" unless a source shows it.
 - If you can't verify something, leave it out entirely. It is better to say less than to say something unverified.
-- Every concrete claim in your summary must be something a reader could confirm by clicking one of the cited search results.
+- Every concrete claim in your summary must be something a reader could confirm by clicking one of the cited search results, OR one of the "Known" facts given above (those are already verified from their own site — e.g. the builder their site runs on, its copyright year, whether they run ads).
 
 Then explain it in PLAIN, SIMPLE English a busy person reads in five seconds — like texting a friend. No jargon, no buzzwords, never write "unknown".
 

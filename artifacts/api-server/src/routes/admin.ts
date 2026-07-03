@@ -369,15 +369,56 @@ async function fetchHtml(url: string): Promise<{ status: number; html: string } 
   }
 }
 
+// Website-builder fingerprints. Ordered most- to least-specific; first hit wins.
+// DIY builders (Wix/GoDaddy/Weebly/Duda) are the prime "sell them a real site"
+// targets; WordPress/Shopify/Squarespace are more capable but still upsell-able.
+const PLATFORM_RE: Array<[string, RegExp]> = [
+  ["Wix", /static\.wixstatic\.com|wixsite\.com|X-Wix|_wixCssStates|Wix\.com Website Builder/i],
+  ["GoDaddy", /img1\.wsimg\.com|GoDaddy Website Builder|godaddy|websitebuilder\.godaddy/i],
+  ["Squarespace", /static1\.squarespace\.com|squarespace\.com|Squarespace\b|sqs-block/i],
+  ["Weebly", /weebly\.com|editmysite\.com|Weebly\b/i],
+  ["Duda", /dudaone|d3f31ykozc0j5j\.cloudfront|Duda Website Builder|dmalbum/i],
+  ["Webflow", /\.webflow\.io|webflow\.com|data-wf-page|Webflow\b/i],
+  ["Shopify", /cdn\.shopify\.com|myshopify\.com|Shopify\.theme|X-ShopId/i],
+  ["Wordpress", /wp-content|wp-includes|WordPress\b/i],
+];
+
+// Google Ads / Meta Pixel remarketing tags — presence = they actively pay to
+// advertise (a warmer, higher-budget lead). Plain analytics is NOT counted.
+const ADS_RE = /googleadservices\.com|gtag\(['"]config['"],\s*['"]AW-|google_conversion|\/pagead\/|connect\.facebook\.net\/[^"']*\/fbevents\.js|fbq\(['"](?:init|track)['"]/i;
+
+function detectPlatform(html: string): string | null {
+  for (const [name, re] of PLATFORM_RE) if (re.test(html)) return name;
+  return null;
+}
+
+// Most-recent copyright year in the footer, if any (e.g. "© 2016"). We take the
+// MAX year seen so a "© 2004-2018" range reports 2018 (the last time they cared).
+// Ignore implausible/future years to avoid grabbing prices, ids, or JS dates.
+function detectSiteYear(html: string): number | null {
+  const now = new Date().getFullYear();
+  let best: number | null = null;
+  // Anchor on a copyright marker, then take the LATEST year in the short window
+  // after it, so a "© 2011-2019" range reports 2019 (the last time they cared).
+  for (const m of html.matchAll(/(?:©|&copy;|&#169;|copyright)([^<]{0,40})/gi)) {
+    for (const ym of m[1].matchAll(/(?:19|20)\d{2}/g)) {
+      const y = parseInt(ym[0], 10);
+      if (y >= 1998 && y <= now + 1 && (best === null || y > best)) best = y;
+    }
+  }
+  return best;
+}
+
 type Crawl = {
   siteLive: boolean; siteMobile: boolean; hasBooking: boolean;
+  sitePlatform: string | null; siteYear: number | null; runsAds: boolean;
   emails: string[]; phones: string[]; facebook: string | null; instagram: string | null; twitter: string | null; linkedin: string | null;
 };
 
 async function crawlSite(rawUrl: string): Promise<Crawl> {
   let url = rawUrl.trim();
   if (!/^https?:\/\//i.test(url)) url = "https://" + url;
-  const empty: Crawl = { siteLive: false, siteMobile: false, hasBooking: false, emails: [], phones: [], facebook: null, instagram: null, twitter: null, linkedin: null };
+  const empty: Crawl = { siteLive: false, siteMobile: false, hasBooking: false, sitePlatform: null, siteYear: null, runsAds: false, emails: [], phones: [], facebook: null, instagram: null, twitter: null, linkedin: null };
 
   // In a sandbox that blocks outbound traffic this returns null too, so run
   // enrichment where the server can reach the public internet.
@@ -387,6 +428,9 @@ async function crawlSite(rawUrl: string): Promise<Crawl> {
   const siteLive = home.status < 400;
   const siteMobile = /<meta[^>]+name=["']viewport["']/i.test(home.html);
   const hasBooking = BOOKING_RE.test(home.html);
+  const sitePlatform = detectPlatform(home.html);
+  const siteYear = detectSiteYear(home.html);
+  const runsAds = ADS_RE.test(home.html);
   let c = extractContacts(home.html);
 
   // No email on the homepage? Many sites hide it on a Contact page — follow one.
@@ -410,7 +454,7 @@ async function crawlSite(rawUrl: string): Promise<Crawl> {
     }
   }
 
-  return { siteLive, siteMobile, hasBooking, ...c };
+  return { siteLive, siteMobile, hasBooking, sitePlatform, siteYear, runsAds, ...c };
 }
 
 // Crawl + fill-in contacts for a batch of leads, in parallel. Reused by the
@@ -440,12 +484,13 @@ async function enrichLeadBatch(batch: (typeof leads.$inferSelect)[]): Promise<En
       facebook, instagram, twitter, linkedin,
       rating: lead.rating != null ? parseFloat(String(lead.rating)) : null,
       reviewCount: lead.reviewCount, category: lead.category,
-    }, { siteLive: c.siteLive, siteMobile: c.siteMobile, hasBooking: c.hasBooking });
+    }, { siteLive: c.siteLive, siteMobile: c.siteMobile, hasBooking: c.hasBooking, sitePlatform: c.sitePlatform, siteYear: c.siteYear });
     const valueScore = computeValue(opportunityScore, lead.demandScore ?? 0);
 
     await db.update(leads).set({
       enrichedAt: new Date(),
       siteLive: c.siteLive, siteMobile: c.siteMobile, hasBooking: c.hasBooking,
+      sitePlatform: c.sitePlatform, siteYear: c.siteYear, runsAds: c.runsAds,
       phone, emails, facebook, instagram, twitter, linkedin, social,
       opportunityScore, needs, valueScore,
     }).where(eq(leads.id, lead.id));
@@ -636,6 +681,7 @@ router.post("/recon", requireAuth, async (req, res) => {
       const brief = await reconSellAngle({
         name: l.name, category: l.category, address: l.address, website: l.website,
         facebook: l.facebook, instagram: l.instagram, rating: l.rating, reviewCount: l.reviewCount,
+        sitePlatform: l.sitePlatform, siteYear: l.siteYear, runsAds: l.runsAds,
       }).catch((): ReconBrief => ({}));
       const sources = brief.sources ?? [];
       const intel = composeBrief(brief);
@@ -673,6 +719,7 @@ router.post("/analyze", requireAuth, async (req, res) => {
       id: l.id, name: l.name, category: l.category, address: l.address, website: l.website,
       rating: l.rating, reviewCount: l.reviewCount, opportunityScore: l.opportunityScore,
       needs: (l.needs ?? []) as string[],
+      sitePlatform: l.sitePlatform, siteYear: l.siteYear, runsAds: l.runsAds,
     })));
 
     const byId = new Map(analysis.verdicts.map((v) => [v.id, v]));
