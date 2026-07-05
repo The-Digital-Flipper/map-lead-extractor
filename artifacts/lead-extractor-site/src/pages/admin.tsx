@@ -84,6 +84,19 @@ interface TrafficData {
   sources: { source: string; visitors: number }[];
 }
 
+interface SocialPostRow {
+  id: number; platform: string; body: string; note: string | null;
+  status: string; error: string | null; externalUrl: string | null;
+  postedAt: string | null; createdAt: string | null;
+}
+interface SocialData {
+  settings: { enabled: boolean; postHourUtc: number; autoRefill: boolean };
+  facebookConnected: boolean;
+  aiConfigured: boolean;
+  queue: SocialPostRow[];
+  history: SocialPostRow[];
+}
+
 // Each weakness maps to a service you sell — drives the "What to sell" panel.
 const NEED_TO_SERVICE: Record<string, string> = {
   "No website": "Website builds",
@@ -212,7 +225,7 @@ export default function Admin() {
       return next;
     });
   };
-  const [activeTab, setActiveTab] = useState<"command" | "traffic" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
+  const [activeTab, setActiveTab] = useState<"command" | "traffic" | "social" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
 
   // ── Site traffic analytics (Traffic tab) ──────────────────────────────────
   const [traffic, setTraffic] = useState<TrafficData | null>(null);
@@ -227,6 +240,86 @@ export default function Admin() {
     setLoadingTraffic(false);
   }, []);
   useEffect(() => { if (activeTab === "traffic") loadTraffic(trafficDays); }, [activeTab, trafficDays, loadTraffic]);
+
+  // ── Social auto-poster (Social tab) ────────────────────────────────────────
+  const [social, setSocial] = useState<SocialData | null>(null);
+  const [loadingSocial, setLoadingSocial] = useState(false);
+  const [generatingSocial, setGeneratingSocial] = useState(false);
+  const [socialBusyId, setSocialBusyId] = useState<number | null>(null);
+  const [socialEditId, setSocialEditId] = useState<number | null>(null);
+  const [socialDraft, setSocialDraft] = useState("");
+  const [socialMsg, setSocialMsg] = useState<string | null>(null);
+  const loadSocial = useCallback(async () => {
+    setLoadingSocial(true);
+    try {
+      const r = await fetch(`${basePath}/api/admin/social`);
+      if (r.ok) setSocial(await r.json());
+    } catch { /* ignore */ }
+    setLoadingSocial(false);
+  }, []);
+  useEffect(() => { if (activeTab === "social") loadSocial(); }, [activeTab, loadSocial]);
+  const socialGenerate = async () => {
+    setGeneratingSocial(true); setSocialMsg(null);
+    try {
+      const r = await fetch(`${basePath}/api/admin/social/generate`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ count: 5 }),
+      });
+      const d = await r.json();
+      if (!r.ok) setSocialMsg(d.error || "Generation failed");
+      else setSocialMsg(`✓ ${d.posts.length} new posts added to the queue`);
+    } catch (e) { setSocialMsg(e instanceof Error ? e.message : "Generation failed"); }
+    setGeneratingSocial(false);
+    loadSocial();
+  };
+  const socialPostNow = async (id: number) => {
+    setSocialBusyId(id); setSocialMsg(null);
+    try {
+      const r = await fetch(`${basePath}/api/admin/social/${id}/post-now`, { method: "POST" });
+      const d = await r.json();
+      setSocialMsg(r.ok ? "✓ Posted to Facebook" : (d.error || "Post failed"));
+    } catch (e) { setSocialMsg(e instanceof Error ? e.message : "Post failed"); }
+    setSocialBusyId(null);
+    loadSocial();
+  };
+  const socialDelete = async (id: number) => {
+    setSocialBusyId(id);
+    try { await fetch(`${basePath}/api/admin/social/${id}`, { method: "DELETE" }); } catch { /* ignore */ }
+    setSocialBusyId(null);
+    loadSocial();
+  };
+  const socialSaveEdit = async (id: number) => {
+    setSocialBusyId(id);
+    try {
+      await fetch(`${basePath}/api/admin/social/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: socialDraft }),
+      });
+    } catch { /* ignore */ }
+    setSocialBusyId(null); setSocialEditId(null);
+    loadSocial();
+  };
+  const socialRequeue = async (id: number) => {
+    setSocialBusyId(id);
+    try {
+      await fetch(`${basePath}/api/admin/social/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requeue: true }),
+      });
+    } catch { /* ignore */ }
+    setSocialBusyId(null);
+    loadSocial();
+  };
+  const socialSettingsSave = async (patch: { enabled?: boolean; postHourUtc?: number; autoRefill?: boolean }) => {
+    try {
+      await fetch(`${basePath}/api/admin/social/settings`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
+      });
+    } catch { /* ignore */ }
+    loadSocial();
+  };
+  // Show the UTC posting hour in the admin's local time so it reads naturally.
+  const socialHourLabel = (utcHour: number) => {
+    const d = new Date(); d.setUTCHours(utcHour, 0, 0, 0);
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  };
   const [deletedLeads, setDeletedLeads] = useState<Lead[]>([]);
   const [deletedTotal, setDeletedTotal] = useState(0);
   const [deletedPage, setDeletedPage] = useState(1);
@@ -748,10 +841,10 @@ export default function Admin() {
           {/* ── TABS ──────────────────────────────────────────────────────── */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.09 }} className="mb-6">
             <div className="flex gap-1 bg-card border border-border rounded-xl p-1 w-fit flex-wrap">
-              {(["command", "traffic", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
+              {(["command", "traffic", "social", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
                 <button key={tab} onClick={() => { setActiveTab(tab); if (tab === "leads" || tab === "money") setPage(1); if (tab === "deleted") setDeletedPage(1); }}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors capitalize ${activeTab === tab ? tab === "deleted" ? "bg-red-500/80 text-white" : "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                  {tab === "command" ? "⚡ Command" : tab === "traffic" ? "📈 Traffic" : tab === "research" ? "🎯 AI Research" : tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
+                  {tab === "command" ? "⚡ Command" : tab === "traffic" ? "📈 Traffic" : tab === "social" ? "📣 Social" : tab === "research" ? "🎯 AI Research" :tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
                 </button>
               ))}
             </div>
@@ -892,6 +985,182 @@ export default function Admin() {
                   ) : <p className="text-sm text-muted-foreground">No data yet</p>}
                 </div>
               </div>
+            </motion.div>
+          )}
+
+          {/* ── SOCIAL AUTO-POSTER TAB ────────────────────────────────────── */}
+          {activeTab === "social" && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
+
+              {/* Header */}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  <h2 className="text-lg font-display font-bold">Social Auto-Poster</h2>
+                  {loadingSocial && <RefreshCw className="w-3.5 h-3.5 text-muted-foreground animate-spin" />}
+                </div>
+                <button onClick={socialGenerate} disabled={generatingSocial || !social?.aiConfigured}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground disabled:opacity-50 hover:opacity-90 transition-opacity">
+                  {generatingSocial ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {generatingSocial ? "Writing posts…" : "Generate 5 posts"}
+                </button>
+              </div>
+
+              {socialMsg && (
+                <div className={`text-sm px-4 py-2 rounded-lg border ${socialMsg.startsWith("✓") ? "bg-primary/5 border-primary/30 text-primary" : "bg-red-500/10 border-red-500/30 text-red-400"}`}>
+                  {socialMsg}
+                </div>
+              )}
+
+              {/* Status + controls */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className={`rounded-xl p-4 border ${social?.facebookConnected ? "bg-primary/5 border-primary/30" : "bg-card border-border"}`}>
+                  <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2"><Globe className="w-4 h-4 text-blue-400" /> Facebook Page</div>
+                  <div className={`text-lg font-display font-bold ${social?.facebookConnected ? "text-primary" : "text-foreground"}`}>
+                    {social ? (social.facebookConnected ? "Connected" : "Not connected") : "…"}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {social?.facebookConnected ? "Posting via the Graph API" : "Add the 2 secrets below to go live"}
+                  </div>
+                </div>
+                <div className="rounded-xl p-4 border bg-card border-border">
+                  <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2"><Zap className="w-4 h-4 text-yellow-400" /> Auto-posting</div>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => social && socialSettingsSave({ enabled: !social.settings.enabled })}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${social?.settings.enabled ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                      {social ? (social.settings.enabled ? "ON — 1/day" : "PAUSED") : "…"}
+                    </button>
+                    {social && (
+                      <select value={social.settings.postHourUtc}
+                        onChange={(e) => socialSettingsSave({ postHourUtc: Number(e.target.value) })}
+                        className="bg-card border border-border rounded-lg px-2 py-1.5 text-sm text-foreground">
+                        {Array.from({ length: 24 }, (_, h) => (
+                          <option key={h} value={h}>at {socialHourLabel(h)}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-2">Posts one queued post daily at this time (your timezone)</div>
+                </div>
+                <div className="rounded-xl p-4 border bg-card border-border">
+                  <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2"><RefreshCw className="w-4 h-4 text-green-400" /> Keep queue full</div>
+                  <button onClick={() => social && socialSettingsSave({ autoRefill: !social.settings.autoRefill })}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${social?.settings.autoRefill ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                    {social ? (social.settings.autoRefill ? "AUTO-REFILL ON" : "AUTO-REFILL OFF") : "…"}
+                  </button>
+                  <div className="text-xs text-muted-foreground mt-2">AI writes 5 more whenever fewer than 3 are queued</div>
+                </div>
+              </div>
+
+              {/* Facebook setup instructions — only until connected */}
+              {social && !social.facebookConnected && (
+                <div className="bg-card border border-border rounded-2xl p-6">
+                  <h3 className="text-sm font-display font-bold mb-3">🔌 Connect your Facebook Page (one-time, ~5 minutes)</h3>
+                  <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
+                    <li>Go to <span className="font-mono text-foreground">developers.facebook.com</span> → create an app (type: <span className="text-foreground">Business</span>).</li>
+                    <li>In the app, open <span className="text-foreground">Tools → Graph API Explorer</span>, pick your app, and click <span className="text-foreground">Generate Access Token</span> — grant <span className="font-mono text-foreground">pages_manage_posts</span> and <span className="font-mono text-foreground">pages_read_engagement</span> for your Page.</li>
+                    <li>Convert it to a long-lived <span className="text-foreground">Page</span> token (in the Explorer: query <span className="font-mono text-foreground">me/accounts</span> and copy your page's <span className="font-mono text-foreground">access_token</span>).</li>
+                    <li>In Replit, open the <span className="text-foreground">Secrets</span> panel and add <span className="font-mono text-foreground">FACEBOOK_PAGE_ID</span> (the number on your Page's About page) and <span className="font-mono text-foreground">FACEBOOK_PAGE_ACCESS_TOKEN</span>.</li>
+                    <li>Redeploy — this card turns green and the daily posting starts on its own.</li>
+                  </ol>
+                  <p className="text-xs text-muted-foreground mt-3">Meanwhile the AI still fills the queue below, so you can review and edit posts before anything goes live.</p>
+                </div>
+              )}
+
+              {/* Queue */}
+              <div className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <Calendar className="w-4 h-4 text-primary" />
+                  <h3 className="text-lg font-display font-bold">Up next</h3>
+                  <span className="text-xs text-muted-foreground">{social ? `${social.queue.length} queued — oldest posts first` : ""}</span>
+                </div>
+                {social && social.queue.length > 0 ? (
+                  <div className="space-y-3">
+                    {social.queue.map((p, i) => (
+                      <div key={p.id} className={`rounded-xl border p-4 ${i === 0 ? "border-primary/30 bg-primary/5" : "border-border bg-background/40"}`}>
+                        <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
+                          {i === 0 && <span className="px-2 py-0.5 rounded-full bg-primary/15 text-primary font-semibold">next up</span>}
+                          {p.note && <span className="truncate">💡 {p.note}</span>}
+                        </div>
+                        {socialEditId === p.id ? (
+                          <textarea value={socialDraft} onChange={(e) => setSocialDraft(e.target.value)} rows={5}
+                            className="w-full bg-background border border-border rounded-lg p-3 text-sm text-foreground font-normal" />
+                        ) : (
+                          <p className="text-sm text-foreground whitespace-pre-wrap">{p.body}</p>
+                        )}
+                        <div className="flex items-center gap-2 mt-3">
+                          {socialEditId === p.id ? (
+                            <>
+                              <button onClick={() => socialSaveEdit(p.id)} disabled={socialBusyId === p.id}
+                                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground disabled:opacity-50">Save</button>
+                              <button onClick={() => setSocialEditId(null)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-foreground">Cancel</button>
+                            </>
+                          ) : (
+                            <>
+                              <button onClick={() => socialPostNow(p.id)} disabled={socialBusyId === p.id || !social.facebookConnected}
+                                title={social.facebookConnected ? "Publish to Facebook right now" : "Connect Facebook first"}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground disabled:opacity-40">
+                                {socialBusyId === p.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />} Post now
+                              </button>
+                              <button onClick={() => { setSocialEditId(p.id); setSocialDraft(p.body); }}
+                                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-foreground">Edit</button>
+                              <button onClick={() => socialDelete(p.id)} disabled={socialBusyId === p.id}
+                                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-red-400 hover:text-red-300 disabled:opacity-50">
+                                <Trash2 className="w-3 h-3" /> Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-12 text-center">
+                    <div className="text-4xl mb-3">📣</div>
+                    <p className="text-sm text-muted-foreground">
+                      {loadingSocial ? "Loading…" : social?.aiConfigured ? "Queue is empty — hit “Generate 5 posts” and the AI will write them." : "Add an OpenAI key (CHAT_GPT_API) in Secrets to enable AI post writing."}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* History */}
+              {social && social.history.length > 0 && (
+                <div className="bg-card border border-border rounded-2xl p-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Activity className="w-4 h-4 text-primary" />
+                    <h3 className="text-lg font-display font-bold">Posted & failed</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {social.history.map((p) => (
+                      <div key={p.id} className="rounded-xl border border-border bg-background/40 p-4">
+                        <div className="flex items-center gap-2 mb-2 text-xs">
+                          {p.status === "posted" ? (
+                            <span className="px-2 py-0.5 rounded-full bg-primary/15 text-primary font-semibold">posted</span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 font-semibold">failed</span>
+                          )}
+                          {p.postedAt && <span className="text-muted-foreground">{new Date(p.postedAt).toLocaleString()}</span>}
+                          {p.externalUrl && (
+                            <a href={p.externalUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">view on Facebook ↗</a>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground whitespace-pre-wrap line-clamp-3">{p.body}</p>
+                        {p.status === "failed" && (
+                          <div className="flex items-center gap-3 mt-2">
+                            {p.error && <span className="text-xs text-red-400">{p.error}</span>}
+                            <button onClick={() => socialRequeue(p.id)} disabled={socialBusyId === p.id}
+                              className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-primary hover:opacity-80 disabled:opacity-50">
+                              <RotateCcw className="w-3 h-3" /> Try again
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
 

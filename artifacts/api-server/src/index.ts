@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { startSocialScheduler } from "./lib/social";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -12,4 +13,5 @@ app.listen(port, (err) => {
     process.exit(1);
   }
   logger.info({ port }, "Server listening");
+  startSocialScheduler();
 });

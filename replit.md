@@ -41,6 +41,7 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 - Building the site locally needs env vars: `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/lead-extractor-site run build` (vite.config.ts throws without them; CI sets them in `ops/ci.github-workflow.yml`).
 - Site analytics: every route change fires a beacon to `POST /api/track` (client: `src/lib/track.ts`, hooked in `App.tsx`), stored in the `site_visits` table, surfaced in the admin **Traffic** tab via `GET /api/admin/traffic`. `/admin*` visits and bot UAs are not counted.
+- Social auto-poster: `api-server/src/lib/social.ts` owns AI post generation (OpenAI key), Facebook publishing, and a 5-min scheduler started in `index.ts` (1 post/day at `social_settings.post_hour_utc`, auto-refills the queue below 3). Admin **📣 Social** tab drives it via `/api/admin/social*`. Publishing needs `FACEBOOK_PAGE_ID` + `FACEBOOK_PAGE_ACCESS_TOKEN` secrets; until set, posts just queue up for review.
 
 ## Pointers
 

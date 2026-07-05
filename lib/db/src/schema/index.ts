@@ -7,3 +7,4 @@ export * from "./collections";
 export * from "./scrapeTargets";
 export * from "./proxies";
 export * from "./siteVisits";
+export * from "./socialPosts";

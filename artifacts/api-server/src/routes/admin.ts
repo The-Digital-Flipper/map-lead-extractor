@@ -1,6 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "@clerk/express";
-import { db, leads, users, logs, scrapeTargets, proxies, computeOpportunity, computeValue } from "@workspace/db";
+import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, computeOpportunity, computeValue } from "@workspace/db";
 import { sql, count, gte, eq, and, desc, asc, isNull, isNotNull } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 import { scrapeAndSave } from "../lib/scrape";
@@ -9,6 +9,7 @@ import { analyzeLeads } from "../lib/analyze";
 import { discoverBusinesses } from "../lib/discover";
 import { reconSellAngle, composeBrief, type ReconBrief } from "../lib/recon";
 import { parseProxyLines, testProxy } from "../lib/proxyPool";
+import { getSocialSettings, updateSocialSettings, generateSocialPosts, publishPost, facebookConfig } from "../lib/social";
 
 const router = Router();
 
@@ -1071,6 +1072,76 @@ router.post("/restore-bulk", requireAdmin, async (req, res) => {
   const validIds = ids.map(Number).filter(n => !isNaN(n) && n > 0);
   await db.execute(sql`UPDATE leads SET deleted_at = NULL, updated_at = NOW() WHERE id = ANY(${sql.raw(`ARRAY[${validIds.join(",")}]::int[]`)})`);
   res.json({ ok: true, restored: validIds.length });
+});
+
+// ═══ Social auto-poster ═══════════════════════════════════════════════════════
+
+// ---- GET /social — everything the Social tab needs in one call ---------------
+router.get("/social", requireAuth, async (_req, res) => {
+  const [settings, queue, history] = await Promise.all([
+    getSocialSettings(),
+    db.select().from(socialPosts).where(eq(socialPosts.status, "queued")).orderBy(asc(socialPosts.id)),
+    db.select().from(socialPosts).where(sql`${socialPosts.status} <> 'queued'`).orderBy(desc(socialPosts.id)).limit(30),
+  ]);
+  res.json({
+    settings,
+    facebookConnected: Boolean(facebookConfig()),
+    aiConfigured: Boolean(process.env.OPENAI_API_KEY || process.env.CHAT_GPT_API),
+    queue,
+    history,
+  });
+});
+
+// ---- POST /social/generate — top the queue up with AI-written posts ----------
+router.post("/social/generate", requireAuth, async (req, res) => {
+  try {
+    const count = Math.min(10, Math.max(1, Number((req.body as { count?: number })?.count) || 5));
+    const posts = await generateSocialPosts(count);
+    res.json({ ok: true, posts });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ---- POST /social/:id/post-now — publish immediately (skips the schedule) ----
+router.post("/social/:id/post-now", requireAuth, async (req, res) => {
+  try {
+    const post = await publishPost(Number(req.params.id));
+    if (post.status === "failed") { res.status(502).json({ error: post.error, post }); return; }
+    res.json({ ok: true, post });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ---- PATCH /social/:id — edit a queued post's text / requeue a failed one ----
+router.patch("/social/:id", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const { body, requeue } = req.body as { body?: string; requeue?: boolean };
+  const patch: Partial<typeof socialPosts.$inferInsert> = {};
+  if (typeof body === "string" && body.trim()) patch.body = body.trim();
+  if (requeue) { patch.status = "queued"; patch.error = null; }
+  if (Object.keys(patch).length === 0) { res.status(400).json({ error: "Nothing to update" }); return; }
+  const rows = await db.update(socialPosts).set(patch).where(eq(socialPosts.id, id)).returning();
+  if (!rows[0]) { res.status(404).json({ error: "Post not found" }); return; }
+  res.json({ ok: true, post: rows[0] });
+});
+
+// ---- DELETE /social/:id — remove a post from the queue/history ---------------
+router.delete("/social/:id", requireAuth, async (req, res) => {
+  await db.delete(socialPosts).where(eq(socialPosts.id, Number(req.params.id)));
+  res.json({ ok: true });
+});
+
+// ---- PUT /social/settings — pause/resume, posting hour, auto-refill ----------
+router.put("/social/settings", requireAuth, async (req, res) => {
+  const { enabled, postHourUtc, autoRefill } = req.body as { enabled?: boolean; postHourUtc?: number; autoRefill?: boolean };
+  const patch: Record<string, boolean | number> = {};
+  if (typeof enabled === "boolean") patch.enabled = enabled;
+  if (typeof autoRefill === "boolean") patch.autoRefill = autoRefill;
+  if (typeof postHourUtc === "number" && postHourUtc >= 0 && postHourUtc <= 23) patch.postHourUtc = postHourUtc;
+  const settings = await updateSocialSettings(patch);
+  res.json({ ok: true, settings });
 });
 
 export default router;
