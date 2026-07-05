@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm --filter @workspace/lead-extractor-site run build)",
+      "Bash(git tag *)"
+    ]
+  }
+}
