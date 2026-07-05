@@ -173,7 +173,7 @@ export async function getSocialSettings(): Promise<SocialSettings> {
   return again[0]!;
 }
 
-export async function updateSocialSettings(patch: Partial<Pick<SocialSettings, "enabled" | "postHourUtc" | "autoRefill">>): Promise<SocialSettings> {
+export async function updateSocialSettings(patch: Partial<Pick<SocialSettings, "enabled" | "postHourUtc" | "autoRefill" | "fbAppId" | "fbAppSecret">>): Promise<SocialSettings> {
   await getSocialSettings(); // make sure the row exists
   const rows = await db
     .update(socialSettings)

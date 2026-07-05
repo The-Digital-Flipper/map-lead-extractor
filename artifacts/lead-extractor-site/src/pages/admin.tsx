@@ -1027,7 +1027,7 @@ export default function Admin() {
                     </>
                   ) : (
                     <>
-                      <a href={`${basePath}/api/admin/social/fb/connect`}
+                      <a href={`${basePath}/api/admin/social/fb/connect`} target="_blank" rel="noopener"
                         className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold bg-blue-500 text-white hover:opacity-90 transition-opacity">
                         <Globe className="w-4 h-4" /> Connect Facebook
                       </a>

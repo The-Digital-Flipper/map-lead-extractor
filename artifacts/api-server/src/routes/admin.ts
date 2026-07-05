@@ -1208,14 +1208,21 @@ router.delete("/social/:id", requireAuth, async (req, res) => {
 });
 
 // ---- PUT /social/settings — pause/resume, posting hour, auto-refill ----------
+// Also accepts fbAppId/fbAppSecret so the Facebook app credentials can be
+// seeded into whichever database this deployment uses (dev and prod differ).
 router.put("/social/settings", requireAuth, async (req, res) => {
-  const { enabled, postHourUtc, autoRefill } = req.body as { enabled?: boolean; postHourUtc?: number; autoRefill?: boolean };
-  const patch: Record<string, boolean | number> = {};
+  const { enabled, postHourUtc, autoRefill, fbAppId, fbAppSecret } = req.body as {
+    enabled?: boolean; postHourUtc?: number; autoRefill?: boolean; fbAppId?: string; fbAppSecret?: string;
+  };
+  const patch: Record<string, boolean | number | string> = {};
   if (typeof enabled === "boolean") patch.enabled = enabled;
   if (typeof autoRefill === "boolean") patch.autoRefill = autoRefill;
   if (typeof postHourUtc === "number" && postHourUtc >= 0 && postHourUtc <= 23) patch.postHourUtc = postHourUtc;
+  if (typeof fbAppId === "string" && fbAppId.trim()) patch.fbAppId = fbAppId.trim();
+  if (typeof fbAppSecret === "string" && fbAppSecret.trim()) patch.fbAppSecret = fbAppSecret.trim();
   const settings = await updateSocialSettings(patch);
-  res.json({ ok: true, settings });
+  const { fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p, ...safeSettings } = settings;
+  res.json({ ok: true, settings: safeSettings });
 });
 
 export default router;
