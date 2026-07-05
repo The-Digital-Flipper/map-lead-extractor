@@ -10,6 +10,7 @@ import chatRouter from "./chat.js";
 import v1Router from "./v1.js";
 import extRouter from "./ext.js";
 import smsRouter from "./sms.js";
+import trackRouter from "./track.js";
 
 const router: IRouter = Router();
 
@@ -23,6 +24,7 @@ router.use("/admin", adminRouter);
 router.use("/chat", chatRouter);
 router.use("/v1", v1Router);
 router.use("/sms", smsRouter);
+router.use(trackRouter);
 
 // Extension-facing routes — no prefix stripping; paths in ext.ts are full
 router.use(extRouter);

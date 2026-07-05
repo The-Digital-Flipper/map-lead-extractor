@@ -1,6 +1,7 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Switch, Route, useLocation, Router as WouterRouter } from "wouter";
 import NotFound from "@/pages/not-found";
+import { trackPageview } from "@/lib/track";
 
 // Public marketing/content routes — no auth. These never import Clerk, so the
 // Clerk SDK + react-query are not downloaded when visiting them.
@@ -37,6 +38,9 @@ function isAuthPath(path: string): boolean {
 
 function Shell() {
   const [location] = useLocation();
+
+  // Site-wide analytics: one beacon per route change, everywhere.
+  useEffect(() => { trackPageview(location); }, [location]);
 
   if (isAuthPath(location)) {
     return (

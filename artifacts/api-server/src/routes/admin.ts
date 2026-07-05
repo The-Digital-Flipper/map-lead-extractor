@@ -43,6 +43,93 @@ router.get("/logs", requireAdmin, async (_req, res) => {
   res.json({ count: rows.length, logs: rows });
 });
 
+// ---- GET /traffic — site-wide visitor analytics -----------------------------
+// Aggregates the site_visits beacon rows into everything the Traffic tab shows:
+// headline numbers, a daily series, top pages/referrers, device + source splits.
+router.get("/traffic", requireAuth, async (req, res) => {
+  const days = Math.min(90, Math.max(1, parseInt(String(req.query.days ?? "30"), 10) || 30));
+  const windowSql = sql`created_at >= NOW() - make_interval(days => ${days})`;
+
+  const [summaryRows, liveRows, dailyRows, pageRows, refRows, deviceRows, sourceRows] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')::int AS views_today,
+        COUNT(DISTINCT visitor_id) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')::int AS visitors_today,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int AS views_week,
+        COUNT(DISTINCT visitor_id) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int AS visitors_week,
+        COUNT(*)::int AS views_total,
+        COUNT(DISTINCT visitor_id)::int AS visitors_total,
+        COUNT(DISTINCT session_id)::int AS sessions_total
+      FROM site_visits WHERE ${windowSql}
+    `),
+    db.execute(sql`
+      SELECT COUNT(DISTINCT visitor_id)::int AS live
+      FROM site_visits WHERE created_at >= NOW() - INTERVAL '5 minutes'
+    `),
+    db.execute(sql`
+      SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
+             COUNT(*)::int AS views,
+             COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE ${windowSql}
+      GROUP BY 1 ORDER BY 1
+    `),
+    db.execute(sql`
+      SELECT path, COUNT(*)::int AS views, COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE ${windowSql}
+      GROUP BY path ORDER BY views DESC LIMIT 15
+    `),
+    db.execute(sql`
+      SELECT regexp_replace(referrer, '^https?://(www\\.)?([^/]+).*$', '\\2') AS ref,
+             COUNT(*)::int AS views
+      FROM site_visits
+      WHERE ${windowSql} AND referrer IS NOT NULL
+        AND referrer NOT LIKE '%mapleadextractor.net%'
+      GROUP BY 1 ORDER BY views DESC LIMIT 10
+    `),
+    db.execute(sql`
+      SELECT device, COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE ${windowSql}
+      GROUP BY device ORDER BY visitors DESC
+    `),
+    db.execute(sql`
+      SELECT utm_source AS source, COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE ${windowSql} AND utm_source IS NOT NULL
+      GROUP BY 1 ORDER BY visitors DESC LIMIT 10
+    `),
+  ]);
+
+  type SumRow = {
+    views_today: number; visitors_today: number; views_week: number; visitors_week: number;
+    views_total: number; visitors_total: number; sessions_total: number;
+  };
+  const s = (summaryRows.rows[0] ?? {}) as SumRow;
+
+  res.json({
+    days,
+    summary: {
+      viewsToday: Number(s.views_today ?? 0),
+      visitorsToday: Number(s.visitors_today ?? 0),
+      viewsWeek: Number(s.views_week ?? 0),
+      visitorsWeek: Number(s.visitors_week ?? 0),
+      views: Number(s.views_total ?? 0),
+      visitors: Number(s.visitors_total ?? 0),
+      sessions: Number(s.sessions_total ?? 0),
+      live: Number((liveRows.rows[0] as { live: number } | undefined)?.live ?? 0),
+    },
+    daily: (dailyRows.rows as { day: string; views: number; visitors: number }[])
+      .map(r => ({ day: r.day, views: Number(r.views), visitors: Number(r.visitors) })),
+    topPages: (pageRows.rows as { path: string; views: number; visitors: number }[])
+      .map(r => ({ path: r.path, views: Number(r.views), visitors: Number(r.visitors) })),
+    referrers: (refRows.rows as { ref: string; views: number }[])
+      .filter(r => r.ref)
+      .map(r => ({ referrer: r.ref, views: Number(r.views) })),
+    devices: (deviceRows.rows as { device: string | null; visitors: number }[])
+      .map(r => ({ device: r.device ?? "unknown", visitors: Number(r.visitors) })),
+    sources: (sourceRows.rows as { source: string; visitors: number }[])
+      .map(r => ({ source: r.source, visitors: Number(r.visitors) })),
+  });
+});
+
 // ---- GET /stats — headline numbers ------------------------------------------
 router.get("/stats", async (_req, res) => {
   const [totalRow, todayRow, weekRow] = await Promise.all([

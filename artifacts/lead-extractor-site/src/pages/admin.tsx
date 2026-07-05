@@ -7,6 +7,7 @@ import {
   MapPin, ChevronLeft, ChevronRight, DollarSign, CreditCard,
   UserCheck, UserX, Crown, BarChart2, RefreshCw,
   Flame, Globe, Target, Sparkles, Package, Phone, Trash2, RotateCcw,
+  Activity, Eye,
 } from "lucide-react";
 import {
   ComposableMap, Geographies, Geography, ZoomableGroup, Marker,
@@ -70,6 +71,18 @@ interface MoneySummary {
   noWebsite: number; reachable: number;
 }
 interface NeedCount { need: string; count: number }
+interface TrafficData {
+  days: number;
+  summary: {
+    viewsToday: number; visitorsToday: number; viewsWeek: number; visitorsWeek: number;
+    views: number; visitors: number; sessions: number; live: number;
+  };
+  daily: { day: string; views: number; visitors: number }[];
+  topPages: { path: string; views: number; visitors: number }[];
+  referrers: { referrer: string; views: number }[];
+  devices: { device: string; visitors: number }[];
+  sources: { source: string; visitors: number }[];
+}
 
 // Each weakness maps to a service you sell — drives the "What to sell" panel.
 const NEED_TO_SERVICE: Record<string, string> = {
@@ -199,7 +212,21 @@ export default function Admin() {
       return next;
     });
   };
-  const [activeTab, setActiveTab] = useState<"command" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
+  const [activeTab, setActiveTab] = useState<"command" | "traffic" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
+
+  // ── Site traffic analytics (Traffic tab) ──────────────────────────────────
+  const [traffic, setTraffic] = useState<TrafficData | null>(null);
+  const [trafficDays, setTrafficDays] = useState(30);
+  const [loadingTraffic, setLoadingTraffic] = useState(false);
+  const loadTraffic = useCallback(async (days: number) => {
+    setLoadingTraffic(true);
+    try {
+      const r = await fetch(`${basePath}/api/admin/traffic?days=${days}`);
+      if (r.ok) setTraffic(await r.json());
+    } catch { /* ignore */ }
+    setLoadingTraffic(false);
+  }, []);
+  useEffect(() => { if (activeTab === "traffic") loadTraffic(trafficDays); }, [activeTab, trafficDays, loadTraffic]);
   const [deletedLeads, setDeletedLeads] = useState<Lead[]>([]);
   const [deletedTotal, setDeletedTotal] = useState(0);
   const [deletedPage, setDeletedPage] = useState(1);
@@ -721,14 +748,152 @@ export default function Admin() {
           {/* ── TABS ──────────────────────────────────────────────────────── */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.09 }} className="mb-6">
             <div className="flex gap-1 bg-card border border-border rounded-xl p-1 w-fit flex-wrap">
-              {(["command", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
+              {(["command", "traffic", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
                 <button key={tab} onClick={() => { setActiveTab(tab); if (tab === "leads" || tab === "money") setPage(1); if (tab === "deleted") setDeletedPage(1); }}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors capitalize ${activeTab === tab ? tab === "deleted" ? "bg-red-500/80 text-white" : "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                  {tab === "command" ? "⚡ Command" : tab === "research" ? "🎯 AI Research" : tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
+                  {tab === "command" ? "⚡ Command" : tab === "traffic" ? "📈 Traffic" : tab === "research" ? "🎯 AI Research" : tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
                 </button>
               ))}
             </div>
           </motion.div>
+
+          {/* ── TRAFFIC TAB ───────────────────────────────────────────────── */}
+          {activeTab === "traffic" && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
+
+              {/* Header + range selector */}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-primary" />
+                  <h2 className="text-lg font-display font-bold">Site Traffic</h2>
+                  {loadingTraffic && <RefreshCw className="w-3.5 h-3.5 text-muted-foreground animate-spin" />}
+                </div>
+                <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
+                  {([7, 30, 90] as const).map(d => (
+                    <button key={d} onClick={() => setTrafficDays(d)}
+                      className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${trafficDays === d ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                      {d === 7 ? "7 days" : d === 30 ? "30 days" : "90 days"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Headline numbers */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                {[
+                  { label: "On site now", value: traffic ? traffic.summary.live.toLocaleString() : "…", icon: <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-60" /><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary" /></span>, sub: "last 5 minutes", highlight: true },
+                  { label: "Visitors today", value: traffic ? traffic.summary.visitorsToday.toLocaleString() : "…", icon: <Users className="w-4 h-4 text-blue-400" />, sub: "last 24 hours" },
+                  { label: "Views today", value: traffic ? traffic.summary.viewsToday.toLocaleString() : "…", icon: <Eye className="w-4 h-4 text-green-400" />, sub: "last 24 hours" },
+                  { label: "Visitors", value: traffic ? traffic.summary.visitors.toLocaleString() : "…", icon: <Users className="w-4 h-4 text-primary" />, sub: `last ${trafficDays} days` },
+                  { label: "Pageviews", value: traffic ? traffic.summary.views.toLocaleString() : "…", icon: <Eye className="w-4 h-4 text-orange-400" />, sub: `last ${trafficDays} days` },
+                  { label: "Sessions", value: traffic ? traffic.summary.sessions.toLocaleString() : "…", icon: <TrendingUp className="w-4 h-4 text-yellow-400" />, sub: `last ${trafficDays} days` },
+                ].map((s, i) => (
+                  <div key={i} className={`rounded-xl p-4 border ${s.highlight ? "bg-primary/5 border-primary/30" : "bg-card border-border"}`}>
+                    <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">{s.icon} {s.label}</div>
+                    <div className={`text-2xl font-display font-bold ${s.highlight ? "text-primary" : "text-foreground"}`}>{s.value}</div>
+                    <div className="text-xs text-muted-foreground mt-1">{s.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Daily series */}
+              <div className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <BarChart2 className="w-4 h-4 text-primary" />
+                  <h3 className="text-lg font-display font-bold">Visitors & pageviews by day</h3>
+                </div>
+                {traffic && traffic.daily.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={traffic.daily} margin={{ left: 0, right: 8 }}>
+                      <XAxis dataKey="day" tick={{ fill: "#8b949e", fontSize: 10 }} axisLine={false} tickLine={false}
+                        tickFormatter={(d: string) => d.slice(5)} interval="preserveStartEnd" />
+                      <YAxis tick={{ fill: "#8b949e", fontSize: 11 }} axisLine={false} tickLine={false} width={36} allowDecimals={false} />
+                      <RechartsTooltip contentStyle={{ background: "#0d1117", border: "1px solid #21262d", borderRadius: 8, color: "#e6edf3" }}
+                        formatter={(v: number, name: string) => [v.toLocaleString(), name === "views" ? "Pageviews" : "Visitors"]} />
+                      <Bar dataKey="views" fill="rgba(0,230,118,0.3)" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="visitors" fill="#00E676" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="py-16 text-center">
+                    <div className="text-4xl mb-3">📈</div>
+                    <p className="text-sm text-muted-foreground">
+                      {loadingTraffic ? "Loading traffic…" : "No visits recorded yet — tracking starts counting as soon as anyone loads the site."}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Pages / referrers / audience */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="bg-card border border-border rounded-2xl p-6">
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Top pages</h3>
+                  {traffic && traffic.topPages.length > 0 ? (
+                    <div className="space-y-2">
+                      {traffic.topPages.map((p, i) => (
+                        <div key={i} className="flex items-center justify-between gap-2">
+                          <span className="text-sm text-foreground truncate font-mono">{p.path}</span>
+                          <span className="text-xs shrink-0">
+                            <span className="font-bold text-primary">{p.views.toLocaleString()}</span>
+                            <span className="text-muted-foreground"> · {p.visitors.toLocaleString()} ppl</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="text-sm text-muted-foreground">No data yet</p>}
+                </div>
+
+                <div className="bg-card border border-border rounded-2xl p-6">
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Where visitors come from</h3>
+                  {traffic && traffic.referrers.length > 0 ? (
+                    <div className="space-y-2">
+                      {traffic.referrers.map((r, i) => (
+                        <div key={i} className="flex items-center justify-between gap-2">
+                          <span className="text-sm text-foreground truncate">{r.referrer}</span>
+                          <span className="text-xs font-bold text-primary shrink-0">{r.views.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="text-sm text-muted-foreground">Direct traffic only so far — no outside referrers yet.</p>}
+                  {traffic && traffic.sources.length > 0 && (
+                    <div className="mt-4 border-t border-border pt-4">
+                      <h3 className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Campaigns (UTM)</h3>
+                      <div className="space-y-2">
+                        {traffic.sources.map((s, i) => (
+                          <div key={i} className="flex items-center justify-between gap-2">
+                            <span className="text-sm text-foreground truncate">{s.source}</span>
+                            <span className="text-xs font-bold text-primary shrink-0">{s.visitors.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-card border border-border rounded-2xl p-6">
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Devices</h3>
+                  {traffic && traffic.devices.length > 0 ? (
+                    <div className="space-y-3">
+                      {(() => {
+                        const totalDev = Math.max(1, traffic.devices.reduce((s, d) => s + d.visitors, 0));
+                        return traffic.devices.map((d, i) => (
+                          <div key={i}>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-sm text-foreground capitalize">{d.device}</span>
+                              <span className="text-xs font-bold text-primary">{d.visitors.toLocaleString()} · {Math.round((d.visitors / totalDev) * 100)}%</span>
+                            </div>
+                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full bg-primary rounded-full" style={{ width: `${(d.visitors / totalDev) * 100}%` }} />
+                            </div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  ) : <p className="text-sm text-muted-foreground">No data yet</p>}
+                </div>
+              </div>
+            </motion.div>
+          )}
 
           {/* ── COMMAND CENTER TAB ────────────────────────────────────────── */}
           {activeTab === "command" && (
