@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "@clerk/express";
 import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, computeOpportunity, computeValue } from "@workspace/db";
-import { sql, count, gte, eq, and, desc, asc, isNull, isNotNull } from "drizzle-orm";
+import { sql, count, gte, eq, and, desc, asc, isNull, isNotNull, getTableColumns } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 import { scrapeAndSave } from "../lib/scrape";
 import { researchTargets } from "../lib/research";
@@ -12,6 +12,8 @@ import { parseProxyLines, testProxy } from "../lib/proxyPool";
 import {
   getSocialSettings, updateSocialSettings, generateSocialPosts, publishPost,
   facebookCreds, fbAppConfigured, fbConnectUrl, fbHandleCallback, fbSelectPage, fbDisconnect, FB_REDIRECT_URI,
+  generateGroupPosts, listGroups, addGroup, deleteGroup, markGroupPosted,
+  syncEngagementStats, generatePostImage, getPostImage, removePostImage,
 } from "../lib/social";
 
 const router = Router();
@@ -1081,12 +1083,17 @@ router.post("/restore-bulk", requireAdmin, async (req, res) => {
 
 // ---- GET /social — everything the Social tab needs in one call ---------------
 router.get("/social", requireAuth, async (_req, res) => {
-  const [settings, fb, appConfigured, queue, history] = await Promise.all([
+  // Never select image_b64 in lists — it's megabytes per row.
+  const { imageB64: _imageB64, ...postCols } = getTableColumns(socialPosts);
+  const listCols = { ...postCols, hasImage: sql<boolean>`${socialPosts.imageB64} IS NOT NULL` };
+  const [settings, fb, appConfigured, queue, groupQueue, history, groups] = await Promise.all([
     getSocialSettings(),
     facebookCreds(),
     fbAppConfigured(),
-    db.select().from(socialPosts).where(eq(socialPosts.status, "queued")).orderBy(asc(socialPosts.id)),
-    db.select().from(socialPosts).where(sql`${socialPosts.status} <> 'queued'`).orderBy(desc(socialPosts.id)).limit(30),
+    db.select(listCols).from(socialPosts).where(and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook"))).orderBy(asc(socialPosts.id)),
+    db.select(listCols).from(socialPosts).where(and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook_group"))).orderBy(asc(socialPosts.id)),
+    db.select(listCols).from(socialPosts).where(sql`${socialPosts.status} <> 'queued'`).orderBy(desc(socialPosts.id)).limit(30),
+    listGroups(),
   ]);
   // Never ship tokens/secrets to the browser.
   const { fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p, ...safeSettings } = settings;
@@ -1098,8 +1105,51 @@ router.get("/social", requireAuth, async (_req, res) => {
     redirectUri: FB_REDIRECT_URI,
     aiConfigured: Boolean(process.env.OPENAI_API_KEY || process.env.CHAT_GPT_API),
     queue,
+    groupQueue,
     history,
+    groups,
   });
+});
+
+// ── Facebook Groups (assisted posting — Meta killed the Groups API in 2024) ──
+
+// POST /social/groups — save a group to the rotation
+router.post("/social/groups", requireAuth, async (req, res) => {
+  try {
+    const { name, url, notes } = req.body as { name?: string; url?: string; notes?: string };
+    if (!name?.trim() || !url?.trim()) { res.status(400).json({ error: "Group name and link are both required." }); return; }
+    res.json({ ok: true, group: await addGroup(name, url, notes) });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// DELETE /social/groups/:id — drop a group from the rotation
+router.delete("/social/groups/:id", requireAuth, async (req, res) => {
+  await deleteGroup(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+// POST /social/groups/generate — AI writes group-flavored posts (no links/ads)
+router.post("/social/groups/generate", requireAuth, async (req, res) => {
+  try {
+    const count = Math.min(10, Math.max(1, Number((req.body as { count?: number })?.count) || 5));
+    res.json({ ok: true, posts: await generateGroupPosts(count) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// POST /social/groups/:id/posted — admin pasted a post into the group by hand
+router.post("/social/groups/:id/posted", requireAuth, async (req, res) => {
+  try {
+    const postId = Number((req.body as { postId?: number })?.postId);
+    if (!postId) { res.status(400).json({ error: "postId required" }); return; }
+    await markGroupPosted(Number(req.params.id), postId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 // ---- Facebook OAuth: GET /social/fb/connect → Facebook login dialog ----------
@@ -1177,6 +1227,38 @@ router.post("/social/generate", requireAuth, async (req, res) => {
   }
 });
 
+// ---- POST /social/sync-stats — refresh engagement numbers from Facebook ------
+router.post("/social/sync-stats", requireAuth, async (_req, res) => {
+  try {
+    res.json({ ok: true, synced: await syncEngagementStats(25) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ---- Post images: generate / view / remove -----------------------------------
+router.post("/social/:id/image", requireAuth, async (req, res) => {
+  try {
+    await generatePostImage(Number(req.params.id));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.get("/social/:id/image", requireAuth, async (req, res) => {
+  const img = await getPostImage(Number(req.params.id));
+  if (!img) { res.status(404).json({ error: "No image on this post" }); return; }
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "private, max-age=300");
+  res.send(img);
+});
+
+router.delete("/social/:id/image", requireAuth, async (req, res) => {
+  await removePostImage(Number(req.params.id));
+  res.json({ ok: true });
+});
+
 // ---- POST /social/:id/post-now — publish immediately (skips the schedule) ----
 router.post("/social/:id/post-now", requireAuth, async (req, res) => {
   try {
@@ -1211,8 +1293,9 @@ router.delete("/social/:id", requireAuth, async (req, res) => {
 // Also accepts fbAppId/fbAppSecret so the Facebook app credentials can be
 // seeded into whichever database this deployment uses (dev and prod differ).
 router.put("/social/settings", requireAuth, async (req, res) => {
-  const { enabled, postHourUtc, autoRefill, fbAppId, fbAppSecret } = req.body as {
-    enabled?: boolean; postHourUtc?: number; autoRefill?: boolean; fbAppId?: string; fbAppSecret?: string;
+  const { enabled, postHourUtc, autoRefill, fbAppId, fbAppSecret, fbPageId, fbPageName, fbPageToken } = req.body as {
+    enabled?: boolean; postHourUtc?: number; autoRefill?: boolean;
+    fbAppId?: string; fbAppSecret?: string; fbPageId?: string; fbPageName?: string; fbPageToken?: string;
   };
   const patch: Record<string, boolean | number | string> = {};
   if (typeof enabled === "boolean") patch.enabled = enabled;
@@ -1220,6 +1303,9 @@ router.put("/social/settings", requireAuth, async (req, res) => {
   if (typeof postHourUtc === "number" && postHourUtc >= 0 && postHourUtc <= 23) patch.postHourUtc = postHourUtc;
   if (typeof fbAppId === "string" && fbAppId.trim()) patch.fbAppId = fbAppId.trim();
   if (typeof fbAppSecret === "string" && fbAppSecret.trim()) patch.fbAppSecret = fbAppSecret.trim();
+  if (typeof fbPageId === "string" && fbPageId.trim()) patch.fbPageId = fbPageId.trim();
+  if (typeof fbPageName === "string" && fbPageName.trim()) patch.fbPageName = fbPageName.trim();
+  if (typeof fbPageToken === "string" && fbPageToken.trim()) patch.fbPageToken = fbPageToken.trim();
   const settings = await updateSocialSettings(patch);
   const { fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p, ...safeSettings } = settings;
   res.json({ ok: true, settings: safeSettings });

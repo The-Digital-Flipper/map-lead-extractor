@@ -6,6 +6,7 @@ import { sql, ilike, or, gte, and, count, eq, inArray, isNull, type SQL } from "
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
 import { discoverBusinesses } from "../lib/discover";
+import { generateOutreach } from "../lib/outreach";
 
 const router = Router();
 
@@ -486,6 +487,58 @@ router.patch("/:id/status", async (req, res) => {
 
   await db.update(leads).set({ status, updatedAt: new Date() }).where(eq(leads.id, id));
   res.json({ ok: true, id, status });
+});
+
+// ---- POST /outreach/bulk — generate AI outreach for many leads --------------
+// Registered BEFORE /:id/outreach so "outreach" isn't captured as :id.
+router.post("/outreach/bulk", async (req, res) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Sign in to generate outreach" }); return; }
+
+  const { ids, force } = req.body as { ids?: unknown; force?: boolean };
+  const validIds = Array.isArray(ids) ? ids.map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, 25) : [];
+  if (validIds.length === 0) { res.status(400).json({ error: "ids must be a non-empty array (max 25)" }); return; }
+
+  const rows = await db.select().from(leads).where(and(inArray(leads.id, validIds), isNull(leads.deletedAt)));
+  const results: { id: number; ok: boolean; error?: string }[] = [];
+  // Sequential to stay within AI rate limits and keep memory flat.
+  for (const lead of rows) {
+    if (lead.outreach && !force) { results.push({ id: lead.id, ok: true }); continue; }
+    try {
+      const outreach = await generateOutreach(lead);
+      await db.update(leads).set({ outreach, outreachAt: new Date(), updatedAt: new Date() }).where(eq(leads.id, lead.id));
+      results.push({ id: lead.id, ok: true });
+    } catch (err) {
+      results.push({ id: lead.id, ok: false, error: err instanceof Error ? err.message : "failed" });
+    }
+  }
+  res.json({ ok: true, generated: results.filter((r) => r.ok).length, results });
+});
+
+// ---- POST /:id/outreach — generate (or return cached) AI outreach for a lead -
+router.post("/:id/outreach", async (req, res) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Sign in to generate outreach" }); return; }
+
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const force = !!(req.body as { force?: boolean })?.force;
+
+  const [lead] = await db.select().from(leads).where(and(eq(leads.id, id), isNull(leads.deletedAt)));
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
+
+  if (lead.outreach && !force) {
+    res.json({ ok: true, id, outreach: lead.outreach, outreachAt: lead.outreachAt, cached: true });
+    return;
+  }
+  try {
+    const outreach = await generateOutreach(lead);
+    const at = new Date();
+    await db.update(leads).set({ outreach, outreachAt: at, updatedAt: at }).where(eq(leads.id, id));
+    res.json({ ok: true, id, outreach, outreachAt: at, cached: false });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Outreach generation failed" });
+  }
 });
 
 // ---- DELETE /bulk — soft-delete multiple leads ------------------------------

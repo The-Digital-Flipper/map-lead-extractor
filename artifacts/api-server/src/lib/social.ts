@@ -8,8 +8,8 @@
  * this module owns the actual generation, publishing, and the scheduler tick.
  */
 import crypto from "node:crypto";
-import { db, socialPosts, socialSettings, type SocialPost, type SocialSettings } from "@workspace/db";
-import { eq, desc, asc, and, gte, sql } from "drizzle-orm";
+import { db, socialPosts, socialSettings, socialGroups, type SocialPost, type SocialSettings, type SocialGroup } from "@workspace/db";
+import { eq, desc, asc, and, gte, lt, or, isNull, isNotNull, sql } from "drizzle-orm";
 import { logger } from "./logger";
 
 function openAiKey(): string {
@@ -173,7 +173,7 @@ export async function getSocialSettings(): Promise<SocialSettings> {
   return again[0]!;
 }
 
-export async function updateSocialSettings(patch: Partial<Pick<SocialSettings, "enabled" | "postHourUtc" | "autoRefill" | "fbAppId" | "fbAppSecret">>): Promise<SocialSettings> {
+export async function updateSocialSettings(patch: Partial<Pick<SocialSettings, "enabled" | "postHourUtc" | "autoRefill" | "fbAppId" | "fbAppSecret" | "fbPageId" | "fbPageName" | "fbPageToken">>): Promise<SocialSettings> {
   await getSocialSettings(); // make sure the row exists
   const rows = await db
     .update(socialSettings)
@@ -201,6 +201,10 @@ function parsePosts(text: string): GeneratedPost[] {
   }
 }
 
+// Engagement-weighted score for the feedback loop — comments and shares are
+// stronger signals than a passive like.
+const engagementScore = sql<number>`coalesce(${socialPosts.likes},0) + 3*coalesce(${socialPosts.comments},0) + 5*coalesce(${socialPosts.shares},0)`;
+
 export async function generateSocialPosts(n: number): Promise<SocialPost[]> {
   const key = openAiKey();
   if (!key) throw new Error("No OpenAI key set — add OPENAI_API_KEY (or CHAT_GPT_API) in the Replit Secrets panel.");
@@ -212,6 +216,16 @@ export async function generateSocialPosts(n: number): Promise<SocialPost[]> {
     .from(socialPosts)
     .orderBy(desc(socialPosts.id))
     .limit(20);
+
+  // Feedback loop: the best-performing published posts steer the next batch.
+  const top = (
+    await db
+      .select({ body: socialPosts.body, likes: socialPosts.likes, comments: socialPosts.comments, shares: socialPosts.shares, score: engagementScore })
+      .from(socialPosts)
+      .where(and(eq(socialPosts.platform, "facebook"), eq(socialPosts.status, "posted"), isNotNull(socialPosts.statsSyncedAt)))
+      .orderBy(desc(engagementScore))
+      .limit(3)
+  ).filter((p) => p.score > 0);
 
   const user = [
     `You write Facebook Page posts for a software product's own brand page.`,
@@ -230,6 +244,9 @@ export async function generateSocialPosts(n: number): Promise<SocialPost[]> {
     `- Mention ${PRODUCT.url} naturally in at most half of the posts; the rest can omit the link entirely (the page profile carries it).`,
     recent.length
       ? `- Do NOT repeat the angle or wording of these recent posts:\n${recent.map((r) => `  • ${r.body.slice(0, 100).replace(/\n/g, " ")}`).join("\n")}`
+      : ``,
+    top.length
+      ? `\nThese published posts got the MOST engagement (likes/comments/shares) — study what works about their angle, hook, and structure, and write more in that vein (never verbatim):\n${top.map((p) => `  ★ [${p.likes ?? 0}👍 ${p.comments ?? 0}💬 ${p.shares ?? 0}↗] ${p.body.slice(0, 160).replace(/\n/g, " ")}`).join("\n")}`
       : ``,
     ``,
     `Return ONLY JSON: {"posts": [{"body": "<ready-to-publish post text>", "note": "<one short line: the angle and why it works>"}]}`,
@@ -257,6 +274,227 @@ export async function generateSocialPosts(n: number): Promise<SocialPost[]> {
     .returning();
 }
 
+// ── Facebook Groups (assisted posting) ───────────────────────────────────────
+// Meta removed the Groups API in April 2024, so apps cannot post to groups.
+// Instead: AI writes group-flavored posts (platform "facebook_group"), and the
+// admin UI copies one to the clipboard + opens the group for a manual paste.
+
+export async function generateGroupPosts(n: number): Promise<SocialPost[]> {
+  const key = openAiKey();
+  if (!key) throw new Error("No OpenAI key set — add OPENAI_API_KEY (or CHAT_GPT_API) in the Replit Secrets panel.");
+  const howMany = Math.min(10, Math.max(1, n));
+
+  const recent = await db
+    .select({ body: socialPosts.body })
+    .from(socialPosts)
+    .where(eq(socialPosts.platform, "facebook_group"))
+    .orderBy(desc(socialPosts.id))
+    .limit(20);
+
+  const user = [
+    `You write posts for OTHER PEOPLE'S Facebook Groups (marketing, lead-gen, SaaS, and local-business communities). The author is a member sharing value, NOT the group owner, so anything that smells like an ad gets deleted by moderators.`,
+    ``,
+    `PRODUCT (mention sparingly): ${PRODUCT.name}`,
+    `WHAT IT DOES: ${PRODUCT.oneLiner}`,
+    `AUDIENCE IN THESE GROUPS: ${PRODUCT.audience}`,
+    ``,
+    `Write ${howMany} distinct group posts. Rules:`,
+    `- Value-first and community-toned: a concrete tactic, a lesson learned, a mini case study, or a genuine question that starts discussion.`,
+    `- NO links at all — groups bury or remove link posts. No hashtags either.`,
+    `- Mention the product by name in AT MOST a third of the posts, and only as a casual aside ("I ended up building a little tool for this"); the rest should be pure value with no product mention.`,
+    `- 80–150 words. At most 1 emoji. Sound like a practitioner typing in a group, not a brand.`,
+    recent.length
+      ? `- Do NOT repeat the angle or wording of these recent posts:\n${recent.map((r) => `  • ${r.body.slice(0, 100).replace(/\n/g, " ")}`).join("\n")}`
+      : ``,
+    ``,
+    `Return ONLY JSON: {"posts": [{"body": "<ready-to-paste post text>", "note": "<one short line: the angle and why mods won't delete it>"}]}`,
+  ].filter(Boolean).join("\n");
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: "gpt-4o",
+      temperature: 0.9,
+      max_tokens: 4000,
+      response_format: { type: "json_object" },
+      messages: [{ role: "user", content: user }],
+    }),
+  });
+  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  const posts = parsePosts(data.choices?.[0]?.message?.content ?? "");
+  if (posts.length === 0) throw new Error("AI returned no usable posts — try again.");
+
+  return db
+    .insert(socialPosts)
+    .values(posts.map((p) => ({ platform: "facebook_group", body: p.body, note: p.note || null })))
+    .returning();
+}
+
+export async function listGroups(): Promise<SocialGroup[]> {
+  return db.select().from(socialGroups).orderBy(asc(socialGroups.lastPostedAt), asc(socialGroups.id));
+}
+
+export async function addGroup(name: string, url: string, notes?: string): Promise<SocialGroup> {
+  const cleanUrl = url.trim();
+  if (!/^https:\/\/(www\.|m\.|web\.)?facebook\.com\/groups\/[^\s]+$/i.test(cleanUrl)) {
+    throw new Error("That doesn't look like a Facebook group link — it should start with https://www.facebook.com/groups/…");
+  }
+  const rows = await db.insert(socialGroups).values({ name: name.trim(), url: cleanUrl, notes: notes?.trim() || null }).returning();
+  return rows[0]!;
+}
+
+export async function deleteGroup(id: number): Promise<void> {
+  await db.delete(socialGroups).where(eq(socialGroups.id, id));
+}
+
+// Called after the admin copies a post and pastes it into the group by hand:
+// flips the queued post to "posted" (pointing at the group) and stamps the group.
+export async function markGroupPosted(groupId: number, postId: number): Promise<void> {
+  const groupRows = await db.select().from(socialGroups).where(eq(socialGroups.id, groupId));
+  const group = groupRows[0];
+  if (!group) throw new Error(`Group ${groupId} not found`);
+  const postRows = await db.select().from(socialPosts).where(eq(socialPosts.id, postId));
+  const post = postRows[0];
+  if (!post) throw new Error(`Post ${postId} not found`);
+  if (post.platform !== "facebook_group") throw new Error("That post is a Page post, not a group post.");
+
+  await db
+    .update(socialPosts)
+    .set({ status: "posted", error: null, externalUrl: group.url, attemptedAt: new Date(), postedAt: new Date() })
+    .where(eq(socialPosts.id, postId));
+  await db
+    .update(socialGroups)
+    .set({ postCount: sql`${socialGroups.postCount} + 1`, lastPostedAt: new Date() })
+    .where(eq(socialGroups.id, groupId));
+  logger.info({ groupId, postId, group: group.name }, "Group post marked as posted");
+}
+
+// ── Engagement analytics ─────────────────────────────────────────────────────
+// Pulls reactions/comments/shares (covered by pages_read_engagement) for
+// published Page posts and stores them on the row. Impressions need the
+// read_insights scope, so that call is best-effort and failures are ignored.
+
+const STATS_STALE_MS = 6 * 60 * 60 * 1000;   // re-sync a post at most every 6h
+const STATS_WINDOW_MS = 60 * 24 * 60 * 60 * 1000; // stop syncing posts older than 60 days
+
+export async function syncEngagementStats(limit: number): Promise<number> {
+  const fb = await facebookCreds();
+  if (!fb) return 0;
+
+  const stale = await db
+    .select({ id: socialPosts.id, externalId: socialPosts.externalId })
+    .from(socialPosts)
+    .where(and(
+      eq(socialPosts.platform, "facebook"),
+      eq(socialPosts.status, "posted"),
+      isNotNull(socialPosts.externalId),
+      gte(socialPosts.postedAt, new Date(Date.now() - STATS_WINDOW_MS)),
+      or(isNull(socialPosts.statsSyncedAt), lt(socialPosts.statsSyncedAt, new Date(Date.now() - STATS_STALE_MS))),
+    ))
+    .orderBy(desc(socialPosts.postedAt))
+    .limit(Math.max(1, limit));
+
+  let synced = 0;
+  for (const row of stale) {
+    try {
+      const data = await fbGet<{
+        reactions?: { summary?: { total_count?: number } };
+        comments?: { summary?: { total_count?: number } };
+        shares?: { count?: number };
+      }>(`${FB_GRAPH}/${row.externalId}?fields=reactions.summary(true).limit(0),comments.summary(true).limit(0),shares&access_token=${encodeURIComponent(fb.token)}`);
+
+      let impressions: number | null = null;
+      try {
+        const ins = await fbGet<{ data?: { values?: { value?: number }[] }[] }>(
+          `${FB_GRAPH}/${row.externalId}/insights?metric=post_impressions_unique&access_token=${encodeURIComponent(fb.token)}`,
+        );
+        impressions = ins.data?.[0]?.values?.[0]?.value ?? null;
+      } catch { /* read_insights not granted — reach stays unknown */ }
+
+      await db
+        .update(socialPosts)
+        .set({
+          likes: data.reactions?.summary?.total_count ?? 0,
+          comments: data.comments?.summary?.total_count ?? 0,
+          shares: data.shares?.count ?? 0,
+          ...(impressions !== null ? { impressions } : {}),
+          statsSyncedAt: new Date(),
+        })
+        .where(eq(socialPosts.id, row.id));
+      synced++;
+    } catch (err) {
+      logger.warn({ postId: row.id, err }, "Engagement sync failed for post");
+      // Stamp it anyway so one deleted/broken post can't wedge the whole sync.
+      await db.update(socialPosts).set({ statsSyncedAt: new Date() }).where(eq(socialPosts.id, row.id));
+    }
+  }
+  if (synced) logger.info({ synced }, "Engagement stats synced");
+  return synced;
+}
+
+// ── AI post images ────────────────────────────────────────────────────────────
+// Image posts get ~2-3x the reach of plain text on Facebook. The image is
+// generated from the post's own topic and stored as base64 on the row;
+// publishing then goes through /photos instead of /feed.
+
+export async function generatePostImage(postId: number): Promise<void> {
+  const key = openAiKey();
+  if (!key) throw new Error("No OpenAI key set — add OPENAI_API_KEY (or CHAT_GPT_API) in the Replit Secrets panel.");
+  const rows = await db.select({ id: socialPosts.id, body: socialPosts.body, status: socialPosts.status }).from(socialPosts).where(eq(socialPosts.id, postId));
+  const post = rows[0];
+  if (!post) throw new Error(`Post ${postId} not found`);
+  if (post.status === "posted") throw new Error("Already posted — images can only be added before publishing.");
+
+  const prompt = [
+    `Clean, modern flat-vector illustration for a B2B social media post by a lead-generation software brand.`,
+    `Post topic: ${post.body.slice(0, 300).replace(/\n/g, " ")}`,
+    `Style: dark navy background, vivid green (#00E676) and soft blue accents, business motifs (map pins, location markers, charts, contact lists, magnifying glass over a city map).`,
+    `Composition: bold, simple, readable as a small thumbnail. Absolutely NO text, no words, no letters, no numbers, no logos, no watermarks.`,
+  ].join(" ");
+
+  // gpt-image-1 first (current API, returns b64 by default); dall-e-3 as a
+  // fallback for accounts that haven't been granted the newer model.
+  const tryModel = async (body: Record<string, unknown>): Promise<{ b64_json?: string; url?: string }> => {
+    const res = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`OpenAI images ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
+    const data = (await res.json()) as { data?: { b64_json?: string; url?: string }[] };
+    if (!data.data?.[0]) throw new Error("OpenAI returned no image — try again.");
+    return data.data[0];
+  };
+
+  let img: { b64_json?: string; url?: string };
+  try {
+    img = await tryModel({ model: "gpt-image-1", prompt, n: 1, size: "1024x1024", quality: "medium" });
+  } catch {
+    img = await tryModel({ model: "dall-e-3", prompt, n: 1, size: "1024x1024" });
+  }
+  let b64 = img.b64_json;
+  if (!b64 && img.url) {
+    const dl = await fetch(img.url);
+    if (!dl.ok) throw new Error(`Couldn't download the generated image (${dl.status})`);
+    b64 = Buffer.from(await dl.arrayBuffer()).toString("base64");
+  }
+  if (!b64) throw new Error("OpenAI returned no image — try again.");
+
+  await db.update(socialPosts).set({ imageB64: b64 }).where(eq(socialPosts.id, postId));
+  logger.info({ postId }, "Post image generated");
+}
+
+export async function getPostImage(postId: number): Promise<Buffer | null> {
+  const rows = await db.select({ imageB64: socialPosts.imageB64 }).from(socialPosts).where(eq(socialPosts.id, postId));
+  return rows[0]?.imageB64 ? Buffer.from(rows[0].imageB64, "base64") : null;
+}
+
+export async function removePostImage(postId: number): Promise<void> {
+  await db.update(socialPosts).set({ imageB64: null }).where(eq(socialPosts.id, postId));
+}
+
 // ── Publishing ────────────────────────────────────────────────────────────────
 
 export async function publishPost(postId: number): Promise<SocialPost> {
@@ -267,10 +505,21 @@ export async function publishPost(postId: number): Promise<SocialPost> {
   const post = rows[0];
   if (!post) throw new Error(`Post ${postId} not found`);
   if (post.status === "posted") throw new Error("Already posted");
+  if (post.platform !== "facebook") throw new Error("That's a group post — use Copy & Open in the Groups panel (Facebook doesn't let apps post to groups).");
 
-  const params = new URLSearchParams({ message: post.body, link: PRODUCT.url, access_token: fb.token });
-  const res = await fetch(`https://graph.facebook.com/v23.0/${fb.pageId}/feed`, { method: "POST", body: params });
-  const data = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
+  // With an image: photo post via /photos (multipart). Without: link post via /feed.
+  let res: Response;
+  if (post.imageB64) {
+    const form = new FormData();
+    form.append("message", post.body);
+    form.append("access_token", fb.token);
+    form.append("source", new Blob([Buffer.from(post.imageB64, "base64")], { type: "image/png" }), "post.png");
+    res = await fetch(`https://graph.facebook.com/v23.0/${fb.pageId}/photos`, { method: "POST", body: form });
+  } else {
+    const params = new URLSearchParams({ message: post.body, link: PRODUCT.url, access_token: fb.token });
+    res = await fetch(`https://graph.facebook.com/v23.0/${fb.pageId}/feed`, { method: "POST", body: params });
+  }
+  const data = (await res.json().catch(() => ({}))) as { id?: string; post_id?: string; error?: { message?: string } };
 
   if (!res.ok || !data.id) {
     const msg = data.error?.message || `Facebook API ${res.status}`;
@@ -283,19 +532,22 @@ export async function publishPost(postId: number): Promise<SocialPost> {
     return failed[0]!;
   }
 
+  // /photos returns the photo id in `id` and the wall post in `post_id`;
+  // engagement lives on the wall post, so prefer that.
+  const fbPostId = data.post_id || data.id;
   const updated = await db
     .update(socialPosts)
     .set({
       status: "posted",
       error: null,
-      externalId: data.id,
-      externalUrl: `https://www.facebook.com/${data.id}`,
+      externalId: fbPostId,
+      externalUrl: `https://www.facebook.com/${fbPostId}`,
       attemptedAt: new Date(),
       postedAt: new Date(),
     })
     .where(eq(socialPosts.id, postId))
     .returning();
-  logger.info({ postId, fbId: data.id }, "Published post to Facebook");
+  logger.info({ postId, fbId: fbPostId }, "Published post to Facebook");
   return updated[0]!;
 }
 
@@ -320,7 +572,7 @@ export async function socialTick(): Promise<void> {
     const [{ queued }] = await db
       .select({ queued: sql<number>`count(*)::int` })
       .from(socialPosts)
-      .where(eq(socialPosts.status, "queued"));
+      .where(and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook")));
     if (settings.autoRefill && openAiKey() && queued < REFILL_BELOW) {
       try {
         const added = await generateSocialPosts(REFILL_COUNT);
@@ -332,6 +584,10 @@ export async function socialTick(): Promise<void> {
 
     if (!(await facebookCreds())) return;
 
+    // Keep engagement numbers fresh in the background (a few posts per tick;
+    // the 6h staleness window makes this cheap and self-limiting).
+    await syncEngagementStats(3).catch(() => {});
+
     // One post per day: skip if anything was published since today's posting
     // hour, and don't start before that hour (UTC).
     const now = new Date();
@@ -342,7 +598,7 @@ export async function socialTick(): Promise<void> {
     const postedToday = await db
       .select({ id: socialPosts.id })
       .from(socialPosts)
-      .where(and(eq(socialPosts.status, "posted"), gte(socialPosts.postedAt, todayPostTime)))
+      .where(and(eq(socialPosts.status, "posted"), eq(socialPosts.platform, "facebook"), gte(socialPosts.postedAt, todayPostTime)))
       .limit(1);
     if (postedToday.length > 0) return;
 
@@ -350,14 +606,14 @@ export async function socialTick(): Promise<void> {
     const recentFailure = await db
       .select({ id: socialPosts.id })
       .from(socialPosts)
-      .where(and(eq(socialPosts.status, "failed"), gte(socialPosts.attemptedAt, new Date(Date.now() - RETRY_BACKOFF_MS))))
+      .where(and(eq(socialPosts.status, "failed"), eq(socialPosts.platform, "facebook"), gte(socialPosts.attemptedAt, new Date(Date.now() - RETRY_BACKOFF_MS))))
       .limit(1);
     if (recentFailure.length > 0) return;
 
     const next = await db
       .select()
       .from(socialPosts)
-      .where(eq(socialPosts.status, "queued"))
+      .where(and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook")))
       .orderBy(asc(socialPosts.id))
       .limit(1);
     if (!next[0]) return;

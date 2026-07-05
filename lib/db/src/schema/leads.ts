@@ -62,11 +62,26 @@ export const leads = pgTable("leads", {
   // Quick business intel gathered from a social/web scan (what they do,
   // specialties, how active their socials are, useful pitch angles).
   socialIntel: text("social_intel"),
+  // ── AI outreach drafts (from the outreach engine) ─────────────────────────
+  // Personalized cold email + SMS + a follow-up sequence, generated from this
+  // lead's own data (gaps, bio, socials). Cached so we don't re-bill the AI on
+  // every view; regenerated on demand.
+  outreach: jsonb("outreach").$type<LeadOutreach>(),
+  outreachAt: timestamp("outreach_at", { withTimezone: true }),
   status: text("status").default("new"), // new | contacted | converted | not_interested
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
+// Shape of the AI-generated outreach drafts stored in leads.outreach.
+export type LeadOutreachStep = { day: number; channel: "email" | "sms"; subject?: string; body: string };
+export type LeadOutreach = {
+  angle: string;                 // the hook the AI is playing (one line)
+  email: { subject: string; body: string };
+  sms: string;
+  followUps: LeadOutreachStep[]; // 2-3 timed nudges
+};
 
 export type Lead = typeof leads.$inferSelect;
 export type InsertLead = typeof leads.$inferInsert;

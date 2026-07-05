@@ -7,7 +7,7 @@ import {
   MapPin, ChevronLeft, ChevronRight, DollarSign, CreditCard,
   UserCheck, UserX, Crown, BarChart2, RefreshCw,
   Flame, Globe, Target, Sparkles, Package, Phone, Trash2, RotateCcw,
-  Activity, Eye,
+  Activity, Eye, Copy, ExternalLink,
 } from "lucide-react";
 import {
   ComposableMap, Geographies, Geography, ZoomableGroup, Marker,
@@ -88,6 +88,13 @@ interface SocialPostRow {
   id: number; platform: string; body: string; note: string | null;
   status: string; error: string | null; externalUrl: string | null;
   postedAt: string | null; createdAt: string | null;
+  hasImage: boolean;
+  likes: number | null; comments: number | null; shares: number | null;
+  impressions: number | null; statsSyncedAt: string | null;
+}
+interface SocialGroupRow {
+  id: number; name: string; url: string; notes: string | null;
+  postCount: number; lastPostedAt: string | null; createdAt: string;
 }
 interface SocialData {
   settings: { enabled: boolean; postHourUtc: number; autoRefill: boolean };
@@ -97,7 +104,9 @@ interface SocialData {
   redirectUri: string;
   aiConfigured: boolean;
   queue: SocialPostRow[];
+  groupQueue: SocialPostRow[];
   history: SocialPostRow[];
+  groups: SocialGroupRow[];
 }
 
 // Each weakness maps to a service you sell — drives the "What to sell" panel.
@@ -319,6 +328,104 @@ export default function Admin() {
     loadSocial();
   };
   // Show the UTC posting hour in the admin's local time so it reads naturally.
+  // ── Engagement stats + AI post images ──────────────────────────────────────
+  const [syncingStats, setSyncingStats] = useState(false);
+  const [imageBusyId, setImageBusyId] = useState<number | null>(null);
+  const [imgVersion, setImgVersion] = useState(0); // cache-buster after (re)generate
+  const socialSyncStats = async () => {
+    setSyncingStats(true); setSocialMsg(null);
+    try {
+      const r = await fetch(`${basePath}/api/admin/social/sync-stats`, { method: "POST" });
+      const d = await r.json();
+      setSocialMsg(r.ok ? `✓ Engagement refreshed for ${d.synced} post${d.synced === 1 ? "" : "s"}` : (d.error || "Sync failed"));
+    } catch (e) { setSocialMsg(e instanceof Error ? e.message : "Sync failed"); }
+    setSyncingStats(false);
+    loadSocial();
+  };
+  const socialGenImage = async (id: number) => {
+    setImageBusyId(id); setSocialMsg(null);
+    try {
+      const r = await fetch(`${basePath}/api/admin/social/${id}/image`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) setSocialMsg(d.error || "Image generation failed");
+      else { setSocialMsg("✓ Image ready — it'll be attached when this post publishes"); setImgVersion((v) => v + 1); }
+    } catch (e) { setSocialMsg(e instanceof Error ? e.message : "Image generation failed"); }
+    setImageBusyId(null);
+    loadSocial();
+  };
+  const socialRemoveImage = async (id: number) => {
+    setImageBusyId(id);
+    try { await fetch(`${basePath}/api/admin/social/${id}/image`, { method: "DELETE" }); } catch { /* ignore */ }
+    setImageBusyId(null); setImgVersion((v) => v + 1);
+    loadSocial();
+  };
+  const statsLine = (p: SocialPostRow) => p.statsSyncedAt === null ? null : (
+    <span className="flex items-center gap-2 text-xs text-muted-foreground">
+      <span>👍 {p.likes ?? 0}</span><span>💬 {p.comments ?? 0}</span><span>↗ {p.shares ?? 0}</span>
+      {p.impressions !== null && <span>👁 {p.impressions.toLocaleString()} reached</span>}
+    </span>
+  );
+
+  // ── Facebook Groups (assisted posting) ─────────────────────────────────────
+  const [groupName, setGroupName] = useState("");
+  const [groupUrl, setGroupUrl] = useState("");
+  const [addingGroup, setAddingGroup] = useState(false);
+  const [generatingGroupPosts, setGeneratingGroupPosts] = useState(false);
+  const [groupBusyId, setGroupBusyId] = useState<number | null>(null);
+  const groupAdd = async () => {
+    if (!groupName.trim() || !groupUrl.trim()) return;
+    setAddingGroup(true); setSocialMsg(null);
+    try {
+      const r = await fetch(`${basePath}/api/admin/social/groups`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: groupName, url: groupUrl }),
+      });
+      const d = await r.json();
+      if (!r.ok) setSocialMsg(d.error || "Couldn't add that group");
+      else { setSocialMsg(`✓ “${groupName.trim()}” added to the rotation`); setGroupName(""); setGroupUrl(""); }
+    } catch (e) { setSocialMsg(e instanceof Error ? e.message : "Couldn't add that group"); }
+    setAddingGroup(false);
+    loadSocial();
+  };
+  const groupDelete = async (id: number) => {
+    setGroupBusyId(id);
+    try { await fetch(`${basePath}/api/admin/social/groups/${id}`, { method: "DELETE" }); } catch { /* ignore */ }
+    setGroupBusyId(null);
+    loadSocial();
+  };
+  const groupGenerate = async () => {
+    setGeneratingGroupPosts(true); setSocialMsg(null);
+    try {
+      const r = await fetch(`${basePath}/api/admin/social/groups/generate`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ count: 5 }),
+      });
+      const d = await r.json();
+      if (!r.ok) setSocialMsg(d.error || "Generation failed");
+      else setSocialMsg(`✓ ${d.posts.length} group posts written — link-free and mod-safe`);
+    } catch (e) { setSocialMsg(e instanceof Error ? e.message : "Generation failed"); }
+    setGeneratingGroupPosts(false);
+    loadSocial();
+  };
+  // The one-click flow: copy the next queued group post, pop the group open in
+  // a new tab, and log it against this group — all that's left is Ctrl+V.
+  const groupCopyOpen = async (g: SocialGroupRow) => {
+    const next = social?.groupQueue[0];
+    if (!next) { setSocialMsg("No group posts queued — hit “Write 5 group posts” first."); return; }
+    try { await navigator.clipboard.writeText(next.body); } catch { /* clipboard blocked — post text is still visible below */ }
+    window.open(g.url, "_blank", "noopener");
+    setGroupBusyId(g.id); setSocialMsg(null);
+    try {
+      const r = await fetch(`${basePath}/api/admin/social/groups/${g.id}/posted`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ postId: next.id }),
+      });
+      const d = await r.json();
+      setSocialMsg(r.ok ? `✓ Post copied to clipboard — paste it into “${g.name}” in the tab that just opened` : (d.error || "Couldn't log the post"));
+    } catch (e) { setSocialMsg(e instanceof Error ? e.message : "Couldn't log the post"); }
+    setGroupBusyId(null);
+    loadSocial();
+  };
+  const daysSince = (iso: string | null) => iso === null ? null : Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  const groupIsDue = (g: SocialGroupRow) => { const d = daysSince(g.lastPostedAt); return d === null || d >= 3; };
   const socialHourLabel = (utcHour: number) => {
     const d = new Date(); d.setUTCHours(utcHour, 0, 0, 0);
     return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -1002,11 +1109,19 @@ export default function Admin() {
                   <h2 className="text-lg font-display font-bold">Social Auto-Poster</h2>
                   {loadingSocial && <RefreshCw className="w-3.5 h-3.5 text-muted-foreground animate-spin" />}
                 </div>
-                <button onClick={socialGenerate} disabled={generatingSocial || !social?.aiConfigured}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground disabled:opacity-50 hover:opacity-90 transition-opacity">
-                  {generatingSocial ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  {generatingSocial ? "Writing posts…" : "Generate 5 posts"}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={socialSyncStats} disabled={syncingStats || !social?.facebookConnected}
+                    title={social?.facebookConnected ? "Pull fresh likes/comments/shares from Facebook" : "Connect Facebook first"}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-muted text-foreground disabled:opacity-50 hover:opacity-80 transition-opacity">
+                    <BarChart2 className={`w-4 h-4 ${syncingStats ? "animate-pulse" : ""}`} />
+                    {syncingStats ? "Refreshing…" : "Refresh stats"}
+                  </button>
+                  <button onClick={socialGenerate} disabled={generatingSocial || !social?.aiConfigured}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground disabled:opacity-50 hover:opacity-90 transition-opacity">
+                    {generatingSocial ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                    {generatingSocial ? "Writing posts…" : "Generate 5 posts"}
+                  </button>
+                </div>
               </div>
 
               {socialMsg && (
@@ -1104,7 +1219,11 @@ export default function Admin() {
                         ) : (
                           <p className="text-sm text-foreground whitespace-pre-wrap">{p.body}</p>
                         )}
-                        <div className="flex items-center gap-2 mt-3">
+                        {p.hasImage && (
+                          <img src={`${basePath}/api/admin/social/${p.id}/image?v=${imgVersion}`} alt="Post graphic"
+                            className="mt-3 rounded-lg border border-border max-h-44 w-auto" />
+                        )}
+                        <div className="flex items-center gap-2 mt-3 flex-wrap">
                           {socialEditId === p.id ? (
                             <>
                               <button onClick={() => socialSaveEdit(p.id)} disabled={socialBusyId === p.id}
@@ -1119,6 +1238,16 @@ export default function Admin() {
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground disabled:opacity-40">
                                 {socialBusyId === p.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />} Post now
                               </button>
+                              <button onClick={() => socialGenImage(p.id)} disabled={imageBusyId === p.id || !social.aiConfigured}
+                                title="AI draws a branded graphic for this post — image posts get 2-3x the reach"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground disabled:opacity-40 hover:opacity-80">
+                                {imageBusyId === p.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <>🎨</>}
+                                {imageBusyId === p.id ? "Drawing…" : p.hasImage ? "New image" : "Add image"}
+                              </button>
+                              {p.hasImage && (
+                                <button onClick={() => socialRemoveImage(p.id)} disabled={imageBusyId === p.id}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-red-400 disabled:opacity-50">No image</button>
+                              )}
                               <button onClick={() => { setSocialEditId(p.id); setSocialDraft(p.body); }}
                                 className="px-3 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-foreground">Edit</button>
                               <button onClick={() => socialDelete(p.id)} disabled={socialBusyId === p.id}
@@ -1141,6 +1270,128 @@ export default function Admin() {
                 )}
               </div>
 
+              {/* Facebook Groups — assisted posting (Meta killed the Groups API in 2024) */}
+              <div className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-primary" />
+                    <h3 className="text-lg font-display font-bold">Group Blaster</h3>
+                    {social && social.groups.length > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {social.groups.length} groups · {social.groups.reduce((s, g) => s + g.postCount, 0)} posts dropped
+                        {social.groups.filter(groupIsDue).length > 0 && (
+                          <span className="ml-1 text-orange-400 font-semibold">· {social.groups.filter(groupIsDue).length} due now</span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                  <button onClick={groupGenerate} disabled={generatingGroupPosts || !social?.aiConfigured}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground disabled:opacity-50 hover:opacity-90 transition-opacity">
+                    {generatingGroupPosts ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                    {generatingGroupPosts ? "Writing…" : "Write 5 group posts"}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Facebook shut off group posting for apps, so nothing can fully automate it without getting you banned. This is the next best thing:
+                  one click <span className="text-foreground font-semibold">copies the next post + opens the group</span> — you just paste and hit Post. ~5 seconds per group.
+                </p>
+
+                {/* Next group post on deck */}
+                {social && social.groupQueue.length > 0 && (
+                  <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 mb-4">
+                    <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
+                      <span className="px-2 py-0.5 rounded-full bg-primary/15 text-primary font-semibold">on deck — copied on your next click</span>
+                      <span>{social.groupQueue.length} group posts queued</span>
+                      {social.groupQueue[0].note && <span className="truncate">💡 {social.groupQueue[0].note}</span>}
+                    </div>
+                    {socialEditId === social.groupQueue[0].id ? (
+                      <>
+                        <textarea value={socialDraft} onChange={(e) => setSocialDraft(e.target.value)} rows={5}
+                          className="w-full bg-background border border-border rounded-lg p-3 text-sm text-foreground font-normal" />
+                        <div className="flex items-center gap-2 mt-2">
+                          <button onClick={() => socialSaveEdit(social.groupQueue[0].id)} disabled={socialBusyId === social.groupQueue[0].id}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground disabled:opacity-50">Save</button>
+                          <button onClick={() => setSocialEditId(null)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-foreground">Cancel</button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm text-foreground whitespace-pre-wrap">{social.groupQueue[0].body}</p>
+                        <div className="flex items-center gap-2 mt-3">
+                          <button onClick={() => { navigator.clipboard.writeText(social.groupQueue[0].body).catch(() => {}); setSocialMsg("✓ Copied — paste it wherever you like"); }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80">
+                            <Copy className="w-3 h-3" /> Copy only
+                          </button>
+                          <button onClick={() => { setSocialEditId(social.groupQueue[0].id); setSocialDraft(social.groupQueue[0].body); }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-foreground">Edit</button>
+                          <button onClick={() => socialDelete(social.groupQueue[0].id)} disabled={socialBusyId === social.groupQueue[0].id}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-red-400 hover:text-red-300 disabled:opacity-50">
+                            <Trash2 className="w-3 h-3" /> Skip
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+                {social && social.groupQueue.length === 0 && (
+                  <div className="rounded-xl border border-border bg-background/40 p-4 mb-4 text-sm text-muted-foreground">
+                    No group posts queued — hit <span className="text-foreground font-semibold">Write 5 group posts</span> and the AI will draft
+                    link-free, mod-safe posts (groups delete anything that smells like an ad).
+                  </div>
+                )}
+
+                {/* The rotation — least-recently-posted first */}
+                {social && social.groups.length > 0 && (
+                  <div className="space-y-2 mb-4">
+                    {social.groups.map((g) => {
+                      const d = daysSince(g.lastPostedAt);
+                      return (
+                        <div key={g.id} className={`flex items-center gap-3 rounded-xl border p-3 ${groupIsDue(g) ? "border-orange-400/30 bg-orange-400/5" : "border-border bg-background/40"}`}>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <a href={g.url} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-foreground hover:text-primary truncate">
+                                {g.name} <ExternalLink className="w-3 h-3 inline opacity-50" />
+                              </a>
+                              {groupIsDue(g) && <span className="px-2 py-0.5 rounded-full bg-orange-400/15 text-orange-400 text-[10px] font-bold uppercase">due</span>}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {d === null ? "never posted" : d === 0 ? "posted today" : `last posted ${d}d ago`} · {g.postCount} total
+                            </div>
+                          </div>
+                          <button onClick={() => groupCopyOpen(g)} disabled={groupBusyId === g.id || !social.groupQueue.length}
+                            title={social.groupQueue.length ? "Copy the on-deck post and open this group" : "Write group posts first"}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-primary text-primary-foreground disabled:opacity-40 hover:opacity-90 transition-opacity whitespace-nowrap">
+                            {groupBusyId === g.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Copy className="w-3.5 h-3.5" />} Copy & Open
+                          </button>
+                          <button onClick={() => groupDelete(g.id)} disabled={groupBusyId === g.id}
+                            className="p-2 rounded-lg text-muted-foreground hover:text-red-400 disabled:opacity-50" title="Remove from rotation">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Add a group */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Group name (e.g. Lead Gen Pros)"
+                    className="flex-1 min-w-[180px] bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground" />
+                  <input value={groupUrl} onChange={(e) => setGroupUrl(e.target.value)} placeholder="https://www.facebook.com/groups/…"
+                    className="flex-[2] min-w-[240px] bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground font-mono" />
+                  <button onClick={groupAdd} disabled={addingGroup || !groupName.trim() || !groupUrl.trim()}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-muted text-foreground disabled:opacity-40 hover:opacity-80 transition-opacity">
+                    {addingGroup ? "Adding…" : "+ Add group"}
+                  </button>
+                </div>
+                {social && social.groups.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Add the groups you're a member of (open the group on Facebook and copy the link). The rotation sorts by least-recently-posted and flags who's due.
+                  </p>
+                )}
+              </div>
+
               {/* History */}
               {social && social.history.length > 0 && (
                 <div className="bg-card border border-border rounded-2xl p-6">
@@ -1157,10 +1408,14 @@ export default function Admin() {
                           ) : (
                             <span className="px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 font-semibold">failed</span>
                           )}
+                          {p.platform === "facebook_group" && (
+                            <span className="px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-semibold">group</span>
+                          )}
                           {p.postedAt && <span className="text-muted-foreground">{new Date(p.postedAt).toLocaleString()}</span>}
                           {p.externalUrl && (
                             <a href={p.externalUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">view on Facebook ↗</a>
                           )}
+                          {statsLine(p)}
                         </div>
                         <p className="text-sm text-muted-foreground whitespace-pre-wrap line-clamp-3">{p.body}</p>
                         {p.status === "failed" && (

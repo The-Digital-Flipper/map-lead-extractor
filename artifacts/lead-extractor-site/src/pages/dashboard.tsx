@@ -52,6 +52,14 @@ interface Lead {
   status: string | null;
 }
 
+interface OutreachStep { day: number; channel: "email" | "sms"; subject?: string; body: string }
+interface Outreach {
+  angle: string;
+  email: { subject: string; body: string };
+  sms: string;
+  followUps: OutreachStep[];
+}
+
 interface StatsData {
   scoreDistribution: { bucket: string; count: number }[];
   opportunityDistribution: { bucket: string; count: number }[];
@@ -373,6 +381,12 @@ export default function Dashboard() {
   const [twilioAvailable, setTwilioAvailable] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  // AI outreach engine: per-lead personalized email + SMS + follow-ups.
+  const [outreachLead, setOutreachLead] = useState<Lead | null>(null);
+  const [outreach, setOutreach] = useState<Outreach | null>(null);
+  const [outreachLoading, setOutreachLoading] = useState(false);
+  const [outreachError, setOutreachError] = useState<string | null>(null);
+  const [outreachCopied, setOutreachCopied] = useState<string | null>(null);
   // Money mode: rank by opportunity (weakest businesses first) — the leads
   // worth selling websites / SEO / ads / reputation / automation to.
   const [moneyMode, setMoneyMode] = useState(() => loadPrefs().defaultMoney);
@@ -627,6 +641,32 @@ export default function Dashboard() {
     try {
       await fetch(`${basePath}/api/leads/${id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
     } catch {}
+  };
+
+  // AI outreach: open the modal for a lead and fetch (or generate) its drafts.
+  const openOutreach = async (lead: Lead, force = false) => {
+    setOutreachLead(lead);
+    setOutreachError(null);
+    setOutreachCopied(null);
+    if (!force) setOutreach(null);
+    setOutreachLoading(true);
+    try {
+      const r = await authFetch(`${basePath}/api/leads/${lead.id}/outreach`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Could not generate outreach");
+      setOutreach(d.outreach as Outreach);
+    } catch (e) {
+      setOutreachError(e instanceof Error ? e.message : "Could not generate outreach");
+    } finally {
+      setOutreachLoading(false);
+    }
+  };
+  const copyOut = async (label: string, text: string) => {
+    try { await navigator.clipboard.writeText(text); setOutreachCopied(label); setTimeout(() => setOutreachCopied(c => c === label ? null : c), 2000); } catch { /* ignore */ }
   };
 
   // Delete single
@@ -1358,6 +1398,13 @@ export default function Dashboard() {
                                   <Bell className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
                                 )}
                                 <button
+                                  onClick={() => openOutreach(lead)}
+                                  className="text-muted-foreground/40 hover:text-primary transition-colors"
+                                  title="AI outreach — write a personalized email, text & follow-ups"
+                                >
+                                  <Sparkles className="w-4 h-4" />
+                                </button>
+                                <button
                                   onClick={() => openNote(lead.id)}
                                   className={`transition-colors ${notes[lead.id]?.note || notes[lead.id]?.tags?.length ? "text-primary" : "text-muted-foreground/40 hover:text-primary"}`}
                                   title={notes[lead.id]?.note || notes[lead.id]?.tags?.length ? "Edit note & tags" : "Add note & tags"}
@@ -1804,6 +1851,153 @@ export default function Dashboard() {
                   className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity">
                   Save
                 </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* AI outreach modal */}
+      <AnimatePresence>
+        {outreachLead && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setOutreachLead(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-card border border-border rounded-2xl w-full max-w-xl shadow-2xl max-h-[88vh] overflow-y-auto"
+            >
+              <div className="flex items-center gap-2 p-6 pb-3 sticky top-0 bg-card border-b border-border">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <h3 className="font-display font-bold truncate">AI Outreach</h3>
+                <span className="text-xs text-muted-foreground truncate">· {outreachLead.name ?? "lead"}</span>
+                {outreach && !outreachLoading && (
+                  <button
+                    onClick={() => openOutreach(outreachLead, true)}
+                    className="ml-auto flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors"
+                    title="Regenerate"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Redo
+                  </button>
+                )}
+                <button onClick={() => setOutreachLead(null)} className={`${outreach && !outreachLoading ? "" : "ml-auto"} text-muted-foreground hover:text-foreground`}>
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-6 pt-4 space-y-4">
+                {outreachLoading && (
+                  <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
+                    <RefreshCw className="w-6 h-6 animate-spin text-primary" />
+                    <p className="text-sm">Writing personalized outreach from this lead's data…</p>
+                  </div>
+                )}
+
+                {outreachError && !outreachLoading && (
+                  <div className="py-8 text-center space-y-3">
+                    <p className="text-sm text-red-400">{outreachError}</p>
+                    <button onClick={() => openOutreach(outreachLead, true)}
+                      className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity">
+                      Try again
+                    </button>
+                  </div>
+                )}
+
+                {outreach && !outreachLoading && (() => {
+                  const gmailHref = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(outreachLead.emails ?? "")}&su=${encodeURIComponent(outreach.email.subject)}&body=${encodeURIComponent(outreach.email.body)}`;
+                  const smsHref = `sms:${outreachLead.phone ?? ""}?body=${encodeURIComponent(outreach.sms)}`;
+                  return (
+                    <>
+                      {outreach.angle && (
+                        <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/10 border border-primary/30">
+                          <Zap className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                          <p className="text-xs text-foreground"><span className="font-bold">Angle:</span> {outreach.angle}</p>
+                        </div>
+                      )}
+
+                      {/* Email */}
+                      <div className="rounded-xl border border-border overflow-hidden">
+                        <div className="flex items-center gap-2 px-4 py-2 bg-background border-b border-border">
+                          <Mail className="w-3.5 h-3.5 text-primary" />
+                          <span className="text-xs font-bold">Cold Email</span>
+                          <div className="ml-auto flex items-center gap-2">
+                            <button onClick={() => copyOut("email", `Subject: ${outreach.email.subject}\n\n${outreach.email.body}`)}
+                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                              {outreachCopied === "email" ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+                              {outreachCopied === "email" ? "Copied" : "Copy"}
+                            </button>
+                            {outreachLead.emails && (
+                              <a href={gmailHref} target="_blank" rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-xs font-semibold text-primary hover:opacity-80">
+                                <ArrowUpRight className="w-3.5 h-3.5" /> Gmail
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <div className="p-4 space-y-2">
+                          <p className="text-xs font-semibold text-foreground">{outreach.email.subject}</p>
+                          <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{outreach.email.body}</p>
+                        </div>
+                      </div>
+
+                      {/* SMS */}
+                      <div className="rounded-xl border border-border overflow-hidden">
+                        <div className="flex items-center gap-2 px-4 py-2 bg-background border-b border-border">
+                          <MessageSquare className="w-3.5 h-3.5 text-primary" />
+                          <span className="text-xs font-bold">Text Message</span>
+                          <div className="ml-auto flex items-center gap-2">
+                            <button onClick={() => copyOut("sms", outreach.sms)}
+                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                              {outreachCopied === "sms" ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+                              {outreachCopied === "sms" ? "Copied" : "Copy"}
+                            </button>
+                            {outreachLead.phone && (
+                              <a href={smsHref} className="flex items-center gap-1 text-xs font-semibold text-primary hover:opacity-80">
+                                <ArrowUpRight className="w-3.5 h-3.5" /> Text
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <p className="p-4 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{outreach.sms}</p>
+                      </div>
+
+                      {/* Follow-ups */}
+                      {outreach.followUps.length > 0 && (
+                        <div>
+                          <p className="text-xs font-bold text-muted-foreground mb-2 uppercase tracking-wide">Follow-up sequence</p>
+                          <div className="space-y-2">
+                            {outreach.followUps.map((f, i) => (
+                              <div key={i} className="rounded-lg border border-border p-3">
+                                <div className="flex items-center gap-2 mb-1.5">
+                                  <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold">Day {f.day}</span>
+                                  <span className="text-[10px] font-semibold uppercase text-muted-foreground">{f.channel}</span>
+                                  {f.subject && <span className="text-[11px] font-semibold text-foreground truncate">{f.subject}</span>}
+                                  <button onClick={() => copyOut(`f${i}`, f.subject ? `Subject: ${f.subject}\n\n${f.body}` : f.body)}
+                                    className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors">
+                                    {outreachCopied === `f${i}` ? <Check className="w-3 h-3 text-primary" /> : <Copy className="w-3 h-3" />}
+                                  </button>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed">{f.body}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Mark contacted */}
+                      <div className="flex justify-end pt-1">
+                        <button
+                          onClick={() => { handleStatusChange(outreachLead.id, "contacted" as LeadStatus); setOutreachLead(null); }}
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity">
+                          <CheckCheck className="w-3.5 h-3.5" /> Mark contacted
+                        </button>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </motion.div>
           </motion.div>

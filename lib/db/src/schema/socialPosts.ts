@@ -18,6 +18,15 @@ export const socialPosts = pgTable("social_posts", {
   attemptedAt: timestamp("attempted_at", { withTimezone: true }),
   postedAt: timestamp("posted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  // AI-generated image, stored as base64 PNG right in the row (deploy fs is
+  // ephemeral). List endpoints must exclude this column — it's megabytes.
+  imageB64: text("image_b64"),
+  // Engagement pulled from the Graph API after publishing; null = never synced.
+  likes: integer("likes"),
+  comments: integer("comments"),
+  shares: integer("shares"),
+  impressions: integer("impressions"),
+  statsSyncedAt: timestamp("stats_synced_at", { withTimezone: true }),
 }, (t) => [
   index("social_posts_status_idx").on(t.status),
   index("social_posts_posted_at_idx").on(t.postedAt),
@@ -44,6 +53,21 @@ export const socialSettings = pgTable("social_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// Facebook Groups the admin posts to by hand. Meta killed the Groups API in
+// 2024, so the app can't publish for them — instead the Social tab keeps a
+// queue of group-flavored posts and a one-click "copy post + open group" flow,
+// and this table remembers each group and when it last got a post.
+export const socialGroups = pgTable("social_groups", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  notes: text("notes"),
+  postCount: integer("post_count").notNull().default(0),
+  lastPostedAt: timestamp("last_posted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type SocialPost = typeof socialPosts.$inferSelect;
 export type InsertSocialPost = typeof socialPosts.$inferInsert;
 export type SocialSettings = typeof socialSettings.$inferSelect;
+export type SocialGroup = typeof socialGroups.$inferSelect;
