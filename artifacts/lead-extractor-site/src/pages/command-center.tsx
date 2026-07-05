@@ -68,6 +68,7 @@ export default function CommandCenter() {
   });
   const [importing, setImporting] = useState(false);
   const [importCount, setImportCount] = useState<number | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [showSendGate, setShowSendGate] = useState(false);
@@ -104,11 +105,15 @@ export default function CommandCenter() {
     setImporting(true);
     setShowImportMenu(false);
     setImportCount(null);
+    setImportError(null);
     try {
       const params = new URLSearchParams({ limit: "2000" });
       if (statusFilter) params.set("status", statusFilter);
       const r = await fetch(`${basePath}/api/leads/?${params}`);
-      if (!r.ok) return;
+      if (!r.ok) {
+        setImportError("Couldn't import leads — please try again.");
+        return;
+      }
       const d = await r.json();
       const phones: string[] = (d.leads ?? [])
         .map((l: { phone?: string | null }) => l.phone?.trim() ?? "")
@@ -116,7 +121,8 @@ export default function CommandCenter() {
       const unique = [...new Set(phones)];
       setBulkPhones(unique.join("\n"));
       setImportCount(unique.length);
-    } catch { /* ignore */ }
+      if (unique.length === 0) setImportError("No leads with phone numbers matched that filter.");
+    } catch { setImportError("Network error — check your connection and try again."); }
     finally { setImporting(false); }
   }, []);
 
@@ -356,9 +362,8 @@ export default function CommandCenter() {
                         { label: "All leads with phones", value: undefined },
                         { label: "New leads", value: "new" },
                         { label: "Contacted", value: "contacted" },
-                        { label: "Interested", value: "interested" },
+                        { label: "Converted", value: "converted" },
                         { label: "Not interested", value: "not_interested" },
-                        { label: "Closed", value: "closed" },
                       ].map(opt => (
                         <button
                           key={opt.label}
@@ -374,15 +379,18 @@ export default function CommandCenter() {
               </div>
             </div>
 
-            {importCount !== null && (
+            {importCount !== null && importCount > 0 && (
               <p className="text-xs text-primary font-semibold mb-2">
                 ✓ {importCount} phone number{importCount !== 1 ? "s" : ""} imported from your leads
               </p>
             )}
+            {importError && (
+              <p className="text-xs text-yellow-400 font-semibold mb-2">{importError}</p>
+            )}
 
             <textarea
               value={bulkPhones}
-              onChange={e => { setBulkPhones(e.target.value); setImportCount(null); }}
+              onChange={e => { setBulkPhones(e.target.value); setImportCount(null); setImportError(null); }}
               rows={6}
               placeholder={"+15551234567\n+15559876543\n+15550001111"}
               className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-none mb-4 font-mono"

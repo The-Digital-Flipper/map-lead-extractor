@@ -6,7 +6,7 @@ import {
   Search, Share2, Crown, ArrowUpRight, CreditCard, Trash2,
   RefreshCw, ChevronLeft, ChevronRight, BarChart2, X,
   CheckSquare, Square, CheckCheck, ShieldCheck, MessageSquare,
-  Settings, Bookmark, Plus, Pin, StickyNote, Tag, Bell,
+  Settings, Bookmark, Plus, Pin, StickyNote, Tag, Bell, Sparkles,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis,
@@ -574,6 +574,41 @@ export default function Dashboard() {
 
   const handleRefresh = () => { fetchLeads(true); fetchStats(); };
 
+  // ── AI Lead Finder — describe the target in plain English; the server's live
+  // web-search AI finds real businesses and saves them straight into the list.
+  const [aiGoal, setAiGoal] = useState("");
+  const [aiFinding, setAiFinding] = useState(false);
+  const [aiResult, setAiResult] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<{ message: string; upgrade?: boolean } | null>(null);
+
+  const handleAiFind = async () => {
+    const goal = aiGoal.trim();
+    if (goal.length < 8 || aiFinding) return;
+    setAiFinding(true); setAiResult(null); setAiError(null);
+    try {
+      const r = await authFetch(`${basePath}/api/leads/find`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goal }),
+      });
+      const d = await r.json().catch(() => ({})) as { error?: string; upgrade?: boolean; found?: number; saved?: number; duplicates?: number; used?: number; limit?: number };
+      if (!r.ok) {
+        setAiError({ message: d.error ?? "Something went wrong — please try again.", upgrade: !!d.upgrade });
+        return;
+      }
+      const left = (d.limit ?? 0) - (d.used ?? 0);
+      if (!d.found) {
+        setAiResult(`No matching businesses found — try rewording (add a city or industry). ${left} AI search${left !== 1 ? "es" : ""} left today.`);
+        return;
+      }
+      const dupNote = d.duplicates ? ` (${d.duplicates} already in your list)` : "";
+      setAiResult(`Found ${d.found} business${d.found !== 1 ? "es" : ""} — ${d.saved} new lead${d.saved !== 1 ? "s" : ""} added${dupNote}. ${left} AI search${left !== 1 ? "es" : ""} left today.`);
+      fetchLeads(true); fetchStats();
+    } catch {
+      setAiError({ message: "Network error — check your connection and try again." });
+    } finally { setAiFinding(false); }
+  };
+
   const handleManageBilling = async () => {
     setPortalLoading(true);
     try {
@@ -903,6 +938,51 @@ export default function Dashboard() {
             </div>
           </motion.div>
           )}
+
+          {/* AI Lead Finder — plain-English search that saves real businesses as leads */}
+          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.12 }} className="mb-8">
+            <div className="bg-card border border-primary/30 rounded-2xl p-6">
+              <div className="flex items-center gap-2 mb-1">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <h2 className="text-lg font-display font-bold">AI Lead Finder</h2>
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                Describe who you want to reach — AI searches the live web and adds matching businesses to your leads.
+              </p>
+              <div className="flex gap-3 flex-wrap">
+                <input
+                  value={aiGoal}
+                  onChange={e => { setAiGoal(e.target.value); setAiResult(null); setAiError(null); }}
+                  onKeyDown={e => { if (e.key === "Enter") handleAiFind(); }}
+                  placeholder={'e.g. "roofing companies in Mobile AL with no website"'}
+                  className="flex-1 min-w-[240px] bg-background border border-border rounded-lg px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+                />
+                <button
+                  onClick={handleAiFind}
+                  disabled={aiFinding || aiGoal.trim().length < 8}
+                  className="flex items-center gap-2 px-5 py-3 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                >
+                  {aiFinding
+                    ? <><RefreshCw className="w-4 h-4 animate-spin" /> Searching the web…</>
+                    : <><Sparkles className="w-4 h-4" /> Find Leads</>}
+                </button>
+              </div>
+              {aiResult && (
+                <p className="text-sm text-primary font-semibold mt-3">✓ {aiResult}</p>
+              )}
+              {aiError && (
+                <div className="flex items-center gap-3 flex-wrap mt-3">
+                  <p className="text-sm text-yellow-400 font-semibold">{aiError.message}</p>
+                  {aiError.upgrade && (
+                    <button onClick={handleUpgrade}
+                      className="flex items-center gap-1 text-sm font-bold text-primary hover:underline">
+                      <Crown className="w-4 h-4" /> Upgrade to Pro
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </motion.div>
 
           {/* Stats row */}
           {prefs.showStats && (

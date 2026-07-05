@@ -5,6 +5,7 @@ import { db, leads, leadNotes, computeScore, computeOpportunity, computeDemand, 
 import { sql, ilike, or, gte, and, count, eq, inArray, isNull, type SQL } from "drizzle-orm";
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
+import { discoverBusinesses } from "../lib/discover";
 
 const router = Router();
 
@@ -61,25 +62,11 @@ router.options("/save", (_req, res) => {
   res.status(204).end();
 });
 
-// ---- POST /save — no auth, no limits ----------------------------------------
-router.post("/save", async (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-
-  const body = req.body;
-  if (!Array.isArray(body) || body.length === 0) {
-    res.status(400).json({ error: "Expected non-empty array of leads" });
-    return;
-  }
-
-  const batch = body.slice(0, 1000);
+// Score, dedupe and upsert a batch of raw lead objects, attributing them to a
+// member when known. Shared by the extension's /save and the AI /find flow.
+async function saveLeadBatch(batch: Record<string, unknown>[], memberId: string | null): Promise<{ saved: number; duplicates: number }> {
   let saved = 0;
   let duplicates = 0;
-
-  // Resolve which member is extracting (extension sends their API key). This is
-  // what lets us track member activity + per-lead demand. Anonymous if absent.
-  const apiKey = String(req.headers["x-api-key"] ?? "").trim();
-  const member = apiKey ? await storage.getUserByApiKey(apiKey) : null;
-  const memberId = member?.id ?? null;
 
   const rows = batch.map((lead: Record<string, unknown>) => {
     const name = String(lead["Name"] ?? lead["name"] ?? "");
@@ -206,8 +193,102 @@ router.post("/save", async (req, res) => {
     else saved++;
   }
 
+  return { saved, duplicates };
+}
+
+// ---- POST /save — no auth, no limits ----------------------------------------
+router.post("/save", async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
+  const body = req.body;
+  if (!Array.isArray(body) || body.length === 0) {
+    res.status(400).json({ error: "Expected non-empty array of leads" });
+    return;
+  }
+
+  // Resolve which member is extracting (extension sends their API key). This is
+  // what lets us track member activity + per-lead demand. Anonymous if absent.
+  const apiKey = String(req.headers["x-api-key"] ?? "").trim();
+  const member = apiKey ? await storage.getUserByApiKey(apiKey) : null;
+
+  const { saved, duplicates } = await saveLeadBatch(body.slice(0, 1000), member?.id ?? null);
+
   req.log.info({ saved, duplicates }, "leads saved");
   res.json({ saved, duplicates, syncedAt: new Date().toISOString() });
+});
+
+// ---- POST /find — AI Lead Finder for members ---------------------------------
+// The customer describes who they want to reach in plain English; live
+// web-search AI finds real matching businesses and saves them straight into
+// their lead list. Daily-capped per member (higher cap for Pro).
+const FIND_LIMIT_FREE = 3;
+const FIND_LIMIT_PRO = 25;
+const findUsage = new Map<string, { day: string; used: number }>();
+
+router.post("/find", async (req, res) => {
+  const { userId } = getAuth(req);
+  if (!userId) {
+    res.status(401).json({ error: "Sign in to use the AI Lead Finder." });
+    return;
+  }
+
+  const goal = String((req.body as { goal?: string })?.goal ?? "").trim();
+  if (goal.length < 8) {
+    res.status(400).json({ error: "Describe who you're looking for — e.g. \"roofing companies in Mobile AL with no website\"." });
+    return;
+  }
+
+  // Daily quota — Pro members get a much higher cap.
+  const user = await storage.getUser(userId);
+  const sub = user?.stripeCustomerId ? await storage.getActiveSubscriptionForCustomer(user.stripeCustomerId) : null;
+  const isPro = !!sub;
+  const limit = isPro ? FIND_LIMIT_PRO : FIND_LIMIT_FREE;
+  const today = new Date().toISOString().slice(0, 10);
+  const usage = findUsage.get(userId);
+  const used = usage?.day === today ? usage.used : 0;
+  if (used >= limit) {
+    res.status(429).json({
+      error: isPro
+        ? `You've used all ${limit} AI searches for today — more unlock tomorrow.`
+        : `You've used your ${limit} free AI searches for today. Upgrade to Pro for ${FIND_LIMIT_PRO} searches a day.`,
+      upgrade: !isPro,
+      used, limit,
+    });
+    return;
+  }
+
+  let found;
+  try {
+    found = await discoverBusinesses(goal, 15);
+  } catch (err) {
+    req.log.error({ err, userId, goal }, "ai lead find failed");
+    const msg = err instanceof Error ? err.message : "";
+    res.status(502).json({
+      error: /key/i.test(msg)
+        ? "The AI Lead Finder isn't available right now — we're on it. Please try again later."
+        : "The AI search didn't come back — please try again in a minute.",
+    });
+    return;
+  }
+  // A successful-but-empty search still counts toward the quota (it cost an AI call).
+  findUsage.set(userId, { day: today, used: used + 1 });
+
+  if (found.length === 0) {
+    res.json({ found: 0, saved: 0, duplicates: 0, businesses: [], used: used + 1, limit });
+    return;
+  }
+
+  const rows = found.map((b) => ({
+    Name: b.name,
+    Phone: b.phone ?? "",
+    Website: b.website ?? "",
+    Address: [b.city, b.state].filter(Boolean).join(", "),
+    Category: b.category || goal.slice(0, 80),
+  }));
+  const { saved, duplicates } = await saveLeadBatch(rows, userId);
+
+  req.log.info({ userId, goal, found: found.length, saved }, "ai lead find done");
+  res.json({ found: found.length, saved, duplicates, businesses: found, used: used + 1, limit });
 });
 
 // ---- GET / — paginated list --------------------------------------------------
@@ -230,9 +311,13 @@ router.get("/", async (req, res) => {
   if (minScore > 0) conditions.push(gte(leads.score, minScore));
   if (minOpportunity > 0) conditions.push(gte(leads.opportunityScore, minOpportunity));
   if (category) conditions.push(ilike(leads.category, `%${category}%`));
-  if (status && VALID_STATUSES.includes(status as LeadStatus)) {
-    conditions.push(eq(leads.status, status));
+  // An unknown status must be an error, not silently ignored — ignoring it once
+  // caused the SMS import to pull EVERY phone number instead of a subset.
+  if (status && !VALID_STATUSES.includes(status as LeadStatus)) {
+    res.status(400).json({ error: `status must be one of: ${VALID_STATUSES.join(", ")}` });
+    return;
   }
+  if (status) conditions.push(eq(leads.status, status));
 
   const where = and(...conditions)!;
 
@@ -403,15 +488,8 @@ router.patch("/:id/status", async (req, res) => {
   res.json({ ok: true, id, status });
 });
 
-// ---- DELETE /:id — soft-delete a lead (recoverable from admin) --------------
-router.delete("/:id", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  await db.update(leads).set({ deletedAt: new Date() }).where(eq(leads.id, id));
-  res.json({ ok: true, id });
-});
-
 // ---- DELETE /bulk — soft-delete multiple leads ------------------------------
+// Registered BEFORE /:id — otherwise Express matches "bulk" as :id and 400s.
 router.delete("/bulk", async (req, res) => {
   const { ids } = req.body as { ids: number[] };
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -421,6 +499,14 @@ router.delete("/bulk", async (req, res) => {
   const validIds = ids.map(Number).filter(n => !isNaN(n) && n > 0);
   await db.execute(sql`UPDATE leads SET deleted_at = NOW() WHERE id = ANY(${sql.raw(`ARRAY[${validIds.join(",")}]::int[]`)})`);
   res.json({ ok: true, deleted: validIds.length });
+});
+
+// ---- DELETE /:id — soft-delete a lead (recoverable from admin) --------------
+router.delete("/:id", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  await db.update(leads).set({ deletedAt: new Date() }).where(eq(leads.id, id));
+  res.json({ ok: true, id });
 });
 
 // ---- GET /export.csv — download CSV -----------------------------------------
