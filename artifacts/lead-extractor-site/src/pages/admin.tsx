@@ -92,6 +92,9 @@ interface SocialPostRow {
 interface SocialData {
   settings: { enabled: boolean; postHourUtc: number; autoRefill: boolean };
   facebookConnected: boolean;
+  pageName: string | null;
+  appConfigured: boolean;
+  redirectUri: string;
   aiConfigured: boolean;
   queue: SocialPostRow[];
   history: SocialPostRow[];
@@ -1016,12 +1019,21 @@ export default function Admin() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className={`rounded-xl p-4 border ${social?.facebookConnected ? "bg-primary/5 border-primary/30" : "bg-card border-border"}`}>
                   <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2"><Globe className="w-4 h-4 text-blue-400" /> Facebook Page</div>
-                  <div className={`text-lg font-display font-bold ${social?.facebookConnected ? "text-primary" : "text-foreground"}`}>
-                    {social ? (social.facebookConnected ? "Connected" : "Not connected") : "…"}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {social?.facebookConnected ? "Posting via the Graph API" : "Add the 2 secrets below to go live"}
-                  </div>
+                  {social?.facebookConnected ? (
+                    <>
+                      <div className="text-lg font-display font-bold text-primary">✓ {social.pageName || "Connected"}</div>
+                      <button onClick={async () => { await fetch(`${basePath}/api/admin/social/fb/disconnect`, { method: "POST" }); loadSocial(); }}
+                        className="text-xs text-muted-foreground hover:text-red-400 mt-1">Disconnect</button>
+                    </>
+                  ) : (
+                    <>
+                      <a href={`${basePath}/api/admin/social/fb/connect`}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold bg-blue-500 text-white hover:opacity-90 transition-opacity">
+                        <Globe className="w-4 h-4" /> Connect Facebook
+                      </a>
+                      <div className="text-xs text-muted-foreground mt-2">One click + Approve on Facebook — that's it</div>
+                    </>
+                  )}
                 </div>
                 <div className="rounded-xl p-4 border bg-card border-border">
                   <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2"><Zap className="w-4 h-4 text-yellow-400" /> Auto-posting</div>
@@ -1052,18 +1064,22 @@ export default function Admin() {
                 </div>
               </div>
 
-              {/* Facebook setup instructions — only until connected */}
+              {/* Facebook setup — only until connected */}
               {social && !social.facebookConnected && (
                 <div className="bg-card border border-border rounded-2xl p-6">
-                  <h3 className="text-sm font-display font-bold mb-3">🔌 Connect your Facebook Page (one-time, ~5 minutes)</h3>
+                  <h3 className="text-sm font-display font-bold mb-3">🔌 Connect your Facebook Page (one-time)</h3>
                   <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
-                    <li>Go to <span className="font-mono text-foreground">developers.facebook.com</span> → create an app (type: <span className="text-foreground">Business</span>).</li>
-                    <li>In the app, open <span className="text-foreground">Tools → Graph API Explorer</span>, pick your app, and click <span className="text-foreground">Generate Access Token</span> — grant <span className="font-mono text-foreground">pages_manage_posts</span> and <span className="font-mono text-foreground">pages_read_engagement</span> for your Page.</li>
-                    <li>Convert it to a long-lived <span className="text-foreground">Page</span> token (in the Explorer: query <span className="font-mono text-foreground">me/accounts</span> and copy your page's <span className="font-mono text-foreground">access_token</span>).</li>
-                    <li>In Replit, open the <span className="text-foreground">Secrets</span> panel and add <span className="font-mono text-foreground">FACEBOOK_PAGE_ID</span> (the number on your Page's About page) and <span className="font-mono text-foreground">FACEBOOK_PAGE_ACCESS_TOKEN</span>.</li>
-                    <li>Redeploy — this card turns green and the daily posting starts on its own.</li>
+                    <li>On <span className="font-mono text-foreground">developers.facebook.com</span>, open your app → <span className="text-foreground">Add Product</span> → add <span className="text-foreground">Facebook Login</span> → <span className="text-foreground">Settings</span>.</li>
+                    <li>Paste this into <span className="text-foreground">Valid OAuth Redirect URIs</span> and save:
+                      <div className="font-mono text-xs text-foreground bg-background border border-border rounded-lg px-3 py-2 mt-1 break-all select-all">{social.redirectUri}</div>
+                    </li>
+                    <li>Come back here and hit the blue <span className="text-foreground">Connect Facebook</span> button above — log in, tap <span className="text-foreground">Approve</span>, done.</li>
                   </ol>
-                  <p className="text-xs text-muted-foreground mt-3">Meanwhile the AI still fills the queue below, so you can review and edit posts before anything goes live.</p>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    {social.appConfigured
+                      ? "Your app credentials are already on file. Until you connect, the AI still fills the queue below so you can review posts."
+                      : "⚠️ App credentials are missing — the Connect button won't work until FACEBOOK_APP_ID and FACEBOOK_APP_SECRET are set."}
+                  </p>
                 </div>
               )}
 

@@ -32,6 +32,15 @@ export const socialSettings = pgTable("social_settings", {
   postHourUtc: integer("post_hour_utc").notNull().default(14),
   // Top the queue back up with AI-generated posts when it runs low.
   autoRefill: boolean("auto_refill").notNull().default(true),
+  // Facebook connection, filled by the admin "Connect Facebook" OAuth flow so
+  // no env secrets are needed: app credentials, the long-lived user token from
+  // the OAuth exchange, and the selected Page's id/name/token.
+  fbAppId: text("fb_app_id"),
+  fbAppSecret: text("fb_app_secret"),
+  fbUserToken: text("fb_user_token"),
+  fbPageId: text("fb_page_id"),
+  fbPageName: text("fb_page_name"),
+  fbPageToken: text("fb_page_token"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

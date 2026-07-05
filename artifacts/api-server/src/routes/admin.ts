@@ -9,7 +9,10 @@ import { analyzeLeads } from "../lib/analyze";
 import { discoverBusinesses } from "../lib/discover";
 import { reconSellAngle, composeBrief, type ReconBrief } from "../lib/recon";
 import { parseProxyLines, testProxy } from "../lib/proxyPool";
-import { getSocialSettings, updateSocialSettings, generateSocialPosts, publishPost, facebookConfig } from "../lib/social";
+import {
+  getSocialSettings, updateSocialSettings, generateSocialPosts, publishPost,
+  facebookCreds, fbAppConfigured, fbConnectUrl, fbHandleCallback, fbSelectPage, fbDisconnect, FB_REDIRECT_URI,
+} from "../lib/social";
 
 const router = Router();
 
@@ -1078,18 +1081,89 @@ router.post("/restore-bulk", requireAdmin, async (req, res) => {
 
 // ---- GET /social — everything the Social tab needs in one call ---------------
 router.get("/social", requireAuth, async (_req, res) => {
-  const [settings, queue, history] = await Promise.all([
+  const [settings, fb, appConfigured, queue, history] = await Promise.all([
     getSocialSettings(),
+    facebookCreds(),
+    fbAppConfigured(),
     db.select().from(socialPosts).where(eq(socialPosts.status, "queued")).orderBy(asc(socialPosts.id)),
     db.select().from(socialPosts).where(sql`${socialPosts.status} <> 'queued'`).orderBy(desc(socialPosts.id)).limit(30),
   ]);
+  // Never ship tokens/secrets to the browser.
+  const { fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p, ...safeSettings } = settings;
   res.json({
-    settings,
-    facebookConnected: Boolean(facebookConfig()),
+    settings: safeSettings,
+    facebookConnected: Boolean(fb),
+    pageName: fb?.pageName ?? null,
+    appConfigured,
+    redirectUri: FB_REDIRECT_URI,
     aiConfigured: Boolean(process.env.OPENAI_API_KEY || process.env.CHAT_GPT_API),
     queue,
     history,
   });
+});
+
+// ---- Facebook OAuth: GET /social/fb/connect → Facebook login dialog ----------
+router.get("/social/fb/connect", requireAuth, async (_req, res) => {
+  try {
+    res.redirect(await fbConnectUrl());
+  } catch (err) {
+    res.status(400).send(err instanceof Error ? err.message : String(err));
+  }
+});
+
+// Tiny standalone result page — the callback lands as a top-level navigation,
+// so respond with plain HTML that sends the admin back to the dashboard.
+function fbResultPage(title: string, body: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
+<style>body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0d1117;color:#e6edf3;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
+.card{max-width:460px;background:#161b22;border:1px solid #30363d;border-radius:16px;padding:32px;text-align:center}
+a.btn{display:inline-block;margin-top:8px;padding:10px 20px;border-radius:10px;background:#00E676;color:#0d1117;font-weight:700;text-decoration:none}
+a.pick{display:block;margin:8px 0;padding:12px;border-radius:10px;background:#21262d;color:#e6edf3;text-decoration:none;font-weight:600}
+p{color:#8b949e}</style></head><body><div class="card">${body}</div></body></html>`;
+}
+
+// ---- GET /social/fb/callback — Facebook redirects here after Approve ---------
+router.get("/social/fb/callback", requireAuth, async (req, res) => {
+  const { code, state, error_description: fbError } = req.query as Record<string, string | undefined>;
+  if (fbError || !code || !state) {
+    res.status(400).send(fbResultPage("Facebook connection failed",
+      `<h2>😕 Connection cancelled</h2><p>${fbError || "Facebook didn't send a login code."}</p><a class="btn" href="/admin">Back to admin</a>`));
+    return;
+  }
+  try {
+    const { connected, pages } = await fbHandleCallback(code, state);
+    if (connected) {
+      res.send(fbResultPage("Facebook connected",
+        `<h2>✅ Connected to ${connected.name}</h2><p>The auto-poster can now publish to your Page. You can close this and head back.</p><a class="btn" href="/admin">Back to admin</a>`));
+      return;
+    }
+    res.send(fbResultPage("Pick a Page",
+      `<h2>Almost done — which Page?</h2><p>Your account manages more than one Page. Pick the one to auto-post to:</p>` +
+      pages.map((p) => `<a class="pick" href="/api/admin/social/fb/select?pageId=${encodeURIComponent(p.id)}">${p.name}</a>`).join("")));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(400).send(fbResultPage("Facebook connection failed",
+      `<h2>😕 Something went wrong</h2><p>${msg}</p><a class="btn" href="/admin">Back to admin</a>`));
+  }
+});
+
+// ---- GET /social/fb/select?pageId= — finish connect when multiple Pages ------
+router.get("/social/fb/select", requireAuth, async (req, res) => {
+  try {
+    const page = await fbSelectPage(String(req.query.pageId ?? ""));
+    res.send(fbResultPage("Facebook connected",
+      `<h2>✅ Connected to ${page.name}</h2><p>The auto-poster can now publish to your Page.</p><a class="btn" href="/admin">Back to admin</a>`));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(400).send(fbResultPage("Facebook connection failed",
+      `<h2>😕 Something went wrong</h2><p>${msg}</p><a class="btn" href="/admin">Back to admin</a>`));
+  }
+});
+
+// ---- POST /social/fb/disconnect — forget the connected Page ------------------
+router.post("/social/fb/disconnect", requireAuth, async (_req, res) => {
+  await fbDisconnect();
+  res.json({ ok: true });
 });
 
 // ---- POST /social/generate — top the queue up with AI-written posts ----------

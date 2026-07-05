@@ -7,6 +7,7 @@
  * The admin Social tab drives everything through the /api/admin/social routes;
  * this module owns the actual generation, publishing, and the scheduler tick.
  */
+import crypto from "node:crypto";
 import { db, socialPosts, socialSettings, type SocialPost, type SocialSettings } from "@workspace/db";
 import { eq, desc, asc, and, gte, sql } from "drizzle-orm";
 import { logger } from "./logger";
@@ -15,10 +16,129 @@ function openAiKey(): string {
   return process.env.OPENAI_API_KEY || process.env.CHAT_GPT_API || "";
 }
 
-export function facebookConfig(): { pageId: string; token: string } | null {
+// Page credentials come from the DB (set by the admin "Connect Facebook"
+// OAuth flow), with env secrets as a manual fallback.
+export async function facebookCreds(): Promise<{ pageId: string; token: string; pageName: string | null } | null> {
+  const s = await getSocialSettings();
+  if (s.fbPageId && s.fbPageToken) return { pageId: s.fbPageId, token: s.fbPageToken, pageName: s.fbPageName };
   const pageId = process.env.FACEBOOK_PAGE_ID ?? "";
   const token = process.env.FACEBOOK_PAGE_ACCESS_TOKEN ?? "";
-  return pageId && token ? { pageId, token } : null;
+  return pageId && token ? { pageId, token, pageName: null } : null;
+}
+
+async function fbApp(): Promise<{ id: string; secret: string } | null> {
+  const s = await getSocialSettings();
+  const id = s.fbAppId || process.env.FACEBOOK_APP_ID || "";
+  const secret = s.fbAppSecret || process.env.FACEBOOK_APP_SECRET || "";
+  return id && secret ? { id, secret } : null;
+}
+
+export async function fbAppConfigured(): Promise<boolean> {
+  return Boolean(await fbApp());
+}
+
+// ── Facebook OAuth (the "Connect Facebook" button) ───────────────────────────
+
+const FB_GRAPH = "https://graph.facebook.com/v23.0";
+export const FB_REDIRECT_URI = "https://mapleadextractor.net/api/admin/social/fb/callback";
+const FB_SCOPES = "pages_show_list,pages_manage_posts,pages_read_engagement";
+const FB_STATE_MAX_AGE_MS = 15 * 60 * 1000;
+
+function signState(secret: string): string {
+  const ts = Date.now().toString();
+  return `${ts}.${crypto.createHmac("sha256", secret).update(ts).digest("hex")}`;
+}
+
+function stateIsValid(state: string, secret: string): boolean {
+  const [ts, sig] = state.split(".");
+  if (!ts || !sig) return false;
+  const expected = crypto.createHmac("sha256", secret).update(ts).digest("hex");
+  const ok = sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+  return ok && Date.now() - Number(ts) < FB_STATE_MAX_AGE_MS;
+}
+
+export async function fbConnectUrl(): Promise<string> {
+  const app = await fbApp();
+  if (!app) throw new Error("Facebook app credentials missing — set fb_app_id/fb_app_secret in social_settings (or FACEBOOK_APP_ID/FACEBOOK_APP_SECRET secrets).");
+  const q = new URLSearchParams({
+    client_id: app.id,
+    redirect_uri: FB_REDIRECT_URI,
+    state: signState(app.secret),
+    scope: FB_SCOPES,
+    response_type: "code",
+  });
+  return `https://www.facebook.com/v23.0/dialog/oauth?${q}`;
+}
+
+async function fbGet<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  const data = (await res.json().catch(() => ({}))) as T & { error?: { message?: string } };
+  if (!res.ok || data.error) throw new Error(data.error?.message || `Facebook API ${res.status}`);
+  return data;
+}
+
+export type FbPage = { id: string; name: string; access_token: string };
+
+async function fbListPages(userToken: string): Promise<FbPage[]> {
+  const data = await fbGet<{ data?: FbPage[] }>(
+    `${FB_GRAPH}/me/accounts?fields=id,name,access_token&limit=100&access_token=${encodeURIComponent(userToken)}`,
+  );
+  return (data.data ?? []).filter((p) => p.id && p.access_token);
+}
+
+async function fbSavePage(page: FbPage): Promise<void> {
+  await getSocialSettings();
+  await db
+    .update(socialSettings)
+    .set({ fbPageId: page.id, fbPageName: page.name, fbPageToken: page.access_token, updatedAt: new Date() })
+    .where(eq(socialSettings.id, 1));
+  logger.info({ pageId: page.id, pageName: page.name }, "Facebook Page connected");
+}
+
+// Full callback exchange: code → user token → long-lived token → pages.
+// Auto-connects when the account manages exactly one Page; otherwise the
+// caller shows the list and /fb/select finishes the job.
+export async function fbHandleCallback(code: string, state: string): Promise<{ connected: FbPage | null; pages: FbPage[] }> {
+  const app = await fbApp();
+  if (!app) throw new Error("Facebook app credentials missing.");
+  if (!stateIsValid(state, app.secret)) throw new Error("Login link expired — go back to the admin Social tab and click Connect Facebook again.");
+
+  const short = await fbGet<{ access_token?: string }>(
+    `${FB_GRAPH}/oauth/access_token?client_id=${app.id}&client_secret=${app.secret}&redirect_uri=${encodeURIComponent(FB_REDIRECT_URI)}&code=${encodeURIComponent(code)}`,
+  );
+  if (!short.access_token) throw new Error("Facebook did not return a token.");
+
+  const long = await fbGet<{ access_token?: string }>(
+    `${FB_GRAPH}/oauth/access_token?grant_type=fb_exchange_token&client_id=${app.id}&client_secret=${app.secret}&fb_exchange_token=${encodeURIComponent(short.access_token)}`,
+  );
+  const userToken = long.access_token || short.access_token;
+  await db.update(socialSettings).set({ fbUserToken: userToken, updatedAt: new Date() }).where(eq(socialSettings.id, 1));
+
+  const pages = await fbListPages(userToken);
+  if (pages.length === 0) throw new Error("No Facebook Pages found on that account — make sure you're an admin of your business Page.");
+  if (pages.length === 1) {
+    await fbSavePage(pages[0]!);
+    return { connected: pages[0]!, pages };
+  }
+  return { connected: null, pages };
+}
+
+export async function fbSelectPage(pageId: string): Promise<FbPage> {
+  const s = await getSocialSettings();
+  if (!s.fbUserToken) throw new Error("No Facebook login on file — click Connect Facebook first.");
+  const pages = await fbListPages(s.fbUserToken);
+  const page = pages.find((p) => p.id === pageId);
+  if (!page) throw new Error("That Page wasn't in the list Facebook returned.");
+  await fbSavePage(page);
+  return page;
+}
+
+export async function fbDisconnect(): Promise<void> {
+  await getSocialSettings();
+  await db
+    .update(socialSettings)
+    .set({ fbUserToken: null, fbPageId: null, fbPageName: null, fbPageToken: null, updatedAt: new Date() })
+    .where(eq(socialSettings.id, 1));
 }
 
 // What the posts sell — same product framing as scripts/src/social-posts.ts,
@@ -140,8 +260,8 @@ export async function generateSocialPosts(n: number): Promise<SocialPost[]> {
 // ── Publishing ────────────────────────────────────────────────────────────────
 
 export async function publishPost(postId: number): Promise<SocialPost> {
-  const fb = facebookConfig();
-  if (!fb) throw new Error("Facebook not connected — add FACEBOOK_PAGE_ID and FACEBOOK_PAGE_ACCESS_TOKEN in the Replit Secrets panel.");
+  const fb = await facebookCreds();
+  if (!fb) throw new Error("Facebook not connected — use the Connect Facebook button in the admin Social tab.");
 
   const rows = await db.select().from(socialPosts).where(eq(socialPosts.id, postId));
   const post = rows[0];
@@ -210,7 +330,7 @@ export async function socialTick(): Promise<void> {
       }
     }
 
-    if (!facebookConfig()) return;
+    if (!(await facebookCreds())) return;
 
     // One post per day: skip if anything was published since today's posting
     // hour, and don't start before that hour (UTC).
