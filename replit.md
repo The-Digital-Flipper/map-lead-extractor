@@ -39,7 +39,8 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Building the site locally needs env vars: `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/lead-extractor-site run build` (vite.config.ts throws without them; CI sets them in `ops/ci.github-workflow.yml`).
+- Site analytics: every route change fires a beacon to `POST /api/track` (client: `src/lib/track.ts`, hooked in `App.tsx`), stored in the `site_visits` table, surfaced in the admin **Traffic** tab via `GET /api/admin/traffic`. `/admin*` visits and bot UAs are not counted.
 
 ## Pointers
 
