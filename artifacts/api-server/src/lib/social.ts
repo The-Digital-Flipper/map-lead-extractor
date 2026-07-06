@@ -332,6 +332,88 @@ export async function generateGroupPosts(n: number): Promise<SocialPost[]> {
     .returning();
 }
 
+// AI web search for real, public Facebook Groups that match the product's
+// audience and allow open posting (public group, no admin-approval-to-post
+// gate) — same live-search approach as lib/discover.ts's lead finder, just
+// pointed at Groups instead of businesses. Still adds to the same
+// socialGroups rotation the admin drives by hand (joining is still manual —
+// Facebook has no API for that either — but finding candidates isn't).
+type DiscoveredGroup = { name: string; url: string; why: string };
+
+function extractGroupsJson(text: string): { groups?: unknown[] } {
+  const cleaned = text.replace(/```(?:json)?/gi, "").trim();
+  const start = cleaned.indexOf("{"), end = cleaned.lastIndexOf("}");
+  if (start === -1 || end < start) return {};
+  try { return JSON.parse(cleaned.slice(start, end + 1)) as { groups?: unknown[] }; }
+  catch { return {}; }
+}
+
+async function findGroupCandidates(n: number): Promise<DiscoveredGroup[]> {
+  const key = openAiKey();
+  if (!key) throw new Error("No OpenAI key set — add OPENAI_API_KEY (or CHAT_GPT_API) in the Replit Secrets panel.");
+  const howMany = Math.min(15, Math.max(3, n));
+
+  const existing = await db.select({ url: socialGroups.url }).from(socialGroups);
+  const existingUrls = new Set(existing.map((g) => g.url.toLowerCase().replace(/\/$/, "")));
+
+  const input = [
+    `Use web search to find up to ${howMany} REAL, currently active PUBLIC Facebook Groups where ${PRODUCT.audience} hang out and members freely post their own content/tips/questions (not just admin announcements).`,
+    `Only include groups that are: (1) public (anyone can see posts, not "private"/"hidden"), (2) actually active — recent posts, not a dead group, (3) a plausible fit for someone sharing value about lead generation, cold outreach, local-business marketing, or sales tools.`,
+    `For each group return its exact facebook.com/groups/... URL (never invent one — only URLs you found via search) and its name.`,
+    existingUrls.size ? `Skip these groups, already known: ${[...existingUrls].slice(0, 30).join(", ")}` : ``,
+    `Return ONLY JSON: {"groups":[{"name":"","url":"https://www.facebook.com/groups/...","why":"<max 15 words on why members here fit>"}]}. No prose, no markdown.`,
+  ].filter(Boolean).join("\n");
+
+  const res = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model: "gpt-4o", tools: [{ type: "web_search_preview" }], input }),
+  });
+  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+
+  const data = (await res.json()) as { output?: { type?: string; content?: { type?: string; text?: string }[] }[] };
+  let text = "";
+  for (const item of data.output ?? []) {
+    if (item.type === "message") {
+      for (const c of item.content ?? []) {
+        if (c.type === "output_text") text += c.text ?? "";
+      }
+    }
+  }
+
+  const parsed = extractGroupsJson(text);
+  const list = Array.isArray(parsed.groups) ? parsed.groups : [];
+  const out: DiscoveredGroup[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const name = String(o.name ?? "").trim();
+    const url = String(o.url ?? "").trim();
+    if (!name || !/^https:\/\/(www\.|m\.|web\.)?facebook\.com\/groups\/[^\s]+$/i.test(url)) continue;
+    out.push({ name, url, why: String(o.why ?? "").trim().slice(0, 200) });
+  }
+  return out.slice(0, howMany);
+}
+
+export async function discoverGroups(n: number): Promise<{ added: SocialGroup[]; duplicates: number; candidates: DiscoveredGroup[] }> {
+  const found = await findGroupCandidates(n);
+  if (found.length === 0) return { added: [], duplicates: 0, candidates: [] };
+
+  const existing = await db.select({ url: socialGroups.url }).from(socialGroups);
+  const existingUrls = new Set(existing.map((g) => g.url.toLowerCase().replace(/\/$/, "")));
+
+  const fresh = found.filter((g) => !existingUrls.has(g.url.toLowerCase().replace(/\/$/, "")));
+  const duplicates = found.length - fresh.length;
+  if (fresh.length === 0) return { added: [], duplicates, candidates: found };
+
+  const added = await db
+    .insert(socialGroups)
+    .values(fresh.map((g) => ({ name: g.name, url: g.url, notes: g.why || null })))
+    .returning();
+  logger.info({ added: added.length, duplicates }, "AI-discovered Facebook groups added to rotation");
+  return { added, duplicates, candidates: found };
+}
+
 export async function listGroups(): Promise<SocialGroup[]> {
   return db.select().from(socialGroups).orderBy(asc(socialGroups.lastPostedAt), asc(socialGroups.id));
 }

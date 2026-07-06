@@ -12,7 +12,7 @@ import { parseProxyLines, testProxy } from "../lib/proxyPool";
 import {
   getSocialSettings, updateSocialSettings, generateSocialPosts, publishPost,
   facebookCreds, fbAppConfigured, fbConnectUrl, fbHandleCallback, fbSelectPage, fbDisconnect, FB_REDIRECT_URI,
-  generateGroupPosts, listGroups, addGroup, deleteGroup, markGroupPosted,
+  generateGroupPosts, listGroups, addGroup, deleteGroup, markGroupPosted, discoverGroups,
   syncEngagementStats, generatePostImage, getPostImage, removePostImage,
 } from "../lib/social";
 
@@ -1128,6 +1128,18 @@ router.post("/social/groups", requireAuth, async (req, res) => {
 router.delete("/social/groups/:id", requireAuth, async (req, res) => {
   await deleteGroup(Number(req.params.id));
   res.json({ ok: true });
+});
+
+// POST /social/groups/discover — AI web-search finds real public FB Groups
+// that fit the product's audience and auto-adds the new ones to the rotation
+router.post("/social/groups/discover", requireAuth, async (req, res) => {
+  try {
+    const count = Math.min(15, Math.max(3, Number((req.body as { count?: number })?.count) || 8));
+    const result = await discoverGroups(count);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 // POST /social/groups/generate — AI writes group-flavored posts (no links/ads)

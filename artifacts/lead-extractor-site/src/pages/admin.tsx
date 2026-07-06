@@ -7,7 +7,7 @@ import {
   MapPin, ChevronLeft, ChevronRight, DollarSign, CreditCard,
   UserCheck, UserX, Crown, BarChart2, RefreshCw,
   Flame, Globe, Target, Sparkles, Package, Phone, Trash2, RotateCcw,
-  Activity, Eye, Copy, ExternalLink,
+  Activity, Eye, Copy, ExternalLink, Search,
 } from "lucide-react";
 import {
   ComposableMap, Geographies, Geography, ZoomableGroup, Marker,
@@ -371,6 +371,7 @@ export default function Admin() {
   const [groupUrl, setGroupUrl] = useState("");
   const [addingGroup, setAddingGroup] = useState(false);
   const [generatingGroupPosts, setGeneratingGroupPosts] = useState(false);
+  const [discoveringGroups, setDiscoveringGroups] = useState(false);
   const [groupBusyId, setGroupBusyId] = useState<number | null>(null);
   const groupAdd = async () => {
     if (!groupName.trim() || !groupUrl.trim()) return;
@@ -385,6 +386,20 @@ export default function Admin() {
       else { setSocialMsg(`✓ “${groupName.trim()}” added to the rotation`); setGroupName(""); setGroupUrl(""); }
     } catch (e) { setSocialMsg(e instanceof Error ? e.message : "Couldn't add that group"); }
     setAddingGroup(false);
+    loadSocial();
+  };
+  const groupDiscover = async () => {
+    setDiscoveringGroups(true); setSocialMsg(null);
+    try {
+      const r = await fetch(`${basePath}/api/admin/social/groups/discover`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ count: 8 }),
+      });
+      const d = await r.json();
+      if (!r.ok) setSocialMsg(d.error || "Couldn't find groups");
+      else if (d.added.length === 0) setSocialMsg(d.duplicates > 0 ? "Found groups, but you already have them all in your rotation." : "No matching public groups turned up — try again in a bit.");
+      else setSocialMsg(`✓ Found ${d.added.length} new group${d.added.length === 1 ? "" : "s"} for the rotation${d.duplicates ? ` (skipped ${d.duplicates} already added)` : ""} — join each before your first post.`);
+    } catch (e) { setSocialMsg(e instanceof Error ? e.message : "Couldn't find groups"); }
+    setDiscoveringGroups(false);
     loadSocial();
   };
   const groupDelete = async (id: number) => {
@@ -1285,15 +1300,25 @@ export default function Admin() {
                       </span>
                     )}
                   </div>
-                  <button onClick={groupGenerate} disabled={generatingGroupPosts || !social?.aiConfigured}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground disabled:opacity-50 hover:opacity-90 transition-opacity">
-                    {generatingGroupPosts ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                    {generatingGroupPosts ? "Writing…" : "Write 5 group posts"}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={groupDiscover} disabled={discoveringGroups || !social?.aiConfigured}
+                      title="AI web search finds real public Facebook groups that fit this product's audience"
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-muted text-foreground disabled:opacity-50 hover:opacity-80 transition-opacity">
+                      {discoveringGroups ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                      {discoveringGroups ? "Searching…" : "Find groups"}
+                    </button>
+                    <button onClick={groupGenerate} disabled={generatingGroupPosts || !social?.aiConfigured}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground disabled:opacity-50 hover:opacity-90 transition-opacity">
+                      {generatingGroupPosts ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                      {generatingGroupPosts ? "Writing…" : "Write 5 group posts"}
+                    </button>
+                  </div>
                 </div>
                 <p className="text-xs text-muted-foreground mb-4">
                   Facebook shut off group posting for apps, so nothing can fully automate it without getting you banned. This is the next best thing:
-                  one click <span className="text-foreground font-semibold">copies the next post + opens the group</span> — you just paste and hit Post. ~5 seconds per group.
+                  <span className="text-foreground font-semibold"> Find groups</span> has AI search the web for real, active public groups that fit
+                  your audience so you don't have to go hunting — join each one once, then one click
+                  <span className="text-foreground font-semibold"> copies the next post + opens the group</span> — you just paste and hit Post. ~5 seconds per group.
                 </p>
 
                 {/* Next group post on deck */}
@@ -1387,7 +1412,8 @@ export default function Admin() {
                 </div>
                 {social && social.groups.length === 0 && (
                   <p className="text-xs text-muted-foreground mt-2">
-                    Add the groups you're a member of (open the group on Facebook and copy the link). The rotation sorts by least-recently-posted and flags who's due.
+                    Hit <span className="text-foreground font-semibold">Find groups</span> above to have AI search out real public groups for you,
+                    or add one manually if you already know it. The rotation sorts by least-recently-posted and flags who's due.
                   </p>
                 )}
               </div>
