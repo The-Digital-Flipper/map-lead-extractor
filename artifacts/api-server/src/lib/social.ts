@@ -146,6 +146,9 @@ export async function fbDisconnect(): Promise<void> {
 const PRODUCT = {
   name: "Map Lead Extractor",
   url: "https://mapleadextractor.net",
+  // The free, no-install web tool (as opposed to the Chrome extension) —
+  // worth its own link since "try it free, no install" is a strong hook.
+  freeToolUrl: "https://mapleadextractor.net/scraper",
   oneLiner:
     "A tool that extracts business leads (name, phone, address, website, rating) from Google Maps so you can build targeted local-business lead lists in minutes instead of copying them by hand.",
   audience:
@@ -155,6 +158,7 @@ const PRODUCT = {
     "Export name, phone, website, address, category, and rating to CSV/spreadsheet",
     "Skip hours of manual copy-pasting from Maps",
     "Build hyper-targeted lists by city + business type for cold outreach",
+    "Free, no-install web scraper at mapleadextractor.net/scraper — run a search right in the browser, no signup required to try it, no download to install",
   ],
 };
 
@@ -297,6 +301,8 @@ export async function generateGroupPosts(n: number): Promise<SocialPost[]> {
     `PRODUCT (mention sparingly): ${PRODUCT.name}`,
     `WHAT IT DOES: ${PRODUCT.oneLiner}`,
     `AUDIENCE IN THESE GROUPS: ${PRODUCT.audience}`,
+    `THINGS YOU COULD MENTION BY NAME (never as a link — see rules below):`,
+    ...PRODUCT.keyBenefits.map((b) => `  - ${b}`),
     ``,
     `Write ${howMany} distinct group posts. Rules:`,
     `- Value-first and community-toned: a concrete tactic, a lesson learned, a mini case study, or a genuine question that starts discussion.`,

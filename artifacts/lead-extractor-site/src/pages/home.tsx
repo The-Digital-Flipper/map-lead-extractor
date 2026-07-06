@@ -133,6 +133,7 @@ export default function Home() {
             <a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a>
             <a href="/blog" className="hover:text-foreground transition-colors">Blog</a>
             <a href="/tools" className="hover:text-foreground transition-colors">Free Tools</a>
+            <a href="/scraper" className="hover:text-foreground transition-colors">Scraper</a>
           </nav>
           <div className="flex items-center gap-3">
             <Show when="signed-in">

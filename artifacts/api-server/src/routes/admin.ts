@@ -1,12 +1,14 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "@clerk/express";
-import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, computeOpportunity, computeValue } from "@workspace/db";
+import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, computeOpportunity, computeValue, type ScrapePlatform } from "@workspace/db";
 import { sql, count, gte, eq, and, desc, asc, isNull, isNotNull, getTableColumns } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 import { scrapeAndSave } from "../lib/scrape";
 import { researchTargets } from "../lib/research";
 import { analyzeLeads } from "../lib/analyze";
 import { discoverBusinesses } from "../lib/discover";
+import { startRun, runScrapeJob, listRuns, getRun, deleteRun, runToCsv } from "../lib/scrapeRuns";
+import { scrapeInFlight, acquireScrapeLock, releaseScrapeLock } from "../lib/scrapeLock";
 import { reconSellAngle, composeBrief, type ReconBrief } from "../lib/recon";
 import { parseProxyLines, testProxy } from "../lib/proxyPool";
 import {
@@ -17,9 +19,6 @@ import {
 } from "../lib/social";
 
 const router = Router();
-
-// Guard against overlapping scrape runs — one browser at a time.
-let scrapeInFlight = false;
 
 // ── Admin secret guard ────────────────────────────────────────────────────────
 const ADMIN_SECRET = process.env.ADMIN_SECRET ?? "";
@@ -599,7 +598,7 @@ async function enrichLeadBatch(batch: (typeof leads.$inferSelect)[]): Promise<En
 // Enrich the leads a scrape just produced: the most-recently-touched unenriched
 // leads in that category that have a website (the scrape just stamped them, so
 // ordering by updated_at puts them first). Bounded so it stays snappy.
-async function autoEnrichScraped(category: string): Promise<EnrichStats> {
+export async function autoEnrichScraped(category: string): Promise<EnrichStats> {
   const fresh = await db
     .select()
     .from(leads)
@@ -643,12 +642,11 @@ router.post("/scrape", requireAuth, async (req, res) => {
     res.status(400).json({ error: "category is required (e.g. \"plumbers\")" });
     return;
   }
-  if (scrapeInFlight) {
+  if (!acquireScrapeLock()) {
     res.status(429).json({ error: "A scrape is already running — try again in a moment." });
     return;
   }
 
-  scrapeInFlight = true;
   const startedAt = Date.now();
   try {
     const result = await scrapeAndSave({
@@ -663,8 +661,75 @@ router.post("/scrape", requireAuth, async (req, res) => {
     req.log.error({ err }, "admin test scrape failed");
     res.status(500).json({ error: err instanceof Error ? err.message : "Scrape failed" });
   } finally {
-    scrapeInFlight = false;
+    releaseScrapeLock();
   }
+});
+
+// ── Scraper tab (Apify-style run console) ────────────────────────────────────
+// Same scrapeAndSave engine as /scrape above, but every run is persisted as a
+// row (input, status, dataset, counts) so the admin gets a run history and a
+// browsable/exportable dataset per run instead of a one-shot test result.
+
+// POST /scraper/runs — start a run
+router.post("/scraper/runs", requireAuth, async (req, res) => {
+  const body = (req.body ?? {}) as { category?: string; location?: string; maxScrolls?: number; platform?: ScrapePlatform };
+  const category = String(body.category ?? "").trim();
+  const location = String(body.location ?? "").trim();
+  const platform: ScrapePlatform = body.platform ?? "google_maps";
+  if (!category) {
+    res.status(400).json({ error: "category is required (e.g. \"plumbers\")" });
+    return;
+  }
+  if (!acquireScrapeLock()) {
+    res.status(429).json({ error: "A scrape is already running — try again in a moment." });
+    return;
+  }
+
+  try {
+    const run = await startRun(platform, category, location || undefined, null);
+    const finished = await runScrapeJob(run.id, platform, {
+      category,
+      location: location || undefined,
+      maxScrolls: typeof body.maxScrolls === "number" ? body.maxScrolls : 3,
+    });
+    const enrich = finished.status === "succeeded" ? await autoEnrichScraped(category).catch(() => null) : null;
+    req.log.info({ runId: finished.id, status: finished.status, saved: finished.saved, enrich }, "scraper run done");
+    res.json({ ok: finished.status === "succeeded", run: finished, enrich });
+  } catch (err) {
+    req.log.error({ err }, "scraper run failed to start");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Scrape failed" });
+  } finally {
+    releaseScrapeLock();
+  }
+});
+
+// GET /scraper/runs — history (no dataset payload — keeps the list light).
+// Site-wide (all users) — this is the owner's internal view.
+router.get("/scraper/runs", requireAuth, async (req, res) => {
+  const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit ?? "30"), 10) || 30));
+  res.json({ runs: await listRuns(limit), inFlight: scrapeInFlight() });
+});
+
+// GET /scraper/runs/:id — one run's full detail, including its dataset
+router.get("/scraper/runs/:id", requireAuth, async (req, res) => {
+  const run = await getRun(Number(req.params.id));
+  if (!run) { res.status(404).json({ error: "Run not found" }); return; }
+  res.json({ run });
+});
+
+// GET /scraper/runs/:id/export — download the run's dataset as CSV
+router.get("/scraper/runs/:id/export", requireAuth, async (req, res) => {
+  const run = await getRun(Number(req.params.id));
+  if (!run) { res.status(404).json({ error: "Run not found" }); return; }
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="scrape-run-${run.id}.csv"`);
+  res.send(runToCsv(run));
+});
+
+// DELETE /scraper/runs/:id — remove a run from history
+router.delete("/scraper/runs/:id", requireAuth, async (req, res) => {
+  await deleteRun(Number(req.params.id));
+  res.json({ ok: true });
 });
 
 // ---- POST /research — AI finds the best places to scrape -------------------
@@ -858,12 +923,11 @@ router.get("/scrape-targets/active", async (_req, res) => {
 router.post("/scrape-targets/:id/scrape", requireAuth, async (req, res) => {
   const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  if (scrapeInFlight) { res.status(429).json({ error: "A scrape is already running." }); return; }
+  if (!acquireScrapeLock()) { res.status(429).json({ error: "A scrape is already running." }); return; }
 
   const [target] = await db.select().from(scrapeTargets).where(eq(scrapeTargets.id, id)).limit(1);
-  if (!target) { res.status(404).json({ error: "Target not found" }); return; }
+  if (!target) { releaseScrapeLock(); res.status(404).json({ error: "Target not found" }); return; }
 
-  scrapeInFlight = true;
   try {
     const result = await scrapeAndSave({ category: target.category, location: target.location });
     const enrich = await autoEnrichScraped(target.category).catch(() => null);
@@ -876,7 +940,7 @@ router.post("/scrape-targets/:id/scrape", requireAuth, async (req, res) => {
     req.log.error({ err, id }, "target scrape failed");
     res.status(500).json({ error: err instanceof Error ? err.message : "Scrape failed" });
   } finally {
-    scrapeInFlight = false;
+    releaseScrapeLock();
   }
 });
 

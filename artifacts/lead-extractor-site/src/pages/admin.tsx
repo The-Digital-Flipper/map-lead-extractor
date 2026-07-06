@@ -237,7 +237,7 @@ export default function Admin() {
       return next;
     });
   };
-  const [activeTab, setActiveTab] = useState<"command" | "traffic" | "social" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
+  const [activeTab, setActiveTab] = useState<"command" | "scraper" | "traffic" | "social" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
 
   // ── Site traffic analytics (Traffic tab) ──────────────────────────────────
   const [traffic, setTraffic] = useState<TrafficData | null>(null);
@@ -507,6 +507,82 @@ export default function Admin() {
     }
     setScraping(false);
   };
+
+  // ── Scraper tab: Apify-style run console (input → run → dataset → history) ─
+  interface ScrapeRunRow {
+    id: number; category: string; location: string | null; status: string;
+    placesFound: number | null; saved: number | null; duplicates: number | null;
+    error: string | null; durationMs: number | null; startedAt: string; finishedAt: string | null;
+  }
+  interface ScrapeRunItem {
+    name: string | null; phone: string | null; website: string | null;
+    address: string | null; rating: number | null; reviews: number | null;
+  }
+  const [runnerCategory, setRunnerCategory] = useState("plumbers");
+  const [runnerLocation, setRunnerLocation] = useState("Mobile AL");
+  const [runnerMaxScrolls, setRunnerMaxScrolls] = useState(3);
+  const [runStarting, setRunStarting] = useState(false);
+  const [runError, setRunError] = useState("");
+  const [runs, setRuns] = useState<ScrapeRunRow[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [selectedRun, setSelectedRun] = useState<(ScrapeRunRow & { items: ScrapeRunItem[] }) | null>(null);
+  const [runDetailLoading, setRunDetailLoading] = useState(false);
+  const [runDeleteBusyId, setRunDeleteBusyId] = useState<number | null>(null);
+
+  const loadRuns = useCallback(async () => {
+    setRunsLoading(true);
+    try {
+      const r = await fetch(`${basePath}/api/admin/scraper/runs`);
+      const d = await r.json();
+      if (r.ok) setRuns(d.runs);
+    } catch { /* keep whatever was already loaded */ }
+    setRunsLoading(false);
+  }, []);
+  useEffect(() => { if (activeTab === "scraper") loadRuns(); }, [activeTab, loadRuns]);
+
+  const startScraperRun = async () => {
+    if (!runnerCategory.trim() || runStarting) return;
+    setRunStarting(true); setRunError("");
+    try {
+      const r = await fetch(`${basePath}/api/admin/scraper/runs`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: runnerCategory.trim(), location: runnerLocation.trim(), maxScrolls: runnerMaxScrolls }),
+      });
+      const d = await r.json();
+      if (!r.ok) setRunError(d.error ?? "Run failed to start");
+      else {
+        fetch(`${basePath}/api/admin/stats`).then(rr => rr.json()).then(setStats).catch(() => {});
+        if (d.run) viewRun(d.run.id);
+      }
+    } catch {
+      setRunError("Could not reach the server");
+    }
+    setRunStarting(false);
+    loadRuns();
+  };
+
+  const viewRun = async (id: number) => {
+    setRunDetailLoading(true);
+    try {
+      const r = await fetch(`${basePath}/api/admin/scraper/runs/${id}`);
+      const d = await r.json();
+      if (r.ok) setSelectedRun(d.run);
+    } catch { /* ignore */ }
+    setRunDetailLoading(false);
+  };
+
+  const deleteRun = async (id: number) => {
+    setRunDeleteBusyId(id);
+    try { await fetch(`${basePath}/api/admin/scraper/runs/${id}`, { method: "DELETE" }); } catch { /* ignore */ }
+    if (selectedRun?.id === id) setSelectedRun(null);
+    setRunDeleteBusyId(null);
+    loadRuns();
+  };
+
+  const runStatusBadge = (status: string) =>
+    status === "running" ? "bg-blue-500/15 text-blue-400 border-blue-500/40"
+    : status === "succeeded" ? "bg-primary/15 text-primary border-primary/40"
+    : "bg-red-500/15 text-red-400 border-red-500/40";
 
   // ── AI Research: find where to scrape, plot on the map, scrape live ────────
   type ScrapeTarget = {
@@ -966,14 +1042,146 @@ export default function Admin() {
           {/* ── TABS ──────────────────────────────────────────────────────── */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.09 }} className="mb-6">
             <div className="flex gap-1 bg-card border border-border rounded-xl p-1 w-fit flex-wrap">
-              {(["command", "traffic", "social", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
+              {(["command", "scraper", "traffic", "social", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
                 <button key={tab} onClick={() => { setActiveTab(tab); if (tab === "leads" || tab === "money") setPage(1); if (tab === "deleted") setDeletedPage(1); }}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors capitalize ${activeTab === tab ? tab === "deleted" ? "bg-red-500/80 text-white" : "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                  {tab === "command" ? "⚡ Command" : tab === "traffic" ? "📈 Traffic" : tab === "social" ? "📣 Social" : tab === "research" ? "🎯 AI Research" :tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
+                  {tab === "command" ? "⚡ Command" : tab === "scraper" ? "🕷️ Scraper" : tab === "traffic" ? "📈 Traffic" : tab === "social" ? "📣 Social" : tab === "research" ? "🎯 AI Research" :tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
                 </button>
               ))}
             </div>
           </motion.div>
+
+          {/* ── SCRAPER TAB (Apify-style run console) ────────────────────── */}
+          {activeTab === "scraper" && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
+
+              {/* Run form — the "actor input" */}
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <Globe className="w-5 h-5 text-primary" />
+                  <h2 className="text-lg font-display font-bold">Scraper</h2>
+                  <span className="text-xs font-mono bg-primary/10 text-primary border border-primary/30 px-2 py-0.5 rounded-full">Google Maps actor</span>
+                </div>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Set the input, hit Run, and every scrape lands below as a run with its own dataset — browse the results, export CSV, and keep a full history. Same engine as the 24/7 worker.
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-muted-foreground">Category</label>
+                    <input value={runnerCategory} onChange={e => setRunnerCategory(e.target.value)} placeholder="plumbers"
+                      className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-48 focus:border-primary/50 outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-muted-foreground">Location</label>
+                    <input value={runnerLocation} onChange={e => setRunnerLocation(e.target.value)} placeholder="Mobile AL"
+                      onKeyDown={e => { if (e.key === "Enter") startScraperRun(); }}
+                      className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-48 focus:border-primary/50 outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-muted-foreground">Scroll depth</label>
+                    <input type="number" min={0} max={8} value={runnerMaxScrolls}
+                      onChange={e => setRunnerMaxScrolls(Math.min(8, Math.max(0, Number(e.target.value) || 0)))}
+                      className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-24 focus:border-primary/50 outline-none" />
+                  </div>
+                  <button onClick={startScraperRun} disabled={runStarting || !runnerCategory.trim()}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
+                    <RefreshCw className={`w-4 h-4 ${runStarting ? "animate-spin" : ""}`} />
+                    {runStarting ? "Running…" : "▶ Start run"}
+                  </button>
+                  {runError && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-400">
+                      ⚠ {runError}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Dataset viewer for whichever run is selected */}
+              {selectedRun && (
+                <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5">
+                  <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase ${runStatusBadge(selectedRun.status)}`}>{selectedRun.status}</span>
+                      <h3 className="text-sm font-display font-bold">Run #{selectedRun.id} · {selectedRun.category}{selectedRun.location ? ` in ${selectedRun.location}` : ""}</h3>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <a href={`${basePath}/api/admin/scraper/runs/${selectedRun.id}/export`}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80">
+                        <Download className="w-3.5 h-3.5" /> Export CSV
+                      </a>
+                      <button onClick={() => setSelectedRun(null)} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-foreground">Close</button>
+                    </div>
+                  </div>
+                  {selectedRun.status === "failed" && <p className="text-xs text-red-400 mb-3">⚠ {selectedRun.error}</p>}
+                  {runDetailLoading ? (
+                    <p className="text-xs text-muted-foreground">Loading…</p>
+                  ) : selectedRun.items.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No dataset items{selectedRun.status === "running" ? " yet — still running." : "."}</p>
+                  ) : (
+                    <div className="overflow-x-auto -mx-1">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-left text-muted-foreground border-b border-border">
+                            <th className="px-2 py-1.5 font-semibold">Name</th>
+                            <th className="px-2 py-1.5 font-semibold">Phone</th>
+                            <th className="px-2 py-1.5 font-semibold">Website</th>
+                            <th className="px-2 py-1.5 font-semibold">Address</th>
+                            <th className="px-2 py-1.5 font-semibold">Rating</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedRun.items.map((it, i) => (
+                            <tr key={i} className="border-b border-border/50">
+                              <td className="px-2 py-1.5 text-foreground font-medium">{it.name ?? "—"}</td>
+                              <td className="px-2 py-1.5 text-muted-foreground">{it.phone ?? "—"}</td>
+                              <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[200px]">{it.website ?? "—"}</td>
+                              <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[240px]">{it.address ?? "—"}</td>
+                              <td className="px-2 py-1.5 text-muted-foreground">{it.rating != null ? `${it.rating}★${it.reviews != null ? ` (${it.reviews})` : ""}` : "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Run history */}
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide">Run history</h3>
+                  <button onClick={loadRuns} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+                    <RefreshCw className={`w-3 h-3 ${runsLoading ? "animate-spin" : ""}`} /> Refresh
+                  </button>
+                </div>
+                {runs.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No runs yet — start one above.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {runs.map(run => (
+                      <div key={run.id} className="flex items-center gap-3 rounded-xl border border-border bg-background/40 p-3">
+                        <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase whitespace-nowrap ${runStatusBadge(run.status)}`}>{run.status}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-foreground truncate">{run.category}{run.location ? ` in ${run.location}` : ""}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {run.status === "succeeded" ? `${run.saved} new · ${run.duplicates} dup · ${run.placesFound} found` : run.status === "failed" ? (run.error ?? "failed") : "running…"}
+                            {run.durationMs ? ` · ${(run.durationMs / 1000).toFixed(1)}s` : ""} · {new Date(run.startedAt).toLocaleString()}
+                          </div>
+                        </div>
+                        <button onClick={() => viewRun(run.id)} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80 whitespace-nowrap">
+                          View dataset
+                        </button>
+                        <button onClick={() => deleteRun(run.id)} disabled={runDeleteBusyId === run.id}
+                          className="p-2 rounded-lg text-muted-foreground hover:text-red-400 disabled:opacity-50" title="Delete run">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
 
           {/* ── TRAFFIC TAB ───────────────────────────────────────────────── */}
           {activeTab === "traffic" && (
