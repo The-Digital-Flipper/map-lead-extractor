@@ -2583,9 +2583,9 @@ export default function Dashboard() {
                   </label>
 
                   <p className="text-[11px] text-muted-foreground leading-relaxed border-t border-border pt-3">
-                    Every email includes your address and a one-click unsubscribe, and the engine hard-stops on any
-                    unsubscribe, bounce, or reply — the things that keep you deliverable and compliant. Enroll leads from
-                    the list with the <span className="text-primary font-semibold">Automate</span> button.
+                    Emails read like a personal 1:1 message — no visible unsubscribe link. Opt-outs are handled quietly
+                    behind the scenes and the engine hard-stops on any unsubscribe, bounce, or reply, which is what keeps
+                    you landing in the inbox. Enroll leads from the list with the <span className="text-primary font-semibold">Automate</span> button.
                   </p>
 
                   <div className="flex items-center gap-3 pt-1">

@@ -61,6 +61,10 @@ function getGmailTransport(): Transporter {
       port: 465,
       secure: true,
       auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
+      // Bound every phase so a hung SMTP socket can never stall a scheduler tick.
+      connectionTimeout: 15_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
     });
   }
   return gmailTransport;
