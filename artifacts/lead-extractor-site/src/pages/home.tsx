@@ -30,6 +30,16 @@ const YELP_STORE_URL = "https://chromewebstore.google.com/detail/yelp-lead-extra
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+// Volume tiers in the pricing grid. Sizes/prices must stay in sync with
+// PACK_TIERS in api-server/src/lib/packs.ts (the server re-prices anyway —
+// these are display values).
+const PACK_TIERS_UI = [
+  { size: 100, qty: "100", price: "$29", per: "$0.29/lead", highlight: false },
+  { size: 500, qty: "500", price: "$99", per: "$0.20/lead", save: "Save $46", highlight: false },
+  { size: 1000, qty: "1,000", price: "$179", per: "$0.18/lead", save: "Save $111", highlight: true },
+  { size: 5000, qty: "5,000", price: "$599", per: "$0.12/lead", save: "Save $856", highlight: false },
+] as const;
+
 // Official-listing trust seal shown beside every extension install button —
 // links straight to the Chrome Web Store listing it vouches for.
 function ChromeStoreSeal({ href, testId, className = "" }: { href: string; testId: string; className?: string }) {
@@ -273,6 +283,34 @@ export default function Home() {
       setPackError("Checkout is unavailable right now — please try again.");
     }
     setPackLoading(false);
+  };
+
+  // Volume-tier checkout (the pricing grid). Clicking a tier opens a picker
+  // so the buyer chooses WHAT kind of leads fill the pack; the picker shares
+  // packCategory/packState with the main dropdowns, so selections carry over.
+  const [selectedTier, setSelectedTier] = useState<number | null>(null);
+  const [tierLoading, setTierLoading] = useState<number | null>(null);
+  const [tierError, setTierError] = useState<string | null>(null);
+  const handleBuyTier = async (size: number) => {
+    if (tierLoading !== null) return;
+    setTierLoading(size);
+    setTierError(null);
+    try {
+      const res = await fetch(`${basePath}/api/stripe/pack-checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: packCategory, state: packState, size }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      setTierError(data.error ?? "Checkout is unavailable right now — please try again.");
+    } catch {
+      setTierError("Checkout is unavailable right now — please try again.");
+    }
+    setTierLoading(null);
   };
 
   useEffect(() => {
@@ -608,193 +646,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Section: Install Tutorial — removed */}
-        {false && <section id="install-tutorial" className="hidden">
-          <div className="container mx-auto px-6 max-w-5xl">
-            <div className="text-center mb-20">
-              <Badge variant="outline" className="px-4 py-1.5 border-primary/50 text-primary bg-primary/10 font-mono text-xs uppercase tracking-wider mb-4">
-                <Chrome className="w-3.5 h-3.5 mr-2 inline" /> Step-by-Step Installation Guide
-              </Badge>
-              <h2 className="text-4xl md:text-5xl font-display font-bold mb-4 tracking-tight">
-                How to Install the<br /><span className="text-primary">Google Maps Extractor</span>
-              </h2>
-              <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                Up and running in under 60 seconds. No account. No credit card required.
-              </p>
-            </div>
-
-            <div className="space-y-28">
-
-              {/* Step 1 — REAL PHOTO */}
-              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="grid md:grid-cols-2 gap-12 items-center">
-                <div>
-                  <div className="flex items-center gap-3 mb-5">
-                    <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-xl shrink-0 shadow-lg shadow-primary/30">1</div>
-                    <p className="font-mono text-xs text-primary uppercase tracking-widest">Step 1</p>
-                  </div>
-                  <h3 className="text-3xl font-display font-bold mb-4">Visit the Chrome Web Store</h3>
-                  <p className="text-muted-foreground leading-relaxed text-lg mb-5">
-                    Open Google Chrome and navigate to the official listing page for the <strong className="text-foreground">Google Maps Lead Extractor</strong>. You'll see the extension name, icon, user ratings, and the blue "Add to Chrome" button in the top-right corner.
-                  </p>
-                  <ul className="space-y-3 text-muted-foreground mb-8">
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>Make sure you're using Google Chrome — not Firefox or Safari</span></li>
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>The extension is completely free — no payment required</span></li>
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>Verify it says "Google Maps Lead Extractor" by MapLeadExtractor</span></li>
-                  </ul>
-                  <Button asChild className="font-bold">
-                    <a href={STORE_URL} target="_blank" rel="noopener noreferrer">
-                      <SiGooglechrome className="mr-2" /> Open Chrome Web Store
-                    </a>
-                  </Button>
-                </div>
-                <div className="rounded-2xl overflow-hidden shadow-2xl shadow-black/70 border border-border">
-                  <img src={step1CwsListing} alt="Chrome Web Store listing for Map Lead Extractor showing the Add to Chrome button" className="w-full h-auto object-cover" loading="lazy" decoding="async" />
-                </div>
-              </motion.div>
-
-              {/* Step 2 */}
-              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="max-w-3xl mx-auto">
-                <div>
-                  <div className="flex items-center gap-3 mb-5">
-                    <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-xl shrink-0 shadow-lg shadow-primary/30">2</div>
-                    <p className="font-mono text-xs text-primary uppercase tracking-widest">Step 2</p>
-                  </div>
-                  <h3 className="text-3xl font-display font-bold mb-4">Click "Add to Chrome" & Confirm</h3>
-                  <p className="text-muted-foreground leading-relaxed text-lg mb-5">
-                    Click the blue <strong className="text-foreground">"Add to Chrome"</strong> button on the store page. A permissions popup will appear listing exactly what the extension can access. Click <strong className="text-foreground">"Add extension"</strong> to confirm — installation takes under 5 seconds.
-                  </p>
-                  <ul className="space-y-3 text-muted-foreground">
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>The extension only reads data on Google Maps — nothing else</span></li>
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>No account or login required — install and go immediately</span></li>
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>You'll see a confirmation notification once installed</span></li>
-                  </ul>
-                </div>
-              </motion.div>
-
-              {/* Step 3 — PHOTO SLOT */}
-              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="grid md:grid-cols-2 gap-12 items-center">
-                <div>
-                  <div className="flex items-center gap-3 mb-5">
-                    <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-xl shrink-0 shadow-lg shadow-primary/30">3</div>
-                    <p className="font-mono text-xs text-primary uppercase tracking-widest">Step 3</p>
-                  </div>
-                  <h3 className="text-3xl font-display font-bold mb-4">Pin the Extension to Your Toolbar</h3>
-                  <p className="text-muted-foreground leading-relaxed text-lg mb-5">
-                    After installing, click the <strong className="text-foreground">🧩 puzzle piece</strong> icon in the top-right of Chrome to open the Extensions menu. Find <strong className="text-foreground">Google Maps Lead Extractor</strong> in the list and click the pin icon to keep it permanently visible in your toolbar.
-                  </p>
-                  <ul className="space-y-3 text-muted-foreground">
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>The extension icon will appear next to the address bar</span></li>
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>Pinning is optional — you can still access it from the Extensions menu</span></li>
-                  </ul>
-                </div>
-                <div>
-                  <PhotoSlot
-                    icon={<Pin className="w-8 h-8" />}
-                    label="Upload screenshot of pinning the extension"
-                    hint="Take a screenshot showing the Chrome extensions dropdown with the pin icon highlighted"
-                  />
-                </div>
-              </motion.div>
-
-              {/* Step 4 — REAL PHOTO */}
-              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="grid md:grid-cols-2 gap-12 items-center">
-                <div className="md:order-2">
-                  <div className="flex items-center gap-3 mb-5">
-                    <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-xl shrink-0 shadow-lg shadow-primary/30">4</div>
-                    <p className="font-mono text-xs text-primary uppercase tracking-widest">Step 4</p>
-                  </div>
-                  <h3 className="text-3xl font-display font-bold mb-4">Open Google Maps & Search</h3>
-                  <p className="text-muted-foreground leading-relaxed text-lg mb-5">
-                    Go to <strong className="text-foreground">maps.google.com</strong> and search for any business type and location — for example <em>"Plumbers in Houston TX"</em> or <em>"Dentists near London"</em>. Wait for the results list to load in the left sidebar before starting extraction.
-                  </p>
-                  <ul className="space-y-3 text-muted-foreground">
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>Works for any business type — restaurants, lawyers, gyms, clinics…</span></li>
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>Works in any city, country, or postal code worldwide</span></li>
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>The more specific your search, the more targeted your leads</span></li>
-                  </ul>
-                </div>
-                <div className="md:order-1 rounded-2xl overflow-hidden shadow-2xl shadow-black/70 border border-border">
-                  <img src={step4GoogleMaps} alt="Google Maps showing real search results for Plumbers in Houston TX with business listings in the sidebar" className="w-full h-auto object-cover" loading="lazy" decoding="async" />
-                </div>
-              </motion.div>
-
-              {/* Step 5 — PHOTO SLOT */}
-              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="grid md:grid-cols-2 gap-12 items-center">
-                <div>
-                  <div className="flex items-center gap-3 mb-5">
-                    <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-xl shrink-0 shadow-lg shadow-primary/30">5</div>
-                    <p className="font-mono text-xs text-primary uppercase tracking-widest">Step 5</p>
-                  </div>
-                  <h3 className="text-3xl font-display font-bold mb-4">Click the Extension & Press Start</h3>
-                  <p className="text-muted-foreground leading-relaxed text-lg mb-5">
-                    Click the MapLeadExtractor icon in your Chrome toolbar to open the side panel. Press the green <strong className="text-primary">"Start Extracting"</strong> button. The extension will automatically scroll through every listing, open each business profile, and collect all available contact data.
-                  </p>
-                  <ul className="space-y-3 text-muted-foreground">
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>Fully automatic — no manual clicks needed while it runs</span></li>
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>Live counter shows how many leads have been captured</span></li>
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>You can pause or stop extraction at any time</span></li>
-                  </ul>
-                </div>
-                <div>
-                  <PhotoSlot
-                    icon={<Play className="w-8 h-8" />}
-                    label="Upload screenshot of the extension running"
-                    hint="Take a screenshot of the extension popup open on Google Maps with the Start button visible"
-                  />
-                </div>
-              </motion.div>
-
-              {/* Step 6 — PHOTO SLOT */}
-              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="grid md:grid-cols-2 gap-12 items-center">
-                <div className="md:order-2">
-                  <div className="flex items-center gap-3 mb-5">
-                    <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-xl shrink-0 shadow-lg shadow-primary/30">6</div>
-                    <p className="font-mono text-xs text-primary uppercase tracking-widest">Step 6</p>
-                  </div>
-                  <h3 className="text-3xl font-display font-bold mb-4">Download Your Leads as CSV</h3>
-                  <p className="text-muted-foreground leading-relaxed text-lg mb-5">
-                    Once extraction is complete, click <strong className="text-foreground">"Download CSV"</strong> or <strong className="text-foreground">"Download XLSX"</strong>. The full lead list downloads instantly to your computer with all captured fields — no cloud upload, 100% private.
-                  </p>
-                  <ul className="space-y-3 text-muted-foreground">
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>Clean CSV with column headers — opens in Excel or Google Sheets instantly</span></li>
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>All data stays on your machine — never sent to any server</span></li>
-                    <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>Import directly into HubSpot, Salesforce, Pipedrive, or any CRM</span></li>
-                  </ul>
-                </div>
-                <div className="md:order-1">
-                  <PhotoSlot
-                    icon={<Download className="w-8 h-8" />}
-                    label="Upload screenshot of the CSV download"
-                    hint="Take a screenshot showing the Download CSV button and the file downloading in Chrome"
-                  />
-                </div>
-              </motion.div>
-
-            </div>
-
-            {/* Download CTA */}
-            <motion.div
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true }}
-              variants={fadeIn}
-              className="mt-20 rounded-2xl border border-primary/30 bg-primary/5 p-8 flex flex-col md:flex-row items-center justify-between gap-6"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/30 flex items-center justify-center shrink-0">
-                  <Package className="w-7 h-7 text-primary" />
-                </div>
-                <div>
-                  <p className="font-display font-bold text-lg">Prefer a direct download?</p>
-                  <p className="text-muted-foreground text-sm mt-0.5">A standalone <code className="font-mono text-primary text-xs bg-primary/10 px-1.5 py-0.5 rounded">.crx</code> installer for the Google Maps Extractor is coming soon — no Chrome Web Store needed.</p>
-                </div>
-              </div>
-              <Button variant="outline" className="shrink-0 border-primary/50 text-primary hover:bg-primary hover:text-primary-foreground transition-all" disabled>
-                <Download className="w-4 h-4 mr-2" /> Download Coming Soon
-              </Button>
-            </motion.div>
-          </div>
-        </section>}
 
         {/* Section 4: Data Fields Grid */}
         <section id="data" className="py-24 bg-secondary text-secondary-foreground border-y border-border">
@@ -1059,13 +910,8 @@ export default function Home() {
                   <div className="flex-1 h-px bg-border" />
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {[
-                    { qty: "100", price: "$29", per: "$0.29/lead", highlight: false },
-                    { qty: "500", price: "$99", per: "$0.20/lead", save: "Save $46", highlight: false },
-                    { qty: "1,000", price: "$179", per: "$0.18/lead", save: "Save $111", highlight: true },
-                    { qty: "5,000", price: "$599", per: "$0.12/lead", save: "Save $856", highlight: false },
-                  ].map(tier => (
-                    <div key={tier.qty} className={`relative rounded-xl p-4 text-center border transition-colors ${tier.highlight ? "border-primary/50 bg-primary/5 shadow-md shadow-primary/10" : "border-border bg-card/40"}`}>
+                  {PACK_TIERS_UI.map(tier => (
+                    <div key={tier.qty} className={`relative rounded-xl p-4 text-center border transition-colors flex flex-col ${selectedTier === tier.size ? "border-primary bg-primary/10 shadow-md shadow-primary/20" : tier.highlight ? "border-primary/50 bg-primary/5 shadow-md shadow-primary/10" : "border-border bg-card/40 hover:border-primary/30"}`}>
                       {tier.highlight && (
                         <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">Most popular</div>
                       )}
@@ -1073,10 +919,70 @@ export default function Home() {
                       <div className="text-xs text-muted-foreground mb-2">leads</div>
                       <div className="text-lg font-bold text-foreground">{tier.price}</div>
                       <div className="text-[11px] text-muted-foreground">{tier.per}</div>
-                      {tier.save && <div className="mt-1.5 text-[11px] font-semibold text-primary">{tier.save}</div>}
+                      {"save" in tier && tier.save && <div className="mt-1.5 text-[11px] font-semibold text-primary">{tier.save}</div>}
+                      <button
+                        onClick={() => setSelectedTier(selectedTier === tier.size ? null : tier.size)}
+                        disabled={tierLoading !== null}
+                        data-testid={`btn-buy-tier-${tier.size}`}
+                        className={`mt-3 w-full py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${selectedTier === tier.size || tier.highlight ? "bg-primary text-primary-foreground hover:opacity-90" : "border border-primary/50 text-primary hover:bg-primary hover:text-primary-foreground"}`}>
+                        {selectedTier === tier.size ? "✓ Selected" : "Buy now"}
+                      </button>
                     </div>
                   ))}
                 </div>
+
+                {/* Tier picker: choose WHAT kind of leads fill the pack */}
+                {selectedTier !== null && (
+                  <div className="mt-4 max-w-2xl mx-auto rounded-2xl border border-primary/40 bg-card/60 p-5 text-left" data-testid="box-tier-picker">
+                    <p className="text-sm font-bold text-foreground mb-3">
+                      What kind of leads do you want in your {selectedTier.toLocaleString()}-lead pack?
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-3 mb-3">
+                      <select
+                        value={packCategory}
+                        onChange={e => setPackCategory(e.target.value)}
+                        aria-label="Business type for this pack"
+                        data-testid="select-tier-category"
+                        className="h-12 flex-1 px-4 rounded-xl bg-background border border-border text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors">
+                        <option value="">All business types (top-scored)</option>
+                        {PACK_CATEGORIES.map(c => (
+                          <option key={c.value} value={c.value}>{c.label}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={packState}
+                        onChange={e => setPackState(e.target.value)}
+                        aria-label="State for this pack"
+                        data-testid="select-tier-state"
+                        className="h-12 flex-1 px-4 rounded-xl bg-background border border-border text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors">
+                        <option value="">All states (nationwide)</option>
+                        {US_STATES.map(s => (
+                          <option key={s.value} value={s.value}>{s.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {packAvail && !packAvailLoading && (
+                      <p className="text-xs text-muted-foreground mb-4" data-testid="text-tier-availability">
+                        {packAvail.available.toLocaleString()} matching leads in stock —{" "}
+                        {packAvail.available >= selectedTier
+                          ? <span className="text-primary font-semibold">the top {selectedTier.toLocaleString()} ship after a quick quality check (usually a few hours).</span>
+                          : <span>we'll gather the rest fresh and email your CSV within 24 hours — any shortfall is automatically refunded.</span>}
+                      </p>
+                    )}
+                    <button
+                      onClick={() => handleBuyTier(selectedTier)}
+                      disabled={tierLoading !== null}
+                      data-testid="btn-tier-checkout"
+                      className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed">
+                      {tierLoading !== null ? (
+                        <><span className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" /> Redirecting…</>
+                      ) : (
+                        <><Download className="w-5 h-5" /> Checkout — {PACK_TIERS_UI.find(t => t.size === selectedTier)?.price}</>
+                      )}
+                    </button>
+                  </div>
+                )}
+                {tierError && <p className="text-center text-sm text-red-400 mt-3">{tierError}</p>}
                 <p className="text-center text-xs text-muted-foreground mt-4">
                   Want a custom volume? <a href="mailto:support@mapleadextractor.net?subject=Bulk%20Lead%20Order" className="text-primary hover:underline">Email us</a> — we handle orders of any size.
                 </p>

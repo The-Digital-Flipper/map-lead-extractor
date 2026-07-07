@@ -19,7 +19,8 @@
       "Bash(node shot-el.mjs \"http://127.0.0.1:5173/\" '[data-testid=\"seal-hero-cws\"]' hero-seal.png)",
       "Bash(node shot-el.mjs \"http://127.0.0.1:5173/\" '[data-testid=\"seal-google-cws\"]' card-seal.png)",
       "Bash(pkill -f \"vite --config\")",
-      "Bash(pnpm --filter @workspace/db run push-force)"
+      "Bash(pnpm --filter @workspace/db run push-force)",
+      "Bash(node shot-tier.mjs)"
     ]
   }
 }
