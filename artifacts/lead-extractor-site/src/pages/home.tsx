@@ -1050,6 +1050,37 @@ export default function Home() {
                   <p className="text-xs font-semibold text-foreground mt-2">— Diego R.</p>
                 </div>
               </div>
+
+              {/* Volume pricing */}
+              <div className="mt-10">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="flex-1 h-px bg-border" />
+                  <span className="text-sm font-semibold text-foreground">Need more leads? Buy in bulk & save.</span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[
+                    { qty: "100", price: "$29", per: "$0.29/lead", highlight: false },
+                    { qty: "500", price: "$99", per: "$0.20/lead", save: "Save $46", highlight: false },
+                    { qty: "1,000", price: "$179", per: "$0.18/lead", save: "Save $111", highlight: true },
+                    { qty: "5,000", price: "$599", per: "$0.12/lead", save: "Save $856", highlight: false },
+                  ].map(tier => (
+                    <div key={tier.qty} className={`relative rounded-xl p-4 text-center border transition-colors ${tier.highlight ? "border-primary/50 bg-primary/5 shadow-md shadow-primary/10" : "border-border bg-card/40"}`}>
+                      {tier.highlight && (
+                        <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">Most popular</div>
+                      )}
+                      <div className="text-xl font-display font-bold text-foreground">{tier.qty}</div>
+                      <div className="text-xs text-muted-foreground mb-2">leads</div>
+                      <div className="text-lg font-bold text-foreground">{tier.price}</div>
+                      <div className="text-[11px] text-muted-foreground">{tier.per}</div>
+                      {tier.save && <div className="mt-1.5 text-[11px] font-semibold text-primary">{tier.save}</div>}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-center text-xs text-muted-foreground mt-4">
+                  Want a custom volume? <a href="mailto:support@mapleadextractor.net?subject=Bulk%20Lead%20Order" className="text-primary hover:underline">Email us</a> — we handle orders of any size.
+                </p>
+              </div>
             </div>
           </div>
         </section>
