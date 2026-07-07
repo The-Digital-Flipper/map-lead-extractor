@@ -9,3 +9,4 @@ export * from "./scrapeRuns";
 export * from "./proxies";
 export * from "./siteVisits";
 export * from "./socialPosts";
+export * from "./outreach";

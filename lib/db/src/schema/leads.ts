@@ -69,6 +69,35 @@ export const leads = pgTable("leads", {
   outreach: jsonb("outreach").$type<LeadOutreach>(),
   outreachAt: timestamp("outreach_at", { withTimezone: true }),
   status: text("status").default("new"), // new | contacted | converted | not_interested
+  // ── Follow-up pipeline ─────────────────────────────────────────────────────
+  // Stamped the first time the lead is marked contacted (first email sent).
+  // Follow-up due dates are computed from this: contactedAt + followUps[n].day.
+  contactedAt: timestamp("contacted_at", { withTimezone: true }),
+  // Outreach touches sent: 0 = none, 1 = first email sent (waiting on step 2),
+  // 2 = follow-up 1 sent, … Resets to 0 if the lead is moved back to "new".
+  outreachStep: integer("outreach_step").default(0),
+  // ── Automated outreach enrollment ─────────────────────────────────────────
+  // When true, the background engine sends this lead's sequence on its own
+  // (first email + timed follow-ups) instead of the owner clicking send.
+  autoOutreach: boolean("auto_outreach").default(false),
+  // When the engine should send the next touch. null = nothing scheduled
+  // (not enrolled, or the sequence finished). The scheduler picks the most
+  // overdue lead each tick.
+  nextEmailAt: timestamp("next_email_at", { withTimezone: true }),
+  lastEmailedAt: timestamp("last_emailed_at", { withTimezone: true }),
+  // Stable per-lead token backing the one-click unsubscribe link. Set on
+  // enrollment; the unsubscribe endpoint looks the lead up by it.
+  unsubToken: text("unsub_token").unique(),
+  // Set when the lead opts out via the unsubscribe link — hard stop, the engine
+  // skips them forever after this.
+  unsubscribedAt: timestamp("unsubscribed_at", { withTimezone: true }),
+  // Set when the owner marks that the lead replied — pauses the sequence so we
+  // never keep cold-nudging someone who's already talking to us.
+  repliedAt: timestamp("replied_at", { withTimezone: true }),
+  // Deliverability suppression: 'bounced' | 'complained' → never email again.
+  emailHealth: text("email_health"),
+  // RFC Message-ID of this lead's first email, so follow-ups thread beneath it.
+  threadMessageId: text("thread_message_id"),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

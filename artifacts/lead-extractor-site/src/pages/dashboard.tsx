@@ -21,7 +21,7 @@ const FREE_LIMIT = 100;
 
 const STATUS_OPTIONS = [
   { value: "new", label: "New", color: "bg-blue-500/15 text-blue-400 border-blue-500/30" },
-  { value: "contacted", label: "Contacted", color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30" },
+  { value: "contacted", label: "Follow-Up", color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30" },
   { value: "converted", label: "Converted", color: "bg-primary/15 text-primary border-primary/30" },
   { value: "not_interested", label: "Not Interested", color: "bg-red-500/15 text-red-400 border-red-500/30" },
 ] as const;
@@ -50,6 +50,11 @@ interface Lead {
   needs: string[] | null;
   gmapsUrl: string | null;
   status: string | null;
+  contactedAt: string | null;
+  outreachStep: number | null;
+  outreach: Outreach | null;
+  autoOutreach: boolean | null;
+  nextEmailAt: string | null;
 }
 
 interface OutreachStep { day: number; channel: "email" | "sms"; subject?: string; body: string }
@@ -60,12 +65,126 @@ interface Outreach {
   followUps: OutreachStep[];
 }
 
+// ── Follow-up queue ───────────────────────────────────────────────────────────
+// Once the first email goes out, a lead leaves the main list and sits in the
+// Follow-Up queue until its next step is due. outreachStep counts touches sent
+// (1 = first email), and due days come from the AI sequence's "Day N" offsets,
+// measured from contactedAt. Leads with no AI sequence wait a default 3 days.
+const DEFAULT_FOLLOWUP_DAY = 3;
+interface FollowUpInfo {
+  nextStep: number;           // touch number about to be sent (2 = "step 2")
+  daysSince: number;          // full days since the first email
+  ready: boolean;             // next step is due now
+  daysLeft: number;           // days until the next step is due
+  next: OutreachStep | null;  // the AI-drafted follow-up, if there is one
+  done: boolean;              // sequence exhausted — nothing left to send
+}
+function followUpInfo(lead: Lead): FollowUpInfo | null {
+  if ((lead.status ?? "new") !== "contacted" || !lead.contactedAt) return null;
+  const step = Math.max(1, lead.outreachStep ?? 1);
+  const followUps = lead.outreach?.followUps ?? [];
+  const next = followUps[step - 1] ?? null;
+  const daysSince = Math.floor((Date.now() - new Date(lead.contactedAt).getTime()) / 86_400_000);
+  // No drafted next step: leads without an AI sequence still get one default
+  // 3-day nudge after the first email; past that the sequence is done.
+  if (!next && (followUps.length > 0 || step > 1)) {
+    return { nextStep: step + 1, daysSince, ready: false, daysLeft: 0, next: null, done: true };
+  }
+  const dueDay = next?.day ?? DEFAULT_FOLLOWUP_DAY;
+  return { nextStep: step + 1, daysSince, ready: daysSince >= dueDay, daysLeft: Math.max(0, dueDay - daysSince), next, done: false };
+}
+
+// Short "when's the next auto-send" label, e.g. "in 2h", "Tue 9am", "soon".
+function whenLabel(iso: string | null): string {
+  if (!iso) return "soon";
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 60_000) return "any moment";
+  const mins = Math.round(ms / 60_000);
+  if (mins < 60) return `in ${mins}m`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `in ${hrs}h`;
+  return new Date(iso).toLocaleDateString(undefined, { weekday: "short" }) + " " +
+    new Date(iso).toLocaleTimeString(undefined, { hour: "numeric" });
+}
+
+// Shown on leads the automation engine is actively sending for.
+function AutoBadge({ lead, onPause }: { lead: Lead; onPause?: (id: number) => void }) {
+  if (!lead.autoOutreach) return null;
+  return (
+    <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full border border-primary/40 bg-primary/10 text-primary text-[10px] font-bold whitespace-nowrap"
+      title={lead.nextEmailAt ? `Next email ${new Date(lead.nextEmailAt).toLocaleString()}` : "Sequence complete"}>
+      🤖 Auto{lead.nextEmailAt ? ` · ${whenLabel(lead.nextEmailAt)}` : " · done"}
+      {onPause && (
+        <button onClick={(e) => { e.stopPropagation(); onPause(lead.id); }} title="Stop automation for this lead"
+          className="ml-0.5 hover:text-red-400 transition-colors">✕</button>
+      )}
+    </span>
+  );
+}
+
+function FollowUpBadge({ lead }: { lead: Lead }) {
+  const info = followUpInfo(lead);
+  if (!info) return null;
+  if (info.done) {
+    return <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full border border-border bg-card text-muted-foreground text-[10px] font-bold whitespace-nowrap">Sequence done</span>;
+  }
+  return info.ready ? (
+    <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full border border-primary/40 bg-primary/15 text-primary text-[10px] font-bold whitespace-nowrap animate-pulse">
+      ⚡ Step {info.nextStep} ready
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full border border-border bg-card text-muted-foreground text-[10px] font-bold whitespace-nowrap" title={`First email sent ${info.daysSince}d ago`}>
+      Step {info.nextStep} in {info.daysLeft}d
+    </span>
+  );
+}
+
+// ── Automated outreach engine ────────────────────────────────────────────────
+interface OutreachSettings {
+  enabled: boolean;
+  provider: "gmail" | "resend";
+  fromName: string;
+  fromEmail: string | null;
+  replyTo: string | null;
+  signature: string | null;
+  businessAddress: string | null;
+  dailyCap: number;
+  windowStartHour: number;
+  windowEndHour: number;
+  tzOffsetMinutes: number;
+  sendOnWeekends: boolean;
+  minGapMinutes: number;
+  maxGapMinutes: number;
+  autoEnrollOnContact: boolean;
+}
+interface OutreachInfo {
+  settings: OutreachSettings;
+  resendConfigured: boolean;
+  gmailConfigured: boolean;
+  gmailAddress: string | null;
+  enrolled: number;
+  pending: number;
+  sentToday: number;
+}
+interface AutoActivity {
+  id: number;
+  leadId: number;
+  leadName: string | null;
+  step: number;
+  toEmail: string;
+  subject: string;
+  status: string;
+  error: string | null;
+  createdAt: string;
+}
+
 interface StatsData {
   scoreDistribution: { bucket: string; count: number }[];
   opportunityDistribution: { bucket: string; count: number }[];
   needsCounts: { need: string; count: number }[];
   topCategories: { category: string; count: number }[];
   statusCounts: { status: string; count: number }[];
+  followUpReady: number;
   lastSyncedAt: string | null;
 }
 
@@ -381,6 +500,14 @@ export default function Dashboard() {
   const [twilioAvailable, setTwilioAvailable] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  // Automated outreach engine (hands-off sending on a human-like cadence).
+  const [autoAvailable, setAutoAvailable] = useState(false);
+  const [showAuto, setShowAuto] = useState(false);
+  const [autoInfo, setAutoInfo] = useState<OutreachInfo | null>(null);
+  const [autoDraft, setAutoDraft] = useState<OutreachSettings | null>(null);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [autoMsg, setAutoMsg] = useState<string | null>(null);
+  const [autoActivity, setAutoActivity] = useState<AutoActivity[]>([]);
   // AI outreach engine: per-lead personalized email + SMS + follow-ups.
   const [outreachLead, setOutreachLead] = useState<Lead | null>(null);
   const [outreach, setOutreach] = useState<Outreach | null>(null);
@@ -525,6 +652,10 @@ export default function Dashboard() {
     const params = new URLSearchParams({ page: String(page), limit: "50" });
     if (search) params.set("search", search);
     if (filterStatus) params.set("status", filterStatus);
+    // The main working list hides leads already in the Follow-Up queue — they
+    // live under the "Follow-Up" pill until their next step is due. The board
+    // view still needs every status to fill its pipeline columns.
+    if (!filterStatus && viewMode !== "board") params.set("exclude", "contacted");
     if (moneyMode) params.set("sort", "opportunity");
     try {
       const r = await fetch(`${basePath}/api/leads/?${params}`);
@@ -535,7 +666,7 @@ export default function Dashboard() {
     } catch {}
     setLoading(false);
     setRefreshing(false);
-  }, [page, search, filterStatus, moneyMode]);
+  }, [page, search, filterStatus, moneyMode, viewMode]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
@@ -635,11 +766,131 @@ export default function Dashboard() {
 
   const handleUpgrade = () => { window.location.href = `${basePath}/pricing`; };
 
-  // Status update
+  // Status update. Marking a lead "contacted" (first email sent) starts its
+  // follow-up clock and — in the main list, which hides the queue — moves it
+  // out of view into the Follow-Up pill until its next step is due.
   const handleStatusChange = async (id: number, status: LeadStatus) => {
-    setLeads(prev => prev.map(l => l.id === id ? { ...l, status } : l));
+    const movesToQueue = status === "contacted" && !filterStatus && viewMode !== "board";
+    setLeads(prev => movesToQueue
+      ? prev.filter(l => l.id !== id)
+      : prev.map(l => l.id === id ? {
+          ...l, status,
+          ...(status === "contacted" ? { contactedAt: l.contactedAt ?? new Date().toISOString(), outreachStep: Math.max(1, l.outreachStep ?? 0) } : {}),
+          ...(status === "new" ? { contactedAt: null, outreachStep: 0 } : {}),
+        } : l));
+    if (movesToQueue) setTotal(t => Math.max(0, t - 1));
     try {
       await fetch(`${basePath}/api/leads/${id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+      fetchStats();
+    } catch {}
+  };
+
+  // Bulk email sent → move every selected lead that got it (has an email and
+  // is still "new") into the Follow-Up queue in one shot.
+  const bulkMarkContacted = async () => {
+    const ids = leads.filter(l => selected.has(l.id) && l.emails && (l.status ?? "new") === "new").map(l => l.id);
+    if (ids.length === 0) return;
+    const movesToQueue = !filterStatus && viewMode !== "board";
+    const nowIso = new Date().toISOString();
+    setLeads(prev => movesToQueue
+      ? prev.filter(l => !ids.includes(l.id))
+      : prev.map(l => ids.includes(l.id) ? { ...l, status: "contacted", contactedAt: l.contactedAt ?? nowIso, outreachStep: Math.max(1, l.outreachStep ?? 0) } : l));
+    if (movesToQueue) setTotal(t => Math.max(0, t - ids.length));
+    setSelected(new Set());
+    setShowEmailModal(false);
+    try {
+      await Promise.all(ids.map(id =>
+        fetch(`${basePath}/api/leads/${id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "contacted" }) })));
+      fetchStats();
+    } catch {}
+  };
+
+  // ── Automated outreach: config, settings, enroll/pause ──────────────────────
+  useEffect(() => {
+    fetch(`${basePath}/api/outreach/config`)
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { available?: boolean } | null) => { if (d?.available) setAutoAvailable(true); })
+      .catch(() => {});
+  }, []);
+
+  const fetchAutoInfo = useCallback(async () => {
+    try {
+      const r = await authFetch(`${basePath}/api/outreach/settings`);
+      if (!r.ok) return;
+      const d = await r.json() as OutreachInfo;
+      setAutoInfo(d);
+      setAutoDraft(d.settings);
+    } catch {}
+  }, [authFetch]);
+
+  const fetchAutoActivity = useCallback(async () => {
+    try {
+      const r = await authFetch(`${basePath}/api/outreach/activity?limit=25`);
+      if (!r.ok) return;
+      const d = await r.json() as { activity: AutoActivity[] };
+      setAutoActivity(d.activity ?? []);
+    } catch {}
+  }, [authFetch]);
+
+  const openAuto = () => { setShowAuto(true); setAutoMsg(null); fetchAutoInfo(); fetchAutoActivity(); };
+
+  const saveAutoSettings = async () => {
+    if (!autoDraft) return;
+    setAutoSaving(true); setAutoMsg(null);
+    try {
+      const r = await authFetch(`${basePath}/api/outreach/settings`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(autoDraft),
+      });
+      const d = await r.json().catch(() => ({})) as { error?: string; settings?: OutreachSettings };
+      if (!r.ok) { setAutoMsg(d.error ?? "Could not save."); return; }
+      setAutoMsg("Saved.");
+      fetchAutoInfo();
+    } catch { setAutoMsg("Network error."); }
+    finally { setAutoSaving(false); }
+  };
+
+  // Enroll the selected leads into automated sending. The engine generates any
+  // missing drafts, then sends the first email + follow-ups on its own cadence.
+  const [enrolling, setEnrolling] = useState(false);
+  const enrollSelected = async () => {
+    if (selected.size === 0) return;
+    setEnrolling(true);
+    const ids = Array.from(selected);
+    try {
+      const r = await authFetch(`${basePath}/api/outreach/enroll`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }),
+      });
+      const d = await r.json().catch(() => ({})) as { error?: string; enrolled?: number; skipped?: number };
+      if (!r.ok) { setAutoMsg(d.error ?? "Could not enroll."); }
+      else {
+        setLeads(prev => prev.map(l => ids.includes(l.id) ? { ...l, autoOutreach: true } : l));
+        setSelected(new Set());
+        fetchLeads(true); fetchStats(); fetchAutoInfo();
+      }
+    } catch {}
+    finally { setEnrolling(false); }
+  };
+
+  const pauseAuto = async (id: number) => {
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, autoOutreach: false, nextEmailAt: null } : l));
+    try {
+      await authFetch(`${basePath}/api/outreach/pause`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [id] }) });
+      fetchStats(); fetchAutoInfo();
+    } catch {}
+  };
+
+  // Follow-up queue: record that the next touch (step 2, 3, …) was sent.
+  const handleAdvanceStep = async (id: number) => {
+    try {
+      const r = await fetch(`${basePath}/api/leads/${id}/advance-step`, { method: "POST" });
+      const d = await r.json() as { outreachStep?: number };
+      if (!r.ok) return;
+      setLeads(prev => prev.map(l => l.id === id ? {
+        ...l, status: "contacted",
+        contactedAt: l.contactedAt ?? new Date().toISOString(),
+        outreachStep: d.outreachStep ?? Math.max(1, l.outreachStep ?? 0) + 1,
+      } : l));
+      fetchStats();
     } catch {}
   };
 
@@ -667,6 +918,14 @@ export default function Dashboard() {
   };
   const copyOut = async (label: string, text: string) => {
     try { await navigator.clipboard.writeText(text); setOutreachCopied(label); setTimeout(() => setOutreachCopied(c => c === label ? null : c), 2000); } catch { /* ignore */ }
+  };
+  // First email sent from the outreach modal → the lead enters the Follow-Up
+  // queue (and leaves the main list). Only auto-moves leads still marked "new"
+  // so converted / not-interested statuses are never clobbered.
+  const markFirstEmailSent = () => {
+    if (!outreachLead || (outreachLead.status ?? "new") !== "new") return;
+    handleStatusChange(outreachLead.id, "contacted");
+    setOutreachLead(prev => prev ? { ...prev, status: "contacted", contactedAt: prev.contactedAt ?? new Date().toISOString(), outreachStep: Math.max(1, prev.outreachStep ?? 0) } : prev);
   };
 
   // Delete single
@@ -719,7 +978,17 @@ export default function Dashboard() {
   const sortedLeads = [...leads].sort((a, b) => (pinned.has(b.id) ? 1 : 0) - (pinned.has(a.id) ? 1 : 0));
   // Tag filter (client-side over the loaded page) + all tags for the filter bar.
   const allTags = [...new Set(Object.values(notes).flatMap(n => n.tags ?? []))].sort();
-  const displayLeads = tagFilter ? sortedLeads.filter(l => notes[l.id]?.tags?.includes(tagFilter)) : sortedLeads;
+  const tagFiltered = tagFilter ? sortedLeads.filter(l => notes[l.id]?.tags?.includes(tagFilter)) : sortedLeads;
+  // Follow-Up queue view: due-now leads float to the top, then soonest-due.
+  const displayLeads = filterStatus === "contacted"
+    ? [...tagFiltered].sort((a, b) => {
+        const fa = followUpInfo(a), fb = followUpInfo(b);
+        const ra = fa && !fa.done && fa.ready ? 0 : 1;
+        const rb = fb && !fb.done && fb.ready ? 0 : 1;
+        if (ra !== rb) return ra - rb;
+        return (fa && !fa.done ? fa.daysLeft : 999) - (fb && !fb.done ? fb.daysLeft : 999);
+      })
+    : tagFiltered;
   const cols = prefs.cols;
   const densityCls = prefs.density === "compact" ? "[&_td]:py-1.5 [&_th]:py-2" : "";
 
@@ -791,6 +1060,15 @@ export default function Dashboard() {
               {/* Customize + Last synced + refresh */}
               <div className="flex flex-col items-end gap-1.5 shrink-0">
                 <div className="flex items-center gap-2">
+                  {autoAvailable && (
+                    <button
+                      onClick={openAuto}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${autoInfo?.settings.enabled ? "bg-primary/15 border-primary/50 text-primary" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"}`}
+                      title="Automated email outreach"
+                    >
+                      <Zap className="w-3.5 h-3.5" /> Automate{autoInfo?.settings.enabled ? " · ON" : ""}
+                    </button>
+                  )}
                   <button
                     onClick={() => setShowCustomize(s => !s)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${showCustomize ? "bg-primary/10 border-primary/40 text-primary" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"}`}
@@ -1135,6 +1413,19 @@ export default function Dashboard() {
             </motion.div>
           )}
 
+          {/* Follow-up queue: leads whose next outreach step is due now */}
+          {stats && stats.followUpReady > 0 && filterStatus !== "contacted" && (
+            <motion.button initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.16 }}
+              onClick={() => { setFilterStatus("contacted"); setPage(1); }}
+              className="w-full flex items-center gap-3 mb-4 px-4 py-3 rounded-xl border border-primary/40 bg-primary/10 text-left hover:bg-primary/15 transition-colors">
+              <Bell className="w-4 h-4 text-primary shrink-0" />
+              <span className="text-sm text-foreground">
+                <span className="font-bold text-primary">{stats.followUpReady} lead{stats.followUpReady !== 1 ? "s" : ""}</span> in the Follow-Up queue {stats.followUpReady !== 1 ? "are" : "is"} ready for the next step
+              </span>
+              <span className="ml-auto text-xs font-bold text-primary whitespace-nowrap">Open queue →</span>
+            </motion.button>
+          )}
+
           {/* Status filter pills */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.18 }}
             className="flex items-center gap-2 mb-4 flex-wrap">
@@ -1155,9 +1446,21 @@ export default function Dashboard() {
                 {stats?.statusCounts.find(s => s.status === opt.value) && (
                   <span className="ml-1 opacity-70">({stats.statusCounts.find(s => s.status === opt.value)!.count})</span>
                 )}
+                {opt.value === "contacted" && (stats?.followUpReady ?? 0) > 0 && (
+                  <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-primary/20 text-primary font-bold">{stats!.followUpReady} ready</span>
+                )}
               </button>
             ))}
           </motion.div>
+
+          {/* Queue explainer when viewing the Follow-Up pill */}
+          {filterStatus === "contacted" && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              className="flex items-start gap-2 mb-4 px-4 py-3 rounded-xl border border-border bg-card text-xs text-muted-foreground">
+              <Mail className="w-3.5 h-3.5 mt-0.5 shrink-0 text-primary" />
+              <span>These leads got their first email and are waiting here until their next step is due. <span className="text-primary font-semibold">⚡ Step ready</span> means it's time to send the follow-up — open <Sparkles className="w-3 h-3 inline" /> AI Outreach on the lead to send it and mark it done.</span>
+            </motion.div>
+          )}
 
           {/* Leads table */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.2 }}>
@@ -1208,21 +1511,27 @@ export default function Dashboard() {
                 <div className="py-20 text-center">
                   <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
                 </div>
-              ) : leads.length === 0 ? (
+              ) : leads.length === 0 ? (() => {
+                const queued = stats?.statusCounts.find(s => s.status === "contacted")?.count ?? 0;
+                const allInQueue = !search && !filterStatus && queued > 0;
+                return (
                 <div className="py-20 text-center">
-                  <div className="text-4xl mb-3">📋</div>
-                  <p className="font-semibold text-foreground mb-1">No leads found</p>
+                  <div className="text-4xl mb-3">{allInQueue ? "📨" : "📋"}</div>
+                  <p className="font-semibold text-foreground mb-1">{allInQueue ? "All caught up!" : "No leads found"}</p>
                   <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                    {search || filterStatus ? "Try adjusting your filters." : "Install the extension, enter your API key, then run an extraction — leads appear here automatically."}
+                    {allInQueue
+                      ? <>Every lead has had its first email — {queued.toLocaleString()} {queued !== 1 ? "are" : "is"} waiting in the <button onClick={() => { setFilterStatus("contacted"); setPage(1); }} className="text-primary font-semibold hover:underline">Follow-Up queue</button> until the next step is due.</>
+                      : search || filterStatus ? "Try adjusting your filters." : "Install the extension, enter your API key, then run an extraction — leads appear here automatically."}
                   </p>
-                  {!search && !filterStatus && (
+                  {!search && !filterStatus && !allInQueue && (
                     <a href={STORE_URL} target="_blank" rel="noopener noreferrer"
                       className="inline-flex items-center gap-2 mt-5 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity">
                       Install Extension
                     </a>
                   )}
                 </div>
-              ) : viewMode === "board" ? (
+                );
+              })() : viewMode === "board" ? (
                 /* ── Kanban pipeline board ── */
                 <div className="p-4 overflow-x-auto">
                   <div className="flex gap-4 min-w-max">
@@ -1249,6 +1558,7 @@ export default function Dashboard() {
                                 </div>
                                 {lead.category && <div className="text-xs text-muted-foreground truncate">{lead.category}</div>}
                                 {lead.phone && <a href={`tel:${lead.phone}`} className="text-xs text-primary font-mono hover:underline">{lead.phone}</a>}
+                                {lead.autoOutreach ? <AutoBadge lead={lead} onPause={pauseAuto} /> : <FollowUpBadge lead={lead} />}
                                 {notes[lead.id]?.tags && notes[lead.id].tags.length > 0 && (
                                   <div className="flex flex-wrap gap-1 mt-1.5">
                                     {notes[lead.id].tags.map(t => (
@@ -1390,7 +1700,10 @@ export default function Dashboard() {
                               <td className="px-4 py-3"><ScoreBadge score={lead.score} /></td>
                             )}
                             <td className="px-4 py-3">
-                              <StatusBadge status={lead.status} id={lead.id} onChange={handleStatusChange} />
+                              <div className="flex flex-col items-start">
+                                <StatusBadge status={lead.status} id={lead.id} onChange={handleStatusChange} />
+                                {lead.autoOutreach ? <AutoBadge lead={lead} onPause={pauseAuto} /> : <FollowUpBadge lead={lead} />}
+                              </div>
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
@@ -1490,6 +1803,18 @@ export default function Dashboard() {
             <span className="text-sm font-bold text-foreground pr-2 border-r border-border mr-1">
               {selected.size} selected
             </span>
+
+            {autoAvailable && selEmails.length > 0 && (
+              <button
+                onClick={enrollSelected}
+                disabled={enrolling}
+                title="Start automated email outreach for these leads — the engine sends the first email and follow-ups on its own, human-like cadence"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                {enrolling ? "Starting…" : "Automate"}
+              </button>
+            )}
 
             {selEmails.length > 0 && (
               <button
@@ -1631,6 +1956,13 @@ export default function Dashboard() {
                       <ArrowUpRight className="w-3.5 h-3.5" /> Open in Gmail
                     </a>
                   </div>
+                </div>
+                <div className="flex items-center justify-end gap-3 mt-4 pt-4 border-t border-border">
+                  <span className="text-[11px] text-muted-foreground mr-auto">Sent it? Move these leads to the Follow-Up queue until step 2 is due.</span>
+                  <button onClick={bulkMarkContacted}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-primary/40 bg-primary/10 text-primary text-xs font-bold hover:bg-primary/20 transition-colors">
+                    <CheckCheck className="w-3.5 h-3.5" /> Email #1 sent — move to Follow-Up
+                  </button>
                 </div>
               </motion.div>
             </motion.div>
@@ -1909,6 +2241,8 @@ export default function Dashboard() {
                 {outreach && !outreachLoading && (() => {
                   const gmailHref = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(outreachLead.emails ?? "")}&su=${encodeURIComponent(outreach.email.subject)}&body=${encodeURIComponent(outreach.email.body)}`;
                   const smsHref = `sms:${outreachLead.phone ?? ""}?body=${encodeURIComponent(outreach.sms)}`;
+                  const inQueue = (outreachLead.status ?? "new") === "contacted";
+                  const fu = followUpInfo(outreachLead);
                   return (
                     <>
                       {outreach.angle && (
@@ -1930,7 +2264,7 @@ export default function Dashboard() {
                               {outreachCopied === "email" ? "Copied" : "Copy"}
                             </button>
                             {outreachLead.emails && (
-                              <a href={gmailHref} target="_blank" rel="noopener noreferrer"
+                              <a href={gmailHref} target="_blank" rel="noopener noreferrer" onClick={markFirstEmailSent}
                                 className="flex items-center gap-1 text-xs font-semibold text-primary hover:opacity-80">
                                 <ArrowUpRight className="w-3.5 h-3.5" /> Gmail
                               </a>
@@ -1970,10 +2304,15 @@ export default function Dashboard() {
                           <p className="text-xs font-bold text-muted-foreground mb-2 uppercase tracking-wide">Follow-up sequence</p>
                           <div className="space-y-2">
                             {outreach.followUps.map((f, i) => (
-                              <div key={i} className="rounded-lg border border-border p-3">
+                              <div key={i} className={`rounded-lg border p-3 ${inQueue && fu && !fu.done && i === fu.nextStep - 2 ? "border-primary/50 bg-primary/5" : "border-border"}`}>
                                 <div className="flex items-center gap-2 mb-1.5">
                                   <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold">Day {f.day}</span>
                                   <span className="text-[10px] font-semibold uppercase text-muted-foreground">{f.channel}</span>
+                                  {inQueue && fu && !fu.done && i === fu.nextStep - 2 && (
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${fu.ready ? "bg-primary text-primary-foreground" : "bg-primary/15 text-primary"}`}>
+                                      {fu.ready ? "⚡ Send now" : `Next — in ${fu.daysLeft}d`}
+                                    </span>
+                                  )}
                                   {f.subject && <span className="text-[11px] font-semibold text-foreground truncate">{f.subject}</span>}
                                   <button onClick={() => copyOut(`f${i}`, f.subject ? `Subject: ${f.subject}\n\n${f.body}` : f.body)}
                                     className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors">
@@ -1987,18 +2326,278 @@ export default function Dashboard() {
                         </div>
                       )}
 
-                      {/* Mark contacted */}
-                      <div className="flex justify-end pt-1">
-                        <button
-                          onClick={() => { handleStatusChange(outreachLead.id, "contacted" as LeadStatus); setOutreachLead(null); }}
-                          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity">
-                          <CheckCheck className="w-3.5 h-3.5" /> Mark contacted
-                        </button>
+                      {/* Footer: step 1 → move to the queue; in queue → advance steps */}
+                      <div className="flex items-center justify-end gap-3 pt-1">
+                        {!inQueue ? (
+                          <>
+                            <span className="text-[11px] text-muted-foreground mr-auto">Sent it? The lead moves to the Follow-Up queue until step 2 is due.</span>
+                            <button
+                              onClick={() => { handleStatusChange(outreachLead.id, "contacted" as LeadStatus); setOutreachLead(null); }}
+                              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity">
+                              <CheckCheck className="w-3.5 h-3.5" /> Email #1 sent — move to Follow-Up
+                            </button>
+                          </>
+                        ) : fu && !fu.done ? (
+                          <>
+                            <span className="text-[11px] text-muted-foreground mr-auto">
+                              {fu.ready ? `Step ${fu.nextStep} is due — send it, then mark it sent.` : `Step ${fu.nextStep} unlocks in ${fu.daysLeft} day${fu.daysLeft !== 1 ? "s" : ""}.`}
+                            </span>
+                            <button
+                              onClick={() => { handleAdvanceStep(outreachLead.id); setOutreachLead(null); }}
+                              disabled={!fu.ready}
+                              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">
+                              <CheckCheck className="w-3.5 h-3.5" /> Step {fu.nextStep} sent
+                            </button>
+                          </>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground">Sequence complete — set the lead to Converted or Not Interested from its status badge.</span>
+                        )}
                       </div>
                     </>
                   );
                 })()}
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Automated outreach settings modal */}
+      <AnimatePresence>
+        {showAuto && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setShowAuto(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.96, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 10 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-card border border-border rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center gap-2 p-6 pb-4 sticky top-0 bg-card border-b border-border z-10">
+                <Zap className="w-4 h-4 text-primary" />
+                <h3 className="font-display font-bold">Automated Outreach</h3>
+                {autoDraft && (
+                  <label className="ml-auto flex items-center gap-2 cursor-pointer">
+                    <span className={`text-xs font-bold ${autoDraft.enabled ? "text-primary" : "text-muted-foreground"}`}>{autoDraft.enabled ? "ON" : "OFF"}</span>
+                    <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoDraft.enabled ? "bg-primary" : "bg-border"}`}
+                      onClick={() => setAutoDraft(d => d ? { ...d, enabled: !d.enabled } : d)}>
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoDraft.enabled ? "translate-x-4" : "translate-x-0.5"}`} />
+                    </span>
+                  </label>
+                )}
+                <button onClick={() => setShowAuto(false)} className="text-muted-foreground hover:text-foreground ml-2"><X className="w-4 h-4" /></button>
+              </div>
+
+              {!autoDraft ? (
+                <div className="py-16 text-center"><RefreshCw className="w-6 h-6 animate-spin text-primary mx-auto" /></div>
+              ) : (
+                <div className="p-6 pt-4 space-y-5">
+                  {/* How it works */}
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/10 border border-primary/30">
+                    <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                    <p className="text-xs text-foreground leading-relaxed">
+                      Enrolled leads get their first email and every follow-up sent for you — spaced out inside your daily
+                      window, in random gaps, under a daily cap, and threaded like real replies. It reads like a person
+                      working their inbox, not a blast.
+                    </p>
+                  </div>
+
+                  {/* Live counters */}
+                  {autoInfo && (
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { label: "Enrolled", value: autoInfo.enrolled },
+                        { label: "Queued", value: autoInfo.pending },
+                        { label: "Sent today", value: autoInfo.sentToday },
+                      ].map(c => (
+                        <div key={c.label} className="rounded-xl border border-border bg-background/50 p-3 text-center">
+                          <div className="text-xl font-display font-bold text-primary">{c.value}</div>
+                          <div className="text-[11px] text-muted-foreground font-semibold">{c.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Recent activity feed */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Recent sends</span>
+                      <button onClick={fetchAutoActivity} title="Refresh" className="text-muted-foreground/60 hover:text-primary transition-colors">
+                        <RefreshCw className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {autoActivity.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-border bg-background/30 py-6 text-center text-xs text-muted-foreground">
+                        No emails sent yet. Enroll leads with <span className="text-primary font-semibold">Automate</span> and the engine takes it from here.
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-border divide-y divide-border max-h-56 overflow-y-auto">
+                        {autoActivity.map(a => (
+                          <div key={a.id} className="flex items-center gap-2 px-3 py-2 text-xs">
+                            <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${a.status === "sent" ? "bg-primary" : "bg-red-400"}`} title={a.status === "sent" ? "Sent" : (a.error ?? "Failed")} />
+                            <span className="font-semibold text-foreground truncate max-w-[120px]" title={a.leadName ?? a.toEmail}>{a.leadName ?? a.toEmail}</span>
+                            <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold shrink-0">{a.step === 1 ? "Email #1" : `Follow-up ${a.step - 1}`}</span>
+                            <span className="text-muted-foreground truncate flex-1" title={a.subject}>{a.subject}</span>
+                            <span className="text-muted-foreground/60 shrink-0 whitespace-nowrap">{new Date(a.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}, {new Date(a.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Provider selector */}
+                  <div>
+                    <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Send with</span>
+                    <div className="flex items-center gap-1 bg-background border border-border rounded-lg p-1 w-fit">
+                      {(["gmail", "resend"] as const).map(p => (
+                        <button key={p} onClick={() => setAutoDraft(d => d ? { ...d, provider: p } : d)}
+                          className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${autoDraft.provider === p ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                          {p === "gmail" ? "Gmail (free)" : "Resend + domain"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Gmail path */}
+                  {autoDraft.provider === "gmail" && (
+                    autoInfo?.gmailConfigured ? (
+                      <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/10 border border-primary/30 text-xs text-foreground">
+                        <Check className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
+                        Gmail connected — sending as <span className="font-semibold text-primary">{autoInfo.gmailAddress}</span>. Emails go out from your real inbox and replies land there.
+                      </div>
+                    ) : (
+                      <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-xs text-yellow-500 space-y-1.5">
+                        <div className="flex items-center gap-2 font-semibold"><Mail className="w-3.5 h-3.5" /> Connect your Gmail (free, ~2 min)</div>
+                        <ol className="list-decimal list-inside space-y-0.5 text-yellow-500/90">
+                          <li>Turn on 2-Step Verification at myaccount.google.com → Security.</li>
+                          <li>Create an App Password at myaccount.google.com/apppasswords (copy the 16-char code).</li>
+                          <li>Add two secrets in Replit → Secrets: <span className="font-mono">GMAIL_USER</span> (your address) and <span className="font-mono">GMAIL_APP_PASSWORD</span> (the code), then restart.</li>
+                        </ol>
+                      </div>
+                    )
+                  )}
+
+                  {/* Resend path */}
+                  {autoDraft.provider === "resend" && (
+                    <>
+                      {!autoInfo?.resendConfigured && (
+                        <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-xs text-yellow-500">
+                          <Mail className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          Add your <span className="font-mono">RESEND_API_KEY</span> secret and verify a domain in Resend, then set the From address below.
+                        </div>
+                      )}
+                      <label className="block">
+                        <span className="text-xs font-semibold text-muted-foreground block mb-1.5">From email (Resend-verified)</span>
+                        <input type="email" value={autoDraft.fromEmail ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, fromEmail: e.target.value } : d)}
+                          placeholder="ryan@yourdomain.com"
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                      </label>
+                    </>
+                  )}
+
+                  {/* Sender name + reply-to (both providers) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="block">
+                      <span className="text-xs font-semibold text-muted-foreground block mb-1.5">From name</span>
+                      <input type="text" value={autoDraft.fromName ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, fromName: e.target.value } : d)}
+                        placeholder="Ryan @ Gulf Coast"
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Reply-to (optional)</span>
+                      <input type="email" value={autoDraft.replyTo ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, replyTo: e.target.value } : d)}
+                        placeholder={autoDraft.provider === "gmail" ? "Defaults to your Gmail" : "Defaults to your From email"}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                    </label>
+                  </div>
+
+                  {/* Signature + address */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="block">
+                      <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Signature</span>
+                      <textarea value={autoDraft.signature ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, signature: e.target.value } : d)} rows={3}
+                        placeholder={"Ryan Boudreaux\nGulf Coast Digital\n(251) 555-0134"}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/50" />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Business mailing address <span className="text-muted-foreground/60">(required)</span></span>
+                      <textarea value={autoDraft.businessAddress ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, businessAddress: e.target.value } : d)} rows={3}
+                        placeholder={"123 Bay St, Mobile, AL 36602"}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/50" />
+                    </label>
+                  </div>
+
+                  {/* Cadence */}
+                  <div>
+                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Sending cadence</div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <label className="block">
+                        <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Emails per day (max)</span>
+                        <input type="number" min={1} max={500} value={autoDraft.dailyCap} onChange={e => setAutoDraft(d => d ? { ...d, dailyCap: Number(e.target.value) } : d)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Window start (hour)</span>
+                        <input type="number" min={0} max={23} value={autoDraft.windowStartHour} onChange={e => setAutoDraft(d => d ? { ...d, windowStartHour: Number(e.target.value) } : d)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Window end (hour)</span>
+                        <input type="number" min={1} max={24} value={autoDraft.windowEndHour} onChange={e => setAutoDraft(d => d ? { ...d, windowEndHour: Number(e.target.value) } : d)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Timezone</span>
+                        <select value={autoDraft.tzOffsetMinutes} onChange={e => setAutoDraft(d => d ? { ...d, tzOffsetMinutes: Number(e.target.value) } : d)}
+                          className="w-full bg-background border border-border rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-primary/50">
+                          <option value={-240}>Eastern (EDT)</option>
+                          <option value={-300}>Central (CDT)</option>
+                          <option value={-360}>Mountain (MDT)</option>
+                          <option value={-420}>Pacific (PDT)</option>
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Gap between sends (min)</span>
+                        <div className="flex items-center gap-1">
+                          <input type="number" min={1} max={240} value={autoDraft.minGapMinutes} onChange={e => setAutoDraft(d => d ? { ...d, minGapMinutes: Number(e.target.value) } : d)}
+                            className="w-full bg-background border border-border rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                          <span className="text-muted-foreground text-xs">to</span>
+                          <input type="number" min={1} max={480} value={autoDraft.maxGapMinutes} onChange={e => setAutoDraft(d => d ? { ...d, maxGapMinutes: Number(e.target.value) } : d)}
+                            className="w-full bg-background border border-border rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                        </div>
+                      </label>
+                      <label className="flex items-center gap-2 mt-6">
+                        <input type="checkbox" checked={autoDraft.sendOnWeekends} onChange={e => setAutoDraft(d => d ? { ...d, sendOnWeekends: e.target.checked } : d)}
+                          className="w-4 h-4 accent-[hsl(var(--primary))]" />
+                        <span className="text-xs font-semibold text-foreground">Send on weekends</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" checked={autoDraft.autoEnrollOnContact} onChange={e => setAutoDraft(d => d ? { ...d, autoEnrollOnContact: e.target.checked } : d)}
+                      className="w-4 h-4 mt-0.5 accent-[hsl(var(--primary))]" />
+                    <span className="text-xs text-foreground">Auto-enroll a lead the moment I mark it contacted, so its follow-ups run themselves.</span>
+                  </label>
+
+                  <p className="text-[11px] text-muted-foreground leading-relaxed border-t border-border pt-3">
+                    Every email includes your address and a one-click unsubscribe, and the engine hard-stops on any
+                    unsubscribe, bounce, or reply — the things that keep you deliverable and compliant. Enroll leads from
+                    the list with the <span className="text-primary font-semibold">Automate</span> button.
+                  </p>
+
+                  <div className="flex items-center gap-3 pt-1">
+                    {autoMsg && <span className={`text-xs font-semibold ${autoMsg === "Saved." ? "text-primary" : "text-red-400"}`}>{autoMsg}</span>}
+                    <button onClick={saveAutoSettings} disabled={autoSaving}
+                      className="ml-auto flex items-center gap-1.5 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
+                      {autoSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                      {autoSaving ? "Saving…" : "Save settings"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}

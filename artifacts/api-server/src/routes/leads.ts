@@ -2,11 +2,12 @@ import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { createHash } from "node:crypto";
 import { db, leads, leadNotes, computeScore, computeOpportunity, computeDemand, computeValue } from "@workspace/db";
-import { sql, ilike, or, gte, and, count, eq, inArray, isNull, type SQL } from "drizzle-orm";
+import { sql, ilike, or, gte, and, count, eq, ne, inArray, isNull, type SQL } from "drizzle-orm";
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
 import { discoverBusinesses } from "../lib/discover";
 import { generateOutreach } from "../lib/outreach";
+import { getOutreachSettings, enrollLeads } from "../lib/outreach-auto";
 
 const router = Router();
 
@@ -319,6 +320,14 @@ router.get("/", async (req, res) => {
     return;
   }
   if (status) conditions.push(eq(leads.status, status));
+  // exclude=contacted hides leads already in the follow-up queue from the main
+  // working list (status may be NULL on old rows, which also means "new").
+  const exclude = String(req.query.exclude ?? "").trim();
+  if (exclude && !VALID_STATUSES.includes(exclude as LeadStatus)) {
+    res.status(400).json({ error: `exclude must be one of: ${VALID_STATUSES.join(", ")}` });
+    return;
+  }
+  if (exclude) conditions.push(or(isNull(leads.status), ne(leads.status, exclude))!);
 
   const where = and(...conditions)!;
 
@@ -332,7 +341,7 @@ router.get("/", async (req, res) => {
 
 // ---- GET /stats — charts data -----------------------------------------------
 router.get("/stats", async (_req, res) => {
-  const [scoreRows, categoryRows, statusRows, lastRow, opportunityRows, needsRows] = await Promise.all([
+  const [scoreRows, categoryRows, statusRows, lastRow, opportunityRows, needsRows, followUpRows] = await Promise.all([
     db.execute(sql`
       SELECT
         CASE
@@ -375,6 +384,21 @@ router.get("/stats", async (_req, res) => {
       GROUP BY need
       ORDER BY cnt DESC
     `),
+    // Contacted leads whose NEXT follow-up touch is due. outreach_step counts
+    // touches sent (1 = first email), so the next touch is followUps[step-1];
+    // leads with no AI sequence default to a 3-day wait after the first email.
+    db.execute(sql`
+      SELECT COUNT(*) AS cnt
+      FROM leads
+      WHERE deleted_at IS NULL
+        AND status = 'contacted'
+        AND contacted_at IS NOT NULL
+        AND NOW() >= contacted_at + make_interval(days =>
+          COALESCE(
+            (outreach->'followUps'->(GREATEST(COALESCE(outreach_step, 1), 1) - 1)->>'day')::int,
+            CASE WHEN GREATEST(COALESCE(outreach_step, 1), 1) = 1 THEN 3 ELSE NULL END
+          ))
+    `),
   ]);
 
   // Order opportunity buckets Hot → Warm → Cold for stable chart coloring.
@@ -387,6 +411,7 @@ router.get("/stats", async (_req, res) => {
     needsCounts: (needsRows.rows as { need: string; cnt: string }[]).map(r => ({ need: r.need, count: Number(r.cnt) })),
     topCategories: (categoryRows.rows as { category: string; cnt: string }[]).map(r => ({ category: r.category, count: Number(r.cnt) })),
     statusCounts: (statusRows.rows as { status: string; cnt: string }[]).map(r => ({ status: r.status, count: Number(r.cnt) })),
+    followUpReady: Number((followUpRows.rows[0] as { cnt: string })?.cnt ?? 0),
     lastSyncedAt: (lastRow.rows[0] as { last_synced: string | null })?.last_synced ?? null,
   });
 });
@@ -485,8 +510,53 @@ router.patch("/:id/status", async (req, res) => {
     return;
   }
 
-  await db.update(leads).set({ status, updatedAt: new Date() }).where(eq(leads.id, id));
-  res.json({ ok: true, id, status });
+  const now = new Date();
+  if (status === "contacted") {
+    // First email went out: stamp contactedAt (once) and enter the follow-up
+    // queue at step 1. Re-marking an already-contacted lead keeps its clock.
+    await db.update(leads).set({
+      status,
+      contactedAt: sql`COALESCE(${leads.contactedAt}, ${now})`,
+      outreachStep: sql`GREATEST(COALESCE(${leads.outreachStep}, 0), 1)`,
+      updatedAt: now,
+    }).where(eq(leads.id, id));
+  } else if (status === "new") {
+    // Moving back to "new" resets the follow-up clock.
+    await db.update(leads).set({ status, contactedAt: null, outreachStep: 0, updatedAt: now }).where(eq(leads.id, id));
+  } else {
+    await db.update(leads).set({ status, updatedAt: now }).where(eq(leads.id, id));
+  }
+  // If auto-enroll-on-contact is on, hand the freshly-contacted lead to the
+  // engine so its follow-ups then send themselves (scheduled at the right day
+  // offset — this never re-sends the first email).
+  if (status === "contacted") {
+    try {
+      const s = await getOutreachSettings();
+      if (s.autoEnrollOnContact && s.enabled) await enrollLeads([id]);
+    } catch { /* enrollment is best-effort; the manual queue still works */ }
+  }
+  const [row] = await db.select({ contactedAt: leads.contactedAt, outreachStep: leads.outreachStep, autoOutreach: leads.autoOutreach, nextEmailAt: leads.nextEmailAt }).from(leads).where(eq(leads.id, id));
+  res.json({ ok: true, id, status, contactedAt: row?.contactedAt ?? null, outreachStep: row?.outreachStep ?? 0, autoOutreach: row?.autoOutreach ?? false, nextEmailAt: row?.nextEmailAt ?? null });
+});
+
+// ---- POST /:id/advance-step — mark the next follow-up touch as sent ----------
+// outreachStep counts touches sent: 1 = first email, 2 = follow-up 1, etc.
+router.post("/:id/advance-step", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [lead] = await db.select().from(leads).where(and(eq(leads.id, id), isNull(leads.deletedAt)));
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
+
+  const now = new Date();
+  const nextStep = Math.max(1, (lead.outreachStep ?? 0)) + 1;
+  await db.update(leads).set({
+    status: "contacted",
+    contactedAt: lead.contactedAt ?? now,
+    outreachStep: nextStep,
+    updatedAt: now,
+  }).where(eq(leads.id, id));
+  res.json({ ok: true, id, outreachStep: nextStep });
 });
 
 // ---- POST /outreach/bulk — generate AI outreach for many leads --------------
