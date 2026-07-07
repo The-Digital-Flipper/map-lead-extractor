@@ -888,7 +888,7 @@ export default function Home() {
                     onKeyDown={e => { if (e.key === "Enter") handleQuote(); }}
                     placeholder="e.g. roofers in Mobile, AL — or plumbers anywhere"
                     data-testid="input-pack-request"
-                    className="flex-1 h-12 px-4 rounded-xl bg-background border border-border text-foreground text-sm focus:outline-none focus:border-primary transition-colors"
+                    className="flex-1 h-12 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm placeholder:text-[#9aa0a6] focus:outline-none focus:border-primary transition-colors"
                   />
                   <button
                     onClick={handleQuote}
@@ -935,7 +935,7 @@ export default function Home() {
                   onChange={e => setPackCategory(e.target.value)}
                   data-testid="select-pack-category"
                   aria-label="Business type"
-                  className="h-12 w-full sm:w-64 px-4 rounded-xl bg-card border border-border text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors">
+                  className="h-12 w-full sm:w-64 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
                   <option value="">All business types</option>
                   {PACK_CATEGORIES.map(c => (
                     <option key={c.value} value={c.value}>{c.label}</option>
@@ -946,7 +946,7 @@ export default function Home() {
                   onChange={e => setPackState(e.target.value)}
                   data-testid="select-pack-state"
                   aria-label="State"
-                  className="h-12 w-full sm:w-56 px-4 rounded-xl bg-card border border-border text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors">
+                  className="h-12 w-full sm:w-56 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
                   <option value="">All states (nationwide)</option>
                   {US_STATES.map(s => (
                     <option key={s.value} value={s.value}>{s.label}</option>
