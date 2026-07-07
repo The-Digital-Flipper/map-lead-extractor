@@ -6,6 +6,7 @@ import { sql, ilike, or, gte, and, count, eq, ne, inArray, isNull, type SQL } fr
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
 import { discoverBusinesses } from "../lib/discover";
+import { socialScanSummary } from "../lib/socialScan";
 import { generateOutreach } from "../lib/outreach";
 import { getOutreachSettings, enrollLeads } from "../lib/outreach-auto";
 
@@ -747,10 +748,10 @@ router.get("/pack-download", async (req, res) => {
   const dateStr = new Date().toISOString().slice(0, 10);
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", `attachment; filename="lead-pack-${dateStr}.csv"`);
-  const headers = ["Name", "Phone", "Emails", "Website", "Facebook", "Instagram", "Twitter", "LinkedIn", "Address", "Category", "Rating", "Reviews", "Opportunity", "Value", "Needs", "Google Maps URL"];
+  const headers = ["Name", "Phone", "Emails", "Website", "Facebook", "Instagram", "Twitter", "LinkedIn", "Address", "Category", "Rating", "Reviews", "Opportunity", "Value", "Needs", "Social Intel", "Google Maps URL"];
   let csv = headers.join(",") + "\n";
   for (const r of rows) {
-    csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, r.gmapsUrl].map(csvCellSafe).join(",") + "\n";
+    csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, socialScanSummary(r.socialScan), r.gmapsUrl].map(csvCellSafe).join(",") + "\n";
   }
   req.log.info({ rows: rows.length, category, state }, "paid pack downloaded");
   res.send(csv);
@@ -800,10 +801,10 @@ router.get("/pack-order-download", async (req, res) => {
   const dateStr = new Date().toISOString().slice(0, 10);
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", `attachment; filename="lead-pack-${order.token.slice(0, 8)}-${dateStr}.csv"`);
-  const headers = ["Name", "Phone", "Emails", "Website", "Facebook", "Instagram", "Twitter", "LinkedIn", "Address", "Category", "Rating", "Reviews", "Opportunity", "Value", "Needs", "Google Maps URL"];
+  const headers = ["Name", "Phone", "Emails", "Website", "Facebook", "Instagram", "Twitter", "LinkedIn", "Address", "Category", "Rating", "Reviews", "Opportunity", "Value", "Needs", "Social Intel", "Google Maps URL"];
   let csv = headers.join(",") + "\n";
   for (const r of rows) {
-    csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, r.gmapsUrl].map(csvCellSafe).join(",") + "\n";
+    csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, socialScanSummary(r.socialScan), r.gmapsUrl].map(csvCellSafe).join(",") + "\n";
   }
   req.log.info({ orderId: order.id, rows: rows.length, status: order.status }, "build pack downloaded");
   res.send(csv);

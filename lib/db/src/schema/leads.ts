@@ -62,6 +62,12 @@ export const leads = pgTable("leads", {
   // Quick business intel gathered from a social/web scan (what they do,
   // specialties, how active their socials are, useful pitch angles).
   socialIntel: text("social_intel"),
+  // ── Social page scan (lib/socialScan.ts) ──────────────────────────────────
+  // Per-platform analysis of the lead's actual social pages — followers, last
+  // activity, missing platforms — plus a pitch built from those findings.
+  // Sales ammo for both outreach and pack buyers.
+  socialScan: jsonb("social_scan").$type<SocialScanReport>(),
+  socialScanAt: timestamp("social_scan_at", { withTimezone: true }),
   // ── AI outreach drafts (from the outreach engine) ─────────────────────────
   // Personalized cold email + SMS + a follow-up sequence, generated from this
   // lead's own data (gaps, bio, socials). Cached so we don't re-bill the AI on
@@ -102,6 +108,23 @@ export const leads = pgTable("leads", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
+// Shape of the social-page analysis stored in leads.socialScan.
+export type SocialScanPlatform = {
+  platform: string;       // "facebook" | "instagram" | "twitter" | "linkedin" | ...
+  url?: string;
+  followers?: string;     // as found, e.g. "1.2K"
+  lastActive?: string;    // e.g. "last post Nov 2025", "inactive ~8 months"
+  note?: string;          // one concrete observation worth mentioning in a pitch
+};
+export type SocialScanReport = {
+  platforms: SocialScanPlatform[]; // pages that exist
+  missing: string[];               // platforms they have NO presence on
+  grade: "none" | "weak" | "ok" | "strong";
+  pitch: string;                   // 2-3 sentences: how to sell them with this
+  opener: string;                  // short first message referencing a real finding
+  sources?: { title: string; url: string }[];
+};
 
 // Shape of the AI-generated outreach drafts stored in leads.outreach.
 export type LeadOutreachStep = { day: number; channel: "email" | "sms"; subject?: string; body: string };

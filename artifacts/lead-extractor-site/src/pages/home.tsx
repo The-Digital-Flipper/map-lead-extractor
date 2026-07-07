@@ -415,65 +415,44 @@ export default function Home() {
               className="flex flex-col md:flex-row items-center justify-center gap-6 md:gap-12"
             >
               {/* Google Reviews Badge */}
-              <motion.div variants={fadeIn} className="flex items-center gap-4 bg-background border border-border rounded-2xl px-6 py-4 shadow-lg shadow-black/40 hover:border-primary/40 transition-colors min-w-[260px]">
-                <div className="shrink-0">
-                  <svg width="36" height="36" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/>
-                    <path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/>
-                    <path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/>
-                    <path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/>
-                  </svg>
-                </div>
+              <motion.div variants={fadeIn} className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-xl px-5 py-3.5 shadow-sm">
+                <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/><path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/></svg>
                 <div>
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    <span className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wider">Google Reviews</span>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[22px] font-semibold text-[#202124] leading-none">4.9</span>
+                    <div className="flex gap-px">{[1,2,3,4,5].map(s=><svg key={s} className="w-3.5 h-3.5 fill-[#f59e0b]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex">
-                      {[1,2,3,4,5].map(s => (
-                        <svg key={s} className="w-4 h-4 text-yellow-400 fill-yellow-400" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>
-                      ))}
-                    </div>
-                    <span className="font-display font-bold text-xl text-foreground">4.9</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-0.5"><span className="text-primary font-bold">386</span> verified reviews</p>
+                  <p className="text-[11px] text-[#70757a] mt-0.5">386 Google reviews</p>
                 </div>
               </motion.div>
 
-              <div className="hidden md:block w-px h-16 bg-border" />
+              <div className="hidden md:block w-px h-10 bg-[#e8eaed]" />
 
               {/* Trustpilot Badge */}
-              <motion.div variants={fadeIn} className="flex items-center gap-4 bg-background border border-border rounded-2xl px-6 py-4 shadow-lg shadow-black/40 hover:border-primary/40 transition-colors min-w-[260px]">
-                <div className="shrink-0">
-                  <svg width="36" height="36" viewBox="0 0 126.3 125.5" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M126.3 48.2H78L63.2 2.5 48.3 48.2H0l40.5 29.1-15.4 47 38.1-27.5 38.2 27.5-15.5-47z" fill="#00b67a"/>
-                    <path d="M90.6 89.8l-3.3-10.2-24.1 17.4z" fill="#005128"/>
-                  </svg>
-                </div>
+              <motion.div variants={fadeIn} className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-xl px-5 py-3.5 shadow-sm">
+                <svg width="28" height="28" viewBox="0 0 126.3 125.5"><path d="M126.3 48.2H78L63.2 2.5 48.3 48.2H0l40.5 29.1-15.4 47 38.1-27.5 38.2 27.5-15.5-47z" fill="#00b67a"/><path d="M90.6 89.8l-3.3-10.2-24.1 17.4z" fill="#005128"/></svg>
                 <div>
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    <span className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wider">Trustpilot</span>
-                    <span className="text-[11px] font-bold bg-[#00b67a] text-white px-1.5 py-0.5 rounded font-mono">Excellent</span>
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex gap-0.5">{[1,2,3,4,5].map(s=><div key={s} className="w-[18px] h-[18px] bg-[#00b67a] flex items-center justify-center"><svg className="w-3 h-3 fill-white" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg></div>)}</div>
+                    <span className="text-[15px] font-bold text-[#191919] leading-none">4.8</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex gap-0.5">
-                      {[1,2,3,4,5].map(s => (
-                        <div key={s} className="w-4 h-4 bg-[#00b67a] flex items-center justify-center rounded-sm">
-                          <svg className="w-3 h-3 text-white fill-white" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>
-                        </div>
-                      ))}
-                    </div>
-                    <span className="font-display font-bold text-xl text-foreground">4.8</span>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <span className="text-[11px] font-bold text-[#191919]">Excellent</span>
+                    <span className="text-[11px] text-[#555]">· 220 reviews on Trustpilot</span>
                   </div>
-                  <p className="text-sm text-muted-foreground mt-0.5"><span className="text-primary font-bold">220</span> verified reviews</p>
                 </div>
               </motion.div>
 
-              <div className="hidden md:block w-px h-16 bg-border" />
+              <div className="hidden md:block w-px h-10 bg-[#e8eaed]" />
 
-              <motion.div variants={fadeIn} className="text-center">
-                <p className="text-4xl font-display font-bold text-foreground">600<span className="text-primary">+</span></p>
-                <p className="text-sm text-muted-foreground mt-1">Happy customers worldwide</p>
+              <motion.div variants={fadeIn} className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-xl px-5 py-3.5 shadow-sm">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5 fill-primary" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                </div>
+                <div>
+                  <span className="text-[22px] font-semibold text-[#202124] leading-none">600<span className="text-primary">+</span></span>
+                  <p className="text-[11px] text-[#70757a] mt-0.5">Happy customers worldwide</p>
+                </div>
               </motion.div>
             </motion.div>
           </div>
@@ -1096,21 +1075,21 @@ export default function Home() {
                   name: "Marcus T.", initials: "M", color: "#4285F4",
                   meta: "Local Guide · 47 reviews · 12 photos",
                   stars: 5, ago: "2 weeks ago",
-                  text: "I was manually copy-pasting from Google Maps for hours every week. This extension replaced all of that. Ran a search for plumbers in Houston, hit start, went to get coffee, and came back to 340 leads with phone numbers and websites. Insane time saver.",
+                  text: "Signed up, connected the extension to my account in about two minutes, and the dashboard just works. My leads sync straight into the site, I can filter by city or category, and download a clean CSV whenever I need it. Dead simple.",
                   helpful: 14,
                 },
                 {
                   name: "Diego R.", initials: "D", color: "#EA4335",
                   meta: "Local Guide · 23 reviews",
                   stars: 5, ago: "3 weeks ago",
-                  text: "Best prospecting tool I've found and it's completely free. I target local businesses with outdated websites, extract their contact info, and pitch a redesign. Closed 4 clients last month directly from leads this pulled.",
+                  text: "The lead storage on this site is what sold me. Everything I collect lands in my account automatically, I can soft-delete stuff I don't need, and the CSV export is one click. Way cleaner than juggling spreadsheets.",
                   helpful: 9,
                 },
                 {
                   name: "James O.", initials: "J", color: "#34A853",
                   meta: "8 reviews",
                   stars: 5, ago: "5 days ago",
-                  text: "Our team was paying $300/month for a leads database with stale data. Switched to this and our contact info is live, pulled straight from Google Maps in real time. Never going back.",
+                  text: "Bought a leads pack through the site on a Friday afternoon, had the CSV in my inbox within the hour. Data was clean, properly formatted, and ready to import. Didn't expect it to be that fast honestly.",
                   helpful: 6,
                 },
                 {

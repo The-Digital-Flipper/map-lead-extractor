@@ -9,6 +9,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type { Lead, LeadOutreach } from "@workspace/db";
+import { socialScanSummary } from "./socialScan";
 
 function openAiKey(): string {
   return process.env.OPENAI_API_KEY || process.env.CHAT_GPT_API || "";
@@ -58,6 +59,10 @@ function leadPayload(lead: Lead): Record<string, unknown> {
     needs: lead.needs ?? [],
     bio: lead.bio || null,
     socialIntel: lead.socialIntel || null,
+    // Verified findings from their actual social pages (followers, dead pages,
+    // missing platforms) — the most concrete personalization hooks we have.
+    socialPages: socialScanSummary(lead.socialScan) || null,
+    socialOpener: lead.socialScan?.opener || null,
   };
 }
 

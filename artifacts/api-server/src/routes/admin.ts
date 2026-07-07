@@ -5,6 +5,7 @@ import { sql, count, gte, eq, and, desc, asc, isNull, isNotNull, inArray, getTab
 import { getUncachableStripeClient } from "../stripeClient";
 import { packWhere } from "../lib/packs";
 import { sendOrder } from "../lib/packWorker";
+import { scanAndSaveLead, socialScanSummary } from "../lib/socialScan";
 import { scrapeAndSave } from "../lib/scrape";
 import { researchTargets } from "../lib/research";
 import { analyzeLeads } from "../lib/analyze";
@@ -861,6 +862,46 @@ router.post("/recon", requireAuth, async (req, res) => {
   }
 });
 
+// ---- POST /social-scan — analyze leads' actual social pages for pitch ammo --
+// Per-platform followers/recency/missing-platform findings + a pitch built
+// from them. Skips already-scanned leads; pass leadIds to target specific ones.
+router.post("/social-scan", requireAuth, async (req, res) => {
+  const body = (req.body ?? {}) as { limit?: number; leadIds?: number[]; onlyHighTicket?: boolean };
+  const limit = Math.min(8, Math.max(1, Number(body.limit) || 5));
+
+  let batch;
+  if (Array.isArray(body.leadIds) && body.leadIds.length) {
+    const ids = body.leadIds.map(Number).filter(Number.isFinite).slice(0, 8);
+    batch = await db.select().from(leads).where(and(isNull(leads.deletedAt), inArray(leads.id, ids)));
+  } else {
+    const conds = [isNull(leads.deletedAt), isNull(leads.socialScanAt)];
+    if (body.onlyHighTicket) conds.push(eq(leads.highTicket, true));
+    // Leads with a social URL on file first (probe-verifiable), best leads first.
+    batch = await db.select().from(leads).where(and(...conds))
+      .orderBy(sql`(facebook IS NOT NULL OR instagram IS NOT NULL OR twitter IS NOT NULL OR linkedin IS NOT NULL) DESC, high_ticket DESC, value_score DESC`)
+      .limit(limit);
+  }
+  if (batch.length === 0) { res.json({ scanned: 0, results: [] }); return; }
+
+  try {
+    const results = await Promise.all(batch.map(async (l) => {
+      try {
+        const report = await scanAndSaveLead(l);
+        return { id: l.id, name: l.name, category: l.category, report, summary: socialScanSummary(report) };
+      } catch (err) {
+        req.log.warn({ err, leadId: l.id }, "social scan failed for lead");
+        return null;
+      }
+    }));
+    const done = results.filter((r) => r !== null);
+    req.log.info({ scanned: done.length }, "social scan done");
+    res.json({ scanned: done.length, results: done });
+  } catch (err) {
+    req.log.error({ err }, "social scan failed");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Social scan failed" });
+  }
+});
+
 // ---- POST /analyze — AI lead intelligence: rationale + high-ticket + bios ---
 // Reads a batch of real leads and judges which are high-ticket, writing a sales
 // bio for each. Defaults to the most-recently-touched leads (the latest scrape).
@@ -1418,10 +1459,10 @@ router.get("/pack-orders/:id/preview.csv", requireAuth, async (req, res) => {
 
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", `attachment; filename="order-${order.id}-preview.csv"`);
-  const headers = ["Name", "Phone", "Emails", "Website", "Facebook", "Instagram", "Twitter", "LinkedIn", "Address", "Category", "Rating", "Reviews", "Opportunity", "Value", "Needs", "Google Maps URL"];
+  const headers = ["Name", "Phone", "Emails", "Website", "Facebook", "Instagram", "Twitter", "LinkedIn", "Address", "Category", "Rating", "Reviews", "Opportunity", "Value", "Needs", "Social Intel", "Google Maps URL"];
   let csv = headers.join(",") + "\n";
   for (const r of rows) {
-    csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, r.gmapsUrl].map(packCsvCell).join(",") + "\n";
+    csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, socialScanSummary(r.socialScan), r.gmapsUrl].map(packCsvCell).join(",") + "\n";
   }
   res.send(csv);
 });

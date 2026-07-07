@@ -719,6 +719,27 @@ export default function Admin() {
     setReconning(false);
   };
 
+  // Social page scan — per-platform followers/recency/missing-platform ammo.
+  type SocialScanPlatform = { platform: string; url?: string; followers?: string; lastActive?: string; note?: string };
+  type SocialScanReport = { platforms: SocialScanPlatform[]; missing: string[]; grade: string; pitch: string; opener: string; sources?: ReconSource[] };
+  type SocialScanLead = { id: number; name: string | null; category: string | null; report: SocialScanReport; summary: string };
+  const [socialScanning, setSocialScanning] = useState(false);
+  const [socialScanResult, setSocialScanResult] = useState<{ scanned: number; results: SocialScanLead[] } | null>(null);
+  const [socialScanError, setSocialScanError] = useState("");
+  const runSocialScan = async () => {
+    if (socialScanning) return;
+    setSocialScanning(true); setSocialScanError("");
+    try {
+      const r = await fetch(`${basePath}/api/admin/social-scan`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 5 }),
+      });
+      const d = await r.json();
+      if (r.ok) setSocialScanResult(d);
+      else setSocialScanError(d.error ?? "Social scan failed");
+    } catch { setSocialScanError("Could not reach the server"); }
+    setSocialScanning(false);
+  };
+
   const scrapeOneTarget = async (id: number): Promise<void> => {
     setScrapingTargetId(id);
     const t = targets.find(x => x.id === id);
@@ -2286,6 +2307,87 @@ export default function Admin() {
                               <div className="text-[10px] font-bold uppercase tracking-wider text-foreground/60 mb-1.5">Sources (click to verify)</div>
                               <div className="flex flex-wrap gap-1.5">
                                 {l.sources.map((s, i) => (
+                                  <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" title={s.url}
+                                    className="text-[11px] font-medium px-2 py-1 rounded-md bg-card border border-border text-foreground/80 hover:text-primary hover:border-primary/40 transition-colors truncate max-w-[200px]">
+                                    {s.title}
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Social page scan — followers, dead pages, missing platforms */}
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <Share2 className="w-5 h-5 text-primary" />
+                  <h2 className="text-lg font-display font-bold">Social Page Scan</h2>
+                  <button onClick={runSocialScan} disabled={socialScanning}
+                    className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
+                    <RefreshCw className={`w-4 h-4 ${socialScanning ? "animate-spin" : ""}`} />
+                    {socialScanning ? "Scanning…" : "Scan socials (5)"}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Reads each lead's actual social pages — followers, how long since they posted, which platforms they're missing entirely — and turns it into a concrete pitch + opener. The findings also flow into outreach emails and lead-pack CSVs.
+                </p>
+                {socialScanError && <p className="text-xs text-red-400 mt-2">⚠ {socialScanError}</p>}
+                {socialScanResult && (
+                  <div className="mt-4 space-y-3">
+                    {socialScanResult.results.length === 0
+                      ? <p className="text-sm text-muted-foreground">Nothing left to scan — every lead already has a social scan.</p>
+                      : socialScanResult.results.map((l) => (
+                        <div key={l.id} className="rounded-xl border border-border bg-background/60 p-5">
+                          <div className="flex items-center gap-2 flex-wrap mb-3">
+                            <span className="text-base font-bold text-white">{l.name}</span>
+                            <span className="text-xs font-medium text-foreground/70">{l.category}</span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase ${
+                              l.report.grade === "strong" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                              : l.report.grade === "ok" ? "bg-blue-500/15 text-blue-400 border-blue-500/40"
+                              : "bg-amber-500/15 text-amber-300 border-amber-500/40"}`}>
+                              {l.report.grade} social
+                            </span>
+                          </div>
+
+                          {l.report.platforms.length > 0 && (
+                            <div className="space-y-1.5 mb-3">
+                              {l.report.platforms.map((p, i) => (
+                                <div key={i} className="flex items-baseline gap-2 text-sm">
+                                  {p.url
+                                    ? <a href={p.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary capitalize hover:underline shrink-0">{p.platform}</a>
+                                    : <span className="font-bold text-foreground capitalize shrink-0">{p.platform}</span>}
+                                  <span className="text-foreground/80">
+                                    {[p.followers && `${p.followers} followers`, p.lastActive, p.note].filter(Boolean).join(" · ")}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {l.report.missing.length > 0 && (
+                            <p className="text-sm text-amber-300 mb-3">Not on: <span className="font-semibold capitalize">{l.report.missing.join(", ")}</span></p>
+                          )}
+
+                          {l.report.pitch && (
+                            <div className="mt-1">
+                              <div className="text-xs font-bold uppercase tracking-wider text-primary mb-0.5">How to sell them</div>
+                              <p className="text-sm font-medium text-foreground leading-relaxed">{l.report.pitch}</p>
+                            </div>
+                          )}
+                          {l.report.opener && (
+                            <div className="mt-3 rounded-lg border border-primary/30 bg-primary/10 p-3">
+                              <div className="text-xs font-bold uppercase tracking-wider text-primary mb-0.5">What to say</div>
+                              <p className="text-sm font-semibold text-white leading-relaxed">&ldquo;{l.report.opener}&rdquo;</p>
+                            </div>
+                          )}
+                          {l.report.sources && l.report.sources.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-border">
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-foreground/60 mb-1.5">Sources (click to verify)</div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {l.report.sources.map((s, i) => (
                                   <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" title={s.url}
                                     className="text-[11px] font-medium px-2 py-1 rounded-md bg-card border border-border text-foreground/80 hover:text-primary hover:border-primary/40 transition-colors truncate max-w-[200px]">
                                     {s.title}
