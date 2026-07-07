@@ -83,7 +83,7 @@ function parseOutreach(text: string): LeadOutreach {
   };
 }
 
-async function runAi(user: string): Promise<string> {
+async function runAi(user: string, system: string = SYSTEM): Promise<string> {
   const key = openAiKey();
   if (key) {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -94,7 +94,7 @@ async function runAi(user: string): Promise<string> {
         temperature: 0.8,
         max_tokens: 1500,
         response_format: { type: "json_object" },
-        messages: [{ role: "system", content: SYSTEM }, { role: "user", content: user }],
+        messages: [{ role: "system", content: system }, { role: "user", content: user }],
       }),
     });
     if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
@@ -106,7 +106,7 @@ async function runAi(user: string): Promise<string> {
     const msg = await client.messages.create({
       model: "claude-opus-4-8",
       max_tokens: 1500,
-      system: SYSTEM,
+      system,
       messages: [{ role: "user", content: user }],
     });
     return msg.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("");
@@ -131,4 +131,44 @@ export async function generateOutreach(lead: Lead, sender: OutreachSender = {}):
   ].join("\n");
   const user = `SENDER:\n${senderBlock}\n\nWrite outreach for this lead:\n${JSON.stringify(leadPayload(lead))}`;
   return parseOutreach(await runAi(user));
+}
+
+// ── Auto-replies ──────────────────────────────────────────────────────────────
+
+// One prior message in the thread, oldest first.
+export type ReplyTurn = { from: "us" | "them"; body: string };
+
+// What the responder decides for one inbound reply. shouldReply=false means
+// stay silent (auto-responder, pure opt-out, or nothing useful to add);
+// leadDone=true means the lead clearly wants out → suppress them.
+export type ReplyDecision = { shouldReply: boolean; leadDone: boolean; body: string };
+
+const REPLY_SYSTEM = `You answer inbound email replies on behalf of the sender described below. A business lead the sender cold-emailed has just written back; the conversation so far is provided, newest message last.
+
+Decide and respond:
+- If the message is an automatic reply (out-of-office, "no longer at this company", ticket confirmations) → do not reply.
+- If they clearly want out ("stop", "not interested", "take me off your list", hostility) → do not reply, and mark the lead done.
+- Otherwise write the response: answer their actual questions plainly using ONLY the sender's offer details below — never invent prices, dates, availability, or capabilities you weren't given. If they ask something you can't answer from the offer, say the sender will get back to them on that. Keep it 30-90 words, human and direct, matching their tone, and end by moving one small step forward (proposing a quick call, asking the one question that advances the deal, or confirming the next step). No greeting-card fluff, no restating your whole pitch.
+
+Never mention being an AI or automated. Do not add a signature — one is appended automatically.
+
+Return ONLY JSON: {"shouldReply": boolean, "leadDone": boolean, "body": string}. body must be "" when shouldReply is false.`;
+
+// Decide how (and whether) to answer a lead's reply. Grounded in the owner's
+// offer + the thread so far; the model can also flag the lead as done.
+export async function generateReply(lead: Lead, thread: ReplyTurn[], sender: OutreachSender): Promise<ReplyDecision> {
+  const offer = sender.offer?.trim();
+  if (!offer) throw new Error("No offer set — add what you're offering in the Automate settings first.");
+  const convo = thread.map((t) => `${t.from === "us" ? "US" : "THEM"}:\n${t.body.trim()}`).join("\n\n---\n\n");
+  const user = [
+    `SENDER:\nThe sender offers: ${offer}`,
+    sender.name?.trim() ? `The sender's name: ${sender.name.trim()}` : "",
+    `\nTHE LEAD (who replied):\n${JSON.stringify(leadPayload(lead))}`,
+    `\nCONVERSATION (oldest first, their newest reply last):\n\n${convo}`,
+  ].filter(Boolean).join("\n");
+  const raw = await runAi(user, REPLY_SYSTEM);
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  const o = JSON.parse(cleaned) as Partial<ReplyDecision>;
+  const body = String(o.body ?? "").trim();
+  return { shouldReply: !!o.shouldReply && body.length > 0, leadDone: !!o.leadDone, body };
 }

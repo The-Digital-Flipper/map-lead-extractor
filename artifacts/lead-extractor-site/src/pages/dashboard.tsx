@@ -157,6 +157,7 @@ interface OutreachSettings {
   minGapMinutes: number;
   maxGapMinutes: number;
   autoEnrollOnContact: boolean;
+  autoReply: boolean;
 }
 interface OutreachInfo {
   settings: OutreachSettings;
@@ -165,6 +166,7 @@ interface OutreachInfo {
   gmailAddress: string | null;
   enrolled: number;
   pending: number;
+  replied: number;
   sentToday: number;
 }
 interface AutoActivity {
@@ -176,6 +178,21 @@ interface AutoActivity {
   subject: string;
   status: string;
   error: string | null;
+  createdAt: string;
+}
+// One row of the two-way conversation feed: a lead's reply ("in") or the AI's
+// answer to it ("out").
+interface AutoReply {
+  id: number;
+  leadId: number;
+  leadName: string | null;
+  direction: "in" | "out";
+  fromEmail: string;
+  subject: string | null;
+  body: string;
+  status: string;
+  error: string | null;
+  aiGenerated: boolean;
   createdAt: string;
 }
 
@@ -509,6 +526,7 @@ export default function Dashboard() {
   const [autoSaving, setAutoSaving] = useState(false);
   const [autoMsg, setAutoMsg] = useState<string | null>(null);
   const [autoActivity, setAutoActivity] = useState<AutoActivity[]>([]);
+  const [autoReplies, setAutoReplies] = useState<AutoReply[]>([]);
   // AI outreach engine: per-lead personalized email + SMS + follow-ups.
   const [outreachLead, setOutreachLead] = useState<Lead | null>(null);
   const [outreach, setOutreach] = useState<Outreach | null>(null);
@@ -833,7 +851,16 @@ export default function Dashboard() {
     } catch {}
   }, [authFetch]);
 
-  const openAuto = () => { setShowAuto(true); setAutoMsg(null); fetchAutoInfo(); fetchAutoActivity(); };
+  const fetchAutoReplies = useCallback(async () => {
+    try {
+      const r = await authFetch(`${basePath}/api/outreach/replies?limit=30`);
+      if (!r.ok) return;
+      const d = await r.json() as { replies: AutoReply[] };
+      setAutoReplies(d.replies ?? []);
+    } catch {}
+  }, [authFetch]);
+
+  const openAuto = () => { setShowAuto(true); setAutoMsg(null); fetchAutoInfo(); fetchAutoActivity(); fetchAutoReplies(); };
 
   const saveAutoSettings = async () => {
     if (!autoDraft) return;
@@ -848,6 +875,31 @@ export default function Dashboard() {
       fetchAutoInfo();
     } catch { setAutoMsg("Network error."); }
     finally { setAutoSaving(false); }
+  };
+
+  // One-click auto-replies: the toggle saves itself immediately — no separate
+  // Save press — so turning it on is genuinely a single click.
+  const toggleAutoReply = async () => {
+    if (!autoDraft) return;
+    const next = !autoDraft.autoReply;
+    setAutoDraft(d => d ? { ...d, autoReply: next } : d);
+    setAutoMsg(null);
+    try {
+      const r = await authFetch(`${basePath}/api/outreach/settings`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ autoReply: next }),
+      });
+      const d = await r.json().catch(() => ({})) as { error?: string };
+      if (!r.ok) {
+        setAutoDraft(dr => dr ? { ...dr, autoReply: !next } : dr);
+        setAutoMsg(d.error ?? "Could not save.");
+        return;
+      }
+      setAutoMsg(next ? "Auto-reply is on — replies get answered for you." : "Auto-reply is off.");
+      fetchAutoInfo();
+    } catch {
+      setAutoDraft(dr => dr ? { ...dr, autoReply: !next } : dr);
+      setAutoMsg("Network error.");
+    }
   };
 
   // Enroll the selected leads into automated sending. The engine generates any
@@ -2414,13 +2466,39 @@ export default function Dashboard() {
                     <span className="text-[11px] text-muted-foreground mt-1 block">Nothing about your business is assumed — the AI writes each email around exactly what you type here. Leave it blank and nothing generates or sends.</span>
                   </label>
 
+                  {/* One-click auto-replies: AI answers leads who write back */}
+                  <div className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${autoDraft.autoReply ? "bg-primary/10 border-primary/40" : "bg-background/50 border-border"}`}>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-foreground mb-1">
+                        <Sparkles className={`w-3.5 h-3.5 ${autoDraft.autoReply ? "text-primary" : "text-muted-foreground"}`} />
+                        AI answers replies for me
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        When a lead writes back, the AI reads their reply and sends a short, grounded response within
+                        minutes — threaded into the same conversation, built only from your offer above. Opt-outs are
+                        honored automatically, and after 3 AI responses the conversation is handed to you.
+                      </p>
+                      {!autoInfo?.gmailConfigured && (
+                        <p className="text-[11px] text-yellow-500 mt-1">Needs your Gmail connected — that's the inbox it watches.</p>
+                      )}
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer shrink-0 mt-0.5">
+                      <span className={`text-xs font-bold ${autoDraft.autoReply ? "text-primary" : "text-muted-foreground"}`}>{autoDraft.autoReply ? "ON" : "OFF"}</span>
+                      <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoDraft.autoReply ? "bg-primary" : "bg-border"}`}
+                        onClick={toggleAutoReply}>
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoDraft.autoReply ? "translate-x-4" : "translate-x-0.5"}`} />
+                      </span>
+                    </label>
+                  </div>
+
                   {/* Live counters */}
                   {autoInfo && (
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-4 gap-3">
                       {[
                         { label: "Enrolled", value: autoInfo.enrolled },
                         { label: "Queued", value: autoInfo.pending },
                         { label: "Sent today", value: autoInfo.sentToday },
+                        { label: "Replied", value: autoInfo.replied },
                       ].map(c => (
                         <div key={c.label} className="rounded-xl border border-border bg-background/50 p-3 text-center">
                           <div className="text-xl font-display font-bold text-primary">{c.value}</div>
@@ -2451,6 +2529,36 @@ export default function Dashboard() {
                             <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold shrink-0">{a.step === 1 ? "Email #1" : `Follow-up ${a.step - 1}`}</span>
                             <span className="text-muted-foreground truncate flex-1" title={a.subject}>{a.subject}</span>
                             <span className="text-muted-foreground/60 shrink-0 whitespace-nowrap">{new Date(a.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}, {new Date(a.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Replies feed: what leads wrote back and what the AI answered */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Replies</span>
+                      <button onClick={fetchAutoReplies} title="Refresh" className="text-muted-foreground/60 hover:text-primary transition-colors">
+                        <RefreshCw className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {autoReplies.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-border bg-background/30 py-6 text-center text-xs text-muted-foreground">
+                        No replies yet. When a lead writes back it shows up here{autoDraft.autoReply ? " — along with the AI's answer" : ""}.
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-border divide-y divide-border max-h-64 overflow-y-auto">
+                        {autoReplies.map(r => (
+                          <div key={r.id} className="px-3 py-2 text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${r.direction === "in" ? "bg-blue-500/15 text-blue-400" : r.status === "sent" ? "bg-primary/10 text-primary" : "bg-red-500/15 text-red-400"}`}>
+                                {r.direction === "in" ? "↩ Reply" : r.status === "sent" ? "🤖 AI answered" : "🤖 Failed"}
+                              </span>
+                              <span className="font-semibold text-foreground truncate max-w-[140px]" title={r.leadName ?? r.fromEmail}>{r.leadName ?? r.fromEmail}</span>
+                              <span className="text-muted-foreground/60 shrink-0 whitespace-nowrap ml-auto">{new Date(r.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}, {new Date(r.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>
+                            </div>
+                            <p className="text-muted-foreground mt-1 line-clamp-2 whitespace-pre-line" title={r.error ?? r.body}>{r.error ?? r.body}</p>
                           </div>
                         ))}
                       </div>

@@ -47,6 +47,10 @@ export const outreachSettings = pgTable("outreach_settings", {
   // Automatically enroll a lead the moment it's marked contacted (first email
   // sent by hand) so its follow-ups then run themselves.
   autoEnrollOnContact: boolean("auto_enroll_on_contact").notNull().default(false),
+  // One-click auto-replies: when a lead answers, the AI writes and sends a
+  // grounded response on its own (Gmail inbox watched over IMAP). Capped per
+  // lead so a human always takes over a real conversation.
+  autoReply: boolean("auto_reply").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -72,6 +76,34 @@ export const outreachEmails = pgTable("outreach_emails", {
   index("outreach_emails_created_idx").on(t.createdAt),
 ]);
 
+// Two-way conversation log for the reply automation: one row per inbound reply
+// a lead sends us ("in") and per AI-written response we send back ("out").
+// Inbound rows are deduped by messageId so re-scanning the inbox is idempotent.
+export const outreachReplies = pgTable("outreach_replies", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id").notNull(),
+  direction: text("direction").notNull(), // in | out
+  fromEmail: text("from_email").notNull(),
+  subject: text("subject"),
+  // The reply text with quoted history stripped (inbound), or the full body we
+  // sent (outbound).
+  body: text("body").notNull(),
+  // RFC Message-ID of this message — dedupe key for inbound, thread anchor for
+  // the response we send.
+  messageId: text("message_id").unique(),
+  // Outbound only: sent | failed (+ error). Inbound rows stay "received".
+  status: text("status").notNull().default("received"),
+  error: text("error"),
+  // Outbound only: true when the AI wrote and sent it without a human.
+  aiGenerated: boolean("ai_generated").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index("outreach_replies_lead_idx").on(t.leadId),
+  index("outreach_replies_created_idx").on(t.createdAt),
+]);
+
 export type OutreachSettings = typeof outreachSettings.$inferSelect;
 export type OutreachEmail = typeof outreachEmails.$inferSelect;
 export type InsertOutreachEmail = typeof outreachEmails.$inferInsert;
+export type OutreachReply = typeof outreachReplies.$inferSelect;
+export type InsertOutreachReply = typeof outreachReplies.$inferInsert;

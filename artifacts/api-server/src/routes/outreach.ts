@@ -7,7 +7,7 @@
  */
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "@clerk/express";
-import { db, leads, outreachEmails } from "@workspace/db";
+import { db, leads, outreachEmails, outreachReplies } from "@workspace/db";
 import { and, desc, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import {
   getOutreachSettings, updateOutreachSettings, resendConfigured,
@@ -50,12 +50,14 @@ router.get("/settings", requireAuth, async (_req, res) => {
     .where(and(eq(leads.autoOutreach, true), isNull(leads.deletedAt)));
   const [{ pending }] = await db.select({ pending: sql<number>`count(*)::int` }).from(leads)
     .where(and(eq(leads.autoOutreach, true), isNull(leads.deletedAt), isNotNull(leads.nextEmailAt)));
+  const [{ replied }] = await db.select({ replied: sql<number>`count(*)::int` }).from(leads)
+    .where(and(isNotNull(leads.repliedAt), isNull(leads.deletedAt)));
   res.json({
     settings: s,
     resendConfigured: resendConfigured(),
     gmailConfigured: gmailConfigured(),
     gmailAddress: gmailAddress(),
-    enrolled, pending,
+    enrolled, pending, replied,
     sentToday: await sentToday(s),
   });
 });
@@ -66,7 +68,7 @@ router.patch("/settings", requireAuth, async (req, res) => {
   const patch: Record<string, unknown> = {};
   const strFields = ["fromName", "fromEmail", "replyTo", "signature", "businessAddress", "offer"];
   const numFields = ["dailyCap", "windowStartHour", "windowEndHour", "tzOffsetMinutes", "minGapMinutes", "maxGapMinutes"];
-  const boolFields = ["enabled", "sendOnWeekends", "autoEnrollOnContact"];
+  const boolFields = ["enabled", "sendOnWeekends", "autoEnrollOnContact", "autoReply"];
   for (const f of strFields) if (f in b) patch[f] = b[f] == null ? null : String(b[f]).slice(0, 2000);
   for (const f of numFields) if (f in b) patch[f] = Math.trunc(Number(b[f])) || 0;
   for (const f of boolFields) if (f in b) patch[f] = !!b[f];
@@ -78,6 +80,13 @@ router.patch("/settings", requireAuth, async (req, res) => {
   if ("dailyCap" in patch) patch.dailyCap = Math.min(500, Math.max(1, patch.dailyCap as number));
   if ("minGapMinutes" in patch) patch.minGapMinutes = Math.min(240, Math.max(1, patch.minGapMinutes as number));
   if ("maxGapMinutes" in patch) patch.maxGapMinutes = Math.min(480, Math.max(patch.minGapMinutes as number ?? 1, patch.maxGapMinutes as number));
+
+  // Auto-replies watch (and answer from) the Gmail inbox, so they need the
+  // Gmail secrets even when sending goes through Resend.
+  if (patch.autoReply && !gmailConfigured()) {
+    res.status(400).json({ error: "Auto-reply needs your Gmail connected (GMAIL_USER and GMAIL_APP_PASSWORD secrets) — that's the inbox it watches for replies." });
+    return;
+  }
 
   // Can't turn it on unless the chosen provider is actually ready to send.
   if (patch.enabled) {
@@ -135,6 +144,19 @@ router.get("/activity", requireAuth, async (req, res) => {
   }).from(outreachEmails).leftJoin(leads, eq(leads.id, outreachEmails.leadId))
     .orderBy(desc(outreachEmails.createdAt)).limit(limit);
   res.json({ activity: rows });
+});
+
+// ---- GET /replies — the two-way conversation feed ---------------------------
+router.get("/replies", requireAuth, async (req, res) => {
+  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "30"), 10) || 30));
+  const rows = await db.select({
+    id: outreachReplies.id, leadId: outreachReplies.leadId, direction: outreachReplies.direction,
+    fromEmail: outreachReplies.fromEmail, subject: outreachReplies.subject, body: outreachReplies.body,
+    status: outreachReplies.status, error: outreachReplies.error, aiGenerated: outreachReplies.aiGenerated,
+    createdAt: outreachReplies.createdAt, leadName: leads.name,
+  }).from(outreachReplies).leftJoin(leads, eq(leads.id, outreachReplies.leadId))
+    .orderBy(desc(outreachReplies.createdAt)).limit(limit);
+  res.json({ replies: rows });
 });
 
 // ---- GET /u/:token — public one-click unsubscribe ---------------------------

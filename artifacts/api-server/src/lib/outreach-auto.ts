@@ -54,7 +54,7 @@ export function anyProviderConfigured(): boolean {
 
 // Lazily-built reusable Gmail SMTP transport.
 let gmailTransport: Transporter | null = null;
-function getGmailTransport(): Transporter {
+export function getGmailTransport(): Transporter {
   if (!gmailTransport) {
     gmailTransport = nodemailer.createTransport({
       host: "smtp.gmail.com",
@@ -84,7 +84,7 @@ export async function getOutreachSettings(): Promise<OutreachSettings> {
 type SettingsPatch = Partial<Pick<OutreachSettings,
   "enabled" | "provider" | "fromName" | "fromEmail" | "replyTo" | "signature" | "businessAddress" |
   "dailyCap" | "windowStartHour" | "windowEndHour" | "tzOffsetMinutes" | "sendOnWeekends" |
-  "minGapMinutes" | "maxGapMinutes" | "autoEnrollOnContact">>;
+  "minGapMinutes" | "maxGapMinutes" | "autoEnrollOnContact" | "autoReply">>;
 
 export async function updateOutreachSettings(patch: SettingsPatch): Promise<OutreachSettings> {
   await getOutreachSettings();
@@ -157,7 +157,7 @@ function localMidnight(now: Date, s: OutreachSettings): Date {
 
 // ── Content assembly ─────────────────────────────────────────────────────────
 
-function primaryEmail(lead: Lead): string | null {
+export function primaryEmail(lead: Lead): string | null {
   if (!lead.emails) return null;
   const first = lead.emails.split(",")[0]?.trim();
   return first && /.+@.+\..+/.test(first) ? first : null;
@@ -196,7 +196,7 @@ function unsubUrl(token: string): string {
 // deliverability signal; replies are also honored as opt-outs. The physical
 // mailing address stays in a small footer (still required for bulk email and a
 // spam-filter trust signal).
-function renderEmail(rawBody: string, s: OutreachSettings): { text: string; html: string } {
+export function renderEmail(rawBody: string, s: OutreachSettings): { text: string; html: string } {
   const sig = s.signature?.trim();
   const addr = s.businessAddress?.trim();
 
