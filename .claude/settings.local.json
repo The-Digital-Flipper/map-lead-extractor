@@ -18,7 +18,8 @@
       "Bash(BASE_PATH=/ PORT=5173 pnpm run *)",
       "Bash(node shot-el.mjs \"http://127.0.0.1:5173/\" '[data-testid=\"seal-hero-cws\"]' hero-seal.png)",
       "Bash(node shot-el.mjs \"http://127.0.0.1:5173/\" '[data-testid=\"seal-google-cws\"]' card-seal.png)",
-      "Bash(pkill -f \"vite --config\")"
+      "Bash(pkill -f \"vite --config\")",
+      "Bash(pnpm --filter @workspace/db run push-force)"
     ]
   }
 }

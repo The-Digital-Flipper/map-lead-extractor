@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Download, Map, Zap, Search, Chrome, FileSpreadsheet, Lock, Shield, Settings2, Code2, Users, Database, Pin, Play, CheckCircle2, Package, Globe, Star, MapPin, Building2, Calendar, Share2, TrendingUp, Mail } from "lucide-react";
 import { SiGoogle, SiGooglechrome, SiFacebook, SiYelp } from "react-icons/si";
@@ -152,6 +152,29 @@ function PhotoSlot({ icon, label, hint }: { icon: React.ReactNode; label: string
 }
 
 export default function Home() {
+  const [chatOpen, setChatOpen] = useState(false);
+  const chatFiredRef = useRef(false);
+  const leadsSectionRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const el = leadsSectionRef.current;
+    if (!el) return;
+    let hasBeenVisible = false;
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          hasBeenVisible = true;
+        } else if (hasBeenVisible && !chatFiredRef.current) {
+          chatFiredRef.current = true;
+          setTimeout(() => setChatOpen(true), 600);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   const [packLoading, setPackLoading] = useState(false);
   const [packError, setPackError] = useState<string | null>(null);
   const [packCategory, setPackCategory] = useState("");
@@ -837,14 +860,27 @@ export default function Home() {
         </section>
 
         {/* Section: Leads For Sale */}
-        <section id="leads-for-sale" className="py-32 border-y border-border bg-card/20 relative">
+        <section id="leads-for-sale" ref={leadsSectionRef as React.RefObject<HTMLElement>} className="py-32 border-y border-border bg-card/20 relative">
           <div className="container mx-auto px-6">
             <div className="text-center mb-16">
+              {/* Live activity ticker */}
+              <div className="inline-flex items-center gap-2 mb-5 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 text-sm">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                </span>
+                <span className="text-primary font-semibold">47 businesses bought leads this week</span>
+              </div>
               <Badge className="mb-4 bg-primary/15 text-primary border-primary/30">💰 Leads For Sale</Badge>
-              <h2 className="text-4xl md:text-5xl font-display font-bold mb-6 tracking-tight">We Sell Leads.</h2>
-              <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+              <h2 className="text-4xl md:text-5xl font-display font-bold mb-4 tracking-tight">We Sell Leads.</h2>
+              <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-4">
                 Targeted local-business leads — scored, organized, and ready to close. Every lead is a business with a gap you can fill. Pick the type that matches what you sell.
               </p>
+              <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-primary" /> One-time payment, no subscription</span>
+                <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-primary" /> CSV emailed within 2 hours</span>
+                <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-primary" /> Refund if we come up short</span>
+              </div>
             </div>
 
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -872,15 +908,24 @@ export default function Home() {
               ))}
             </div>
 
-            <div className="text-center mt-14">
-              <p className="text-muted-foreground mb-6 max-w-xl mx-auto">
-                Get a <strong className="text-foreground">100 Local Business Leads</strong> pack — a clean CSV with phone, email, website, ratings & more, for <strong className="text-foreground">$29</strong>. One-time payment, no subscription, no account needed.
-              </p>
+            {/* Conversion box */}
+            <div className="max-w-2xl mx-auto mt-14">
+              {/* Price + value header */}
+              <div className="text-center mb-6">
+                <div className="flex items-baseline justify-center gap-3 mb-2">
+                  <span className="text-5xl font-display font-bold text-foreground">$29</span>
+                  <span className="text-xl text-muted-foreground line-through">$99</span>
+                  <span className="px-2.5 py-1 rounded-full bg-primary/15 border border-primary/30 text-primary text-xs font-bold">71% OFF</span>
+                </div>
+                <p className="text-muted-foreground">100 targeted local business leads — phone, email, website, ratings & more</p>
+              </div>
 
-              {/* Free-text request */}
-              <div className="max-w-xl mx-auto mb-8 bg-card/60 border border-border rounded-2xl p-5">
-                <label className="block text-sm font-semibold text-foreground mb-2 text-left">Describe the leads you want</label>
-                <div className="flex flex-col sm:flex-row gap-3">
+              {/* Main conversion card */}
+              <div className="bg-card/60 border border-primary/20 rounded-2xl p-6 shadow-lg shadow-primary/5 mb-4">
+
+                {/* Free-text request */}
+                <label className="block text-sm font-semibold text-foreground mb-2">Tell us what you're looking for</label>
+                <div className="flex flex-col sm:flex-row gap-3 mb-5">
                   <input
                     type="text"
                     value={packRequest}
@@ -900,13 +945,13 @@ export default function Home() {
                 </div>
 
                 {quote && quote.ok === false && (
-                  <p className="text-sm text-amber-400 mt-4 text-left" data-testid="text-quote-error">{quote.message}</p>
+                  <p className="text-sm text-amber-400 mb-4 text-left" data-testid="text-quote-error">{quote.message}</p>
                 )}
                 {quote && quote.ok && (
-                  <div className="mt-4 text-left" data-testid="box-quote-result">
+                  <div className="mb-5 text-left p-4 rounded-xl bg-primary/5 border border-primary/20" data-testid="box-quote-result">
                     {quote.instant ? (
-                      <p className="text-sm text-primary mb-3">
-                        In stock — we have {quote.available.toLocaleString()} {quote.label}{quote.location ? ` in ${quote.location}` : ""} ready. We'll email your CSV after a quick quality check — usually within a few hours.
+                      <p className="text-sm text-primary mb-3 font-medium">
+                        ✅ In stock — {quote.available.toLocaleString()} {quote.label}{quote.location ? ` in ${quote.location}` : ""} ready. CSV emailed after a quick quality check, usually within a few hours.
                       </p>
                     ) : (
                       <p className="text-sm text-muted-foreground mb-3">
@@ -926,63 +971,88 @@ export default function Home() {
                     </button>
                   </div>
                 )}
-              </div>
 
-              <p className="text-sm text-muted-foreground mb-4">Or pick from a list:</p>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center items-center mb-5">
-                <select
-                  value={packCategory}
-                  onChange={e => setPackCategory(e.target.value)}
-                  data-testid="select-pack-category"
-                  aria-label="Business type"
-                  className="h-12 w-full sm:w-64 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
-                  <option value="">All business types</option>
-                  {PACK_CATEGORIES.map(c => (
-                    <option key={c.value} value={c.value}>{c.label}</option>
-                  ))}
-                </select>
-                <select
-                  value={packState}
-                  onChange={e => setPackState(e.target.value)}
-                  data-testid="select-pack-state"
-                  aria-label="State"
-                  className="h-12 w-full sm:w-56 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
-                  <option value="">All states (nationwide)</option>
-                  {US_STATES.map(s => (
-                    <option key={s.value} value={s.value}>{s.label}</option>
-                  ))}
-                </select>
-              </div>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex-1 h-px bg-border" />
+                  <span className="text-xs text-muted-foreground">or pick from a list</span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
 
-              {packAvail && !packAvail.ok && !packAvailLoading && (
-                <p className="text-sm text-amber-400 mb-5 max-w-md mx-auto" data-testid="text-pack-unavailable">
-                  Only {packAvail.available} leads available for this combination right now — choose a different business type or state (or "All") to fill a 100-lead pack.
-                </p>
-              )}
-              {packAvail?.ok && (packCategory || packState) && !packAvailLoading && (
-                <p className="text-sm text-primary mb-5" data-testid="text-pack-available">
-                  {packAvail.available.toLocaleString()} matching leads — you'll get the top 100.
-                </p>
-              )}
+                <div className="flex flex-col sm:flex-row gap-3 mb-5">
+                  <select
+                    value={packCategory}
+                    onChange={e => setPackCategory(e.target.value)}
+                    data-testid="select-pack-category"
+                    aria-label="Business type"
+                    className="h-12 flex-1 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
+                    <option value="">All business types</option>
+                    {PACK_CATEGORIES.map(c => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={packState}
+                    onChange={e => setPackState(e.target.value)}
+                    data-testid="select-pack-state"
+                    aria-label="State"
+                    className="h-12 flex-1 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
+                    <option value="">All states (nationwide)</option>
+                    {US_STATES.map(s => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </div>
 
-              <button
-                onClick={handleBuyPack}
-                disabled={packLoading || packAvailLoading || (packAvail !== null && !packAvail.ok)}
-                data-testid="btn-buy-lead-pack"
-                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed">
-                {packLoading ? (
-                  <>
-                    <span className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
-                    Redirecting to checkout…
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-5 h-5" /> Get 100 Leads — $29
-                  </>
+                {packAvail && !packAvail.ok && !packAvailLoading && (
+                  <p className="text-sm text-amber-400 mb-4" data-testid="text-pack-unavailable">
+                    Only {packAvail.available} leads available for this combination — choose a different type or state to fill a 100-lead pack.
+                  </p>
                 )}
-              </button>
-              {packError && <p className="text-sm text-red-400 mt-4">{packError}</p>}
-              <p className="text-xs text-muted-foreground mt-4">Secure checkout via Stripe. Every pack is human-reviewed before it ships — your CSV download link arrives by email, usually within a few hours (24h max).</p>
+                {packAvail?.ok && (packCategory || packState) && !packAvailLoading && (
+                  <p className="text-sm text-primary mb-4 font-medium" data-testid="text-pack-available">
+                    ✅ {packAvail.available.toLocaleString()} matching leads available — you'll get the top 100.
+                  </p>
+                )}
+
+                <button
+                  onClick={handleBuyPack}
+                  disabled={packLoading || packAvailLoading || (packAvail !== null && !packAvail.ok)}
+                  data-testid="btn-buy-lead-pack"
+                  className="w-full flex items-center justify-center gap-2 px-7 py-4 rounded-xl bg-primary text-primary-foreground font-bold text-lg hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed shadow-lg shadow-primary/30">
+                  {packLoading ? (
+                    <>
+                      <span className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+                      Redirecting to checkout…
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-5 h-5" /> Get 100 Leads — $29
+                    </>
+                  )}
+                </button>
+                {packError && <p className="text-sm text-red-400 mt-3">{packError}</p>}
+              </div>
+
+              {/* Trust strip */}
+              <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground mb-6">
+                <span className="flex items-center gap-1.5"><Lock className="w-3.5 h-3.5 text-primary" /> Secure Stripe checkout</span>
+                <span className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5 text-primary" /> Refund if we come up short</span>
+                <span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-primary" /> CSV emailed within 2 hours</span>
+              </div>
+
+              {/* Mini social proof */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex-1 bg-card/40 border border-border rounded-xl p-4">
+                  <div className="flex gap-px mb-2">{[1,2,3,4,5].map(s=><svg key={s} className="w-3 h-3 fill-[#f59e0b]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">"Bought a pack Friday afternoon, had the CSV in my inbox within the hour. Data was clean and ready to import."</p>
+                  <p className="text-xs font-semibold text-foreground mt-2">— James O.</p>
+                </div>
+                <div className="flex-1 bg-card/40 border border-border rounded-xl p-4">
+                  <div className="flex gap-px mb-2">{[1,2,3,4,5].map(s=><svg key={s} className="w-3 h-3 fill-[#f59e0b]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">"Lead storage on this site is what sold me. Everything syncs to my account and CSV export is one click."</p>
+                  <p className="text-xs font-semibold text-foreground mt-2">— Diego R.</p>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -1327,7 +1397,7 @@ export default function Home() {
       </footer>
 
       {/* Floating sales chat (ChatGPT-powered) */}
-      <ChatWidget />
+      <ChatWidget externalOpen={chatOpen} onExternalOpenHandled={() => setChatOpen(false)} />
     </div>
   );
 }

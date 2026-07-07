@@ -7,7 +7,7 @@ import {
   MapPin, ChevronLeft, ChevronRight, DollarSign, CreditCard,
   UserCheck, UserX, Crown, BarChart2, RefreshCw,
   Flame, Globe, Target, Sparkles, Package, Phone, Trash2, RotateCcw,
-  Activity, Eye, Copy, ExternalLink, Search,
+  Activity, Eye, Copy, ExternalLink, Search, Share2,
 } from "lucide-react";
 import {
   ComposableMap, Geographies, Geography, ZoomableGroup, Marker,

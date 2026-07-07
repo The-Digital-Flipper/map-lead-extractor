@@ -16,12 +16,24 @@ const SUGGESTIONS = [
   "Do you have dentists in Texas?",
 ];
 
-export default function ChatWidget() {
+interface ChatWidgetProps {
+  externalOpen?: boolean;
+  onExternalOpenHandled?: () => void;
+}
+
+export default function ChatWidget({ externalOpen, onExternalOpenHandled }: ChatWidgetProps) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([GREETING]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (externalOpen && !open) {
+      setOpen(true);
+      onExternalOpenHandled?.();
+    }
+  }, [externalOpen]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -51,7 +63,6 @@ export default function ChatWidget() {
 
   return (
     <>
-      {/* Floating launcher */}
       {!open && (
         <button
           onClick={() => setOpen(true)}
@@ -62,10 +73,8 @@ export default function ChatWidget() {
         </button>
       )}
 
-      {/* Chat panel */}
       {open && (
         <div className="fixed bottom-5 right-5 z-50 w-[min(92vw,380px)] h-[min(70vh,560px)] flex flex-col bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
-          {/* Header */}
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-background/60">
             <span className="w-8 h-8 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center">
               <MessageCircle className="w-4 h-4 text-primary" />
@@ -79,7 +88,6 @@ export default function ChatWidget() {
             </button>
           </div>
 
-          {/* Messages */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -111,7 +119,6 @@ export default function ChatWidget() {
             )}
           </div>
 
-          {/* Input */}
           <div className="border-t border-border p-2.5 flex items-center gap-2">
             <input
               value={input}
