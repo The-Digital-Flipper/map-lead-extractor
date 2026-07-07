@@ -19,6 +19,16 @@ export const LEAD_PACK = {
   priceCents: 2900,
 };
 
+// Volume tiers sold by the homepage pricing grid. Keys are the sizes the
+// client may send; anything else is rejected. Keep prices in sync with the
+// tier cards in lead-extractor-site/src/pages/home.tsx.
+export const PACK_TIERS = new Map<number, { leadCount: number; priceCents: number }>([
+  [100, { leadCount: 100, priceCents: 2900 }],
+  [500, { leadCount: 500, priceCents: 9900 }],
+  [1000, { leadCount: 1000, priceCents: 17900 }],
+  [5000, { leadCount: 5000, priceCents: 59900 }],
+]);
+
 // Business types the pack UI offers. The KEY is the ILIKE search term matched
 // against leads.category; the VALUE is the human label. Keep in sync with the
 // PACK_CATEGORIES list in lead-extractor-site/src/pages/home.tsx.
@@ -232,10 +242,11 @@ export function packWhere(f: Pick<PackFilters, "category" | "city" | "state">): 
   return and(...conditions)!;
 }
 
-/** Human name for receipts / emails, e.g. "100 Local Business Leads — Plumbers, Mobile, AL". */
-export function packDisplayName(f: PackFilters): string {
+/** Human name for receipts / emails, e.g. "500 Local Business Leads — Plumbers, Mobile, AL". */
+export function packDisplayName(f: PackFilters, leadCount = LEAD_PACK.leadCount): string {
+  const name = `${leadCount} Local Business Leads`;
   const parts = [f.label, f.city, f.state].map((p) => p.trim()).filter(Boolean);
-  return parts.length ? `${LEAD_PACK.name} — ${parts.join(", ")}` : LEAD_PACK.name;
+  return parts.length ? `${name} — ${parts.join(", ")}` : name;
 }
 
 /** A location string for a Google Maps / AI search, e.g. "Mobile, AL" or "Alabama". */

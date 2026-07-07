@@ -140,7 +140,7 @@ async function topLeadIds(f: PackFilters, limit: number): Promise<number[]> {
 // click (admin dashboard → sendOrder) is what delivers.
 async function snapshotForReview(order: PackOrder): Promise<void> {
   const f = orderFilters(order);
-  const ids = await topLeadIds(f, LEAD_PACK.leadCount);
+  const ids = await topLeadIds(f, order.requested);
   const delivered = ids.length;
 
   await db.update(packOrders).set({
@@ -254,7 +254,7 @@ async function emailOrder(order: PackOrder): Promise<void> {
     : "";
   const subject = order.status === "partial"
     ? `Your lead pack is ready (${delivered} leads + partial refund)`
-    : `Your 100 lead pack is ready`;
+    : `Your ${order.requested} lead pack is ready`;
   const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111">
 <p>Thanks for your order! Your leads are ready to download.</p>
 ${refundLine}
@@ -275,7 +275,7 @@ ${refundLine}
 async function progressBuildingOrder(order: PackOrder): Promise<void> {
   const f = orderFilters(order);
   const available = await countPackLeads(f);
-  if (available >= LEAD_PACK.leadCount) { await snapshotForReview(order); return; }
+  if (available >= order.requested) { await snapshotForReview(order); return; }
 
   const deadlinePassed = Date.now() > new Date(order.deadlineAt).getTime();
   if (deadlinePassed || order.attempts >= MAX_ATTEMPTS) { await snapshotForReview(order); return; }
@@ -283,7 +283,7 @@ async function progressBuildingOrder(order: PackOrder): Promise<void> {
   await gatherRound(order);
 
   // Re-count; snapshot immediately if this round tipped us over.
-  if (await countPackLeads(f) >= LEAD_PACK.leadCount) {
+  if (await countPackLeads(f) >= order.requested) {
     const [fresh] = await db.select().from(packOrders).where(eq(packOrders.id, order.id));
     if (fresh && fresh.status === "building") await snapshotForReview(fresh);
   }

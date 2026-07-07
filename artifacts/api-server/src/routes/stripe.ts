@@ -4,7 +4,7 @@ import { db, packOrders } from "@workspace/db";
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
 import {
-  LEAD_PACK, validateFilters, parseRequest, countPackLeads, packDisplayName, locationString,
+  LEAD_PACK, PACK_TIERS, validateFilters, parseRequest, countPackLeads, packDisplayName, locationString,
   type PackFilters,
 } from "../lib/packs";
 import { newOrderToken } from "../lib/packWorker";
@@ -185,7 +185,7 @@ router.post("/pack-quote", async (req, res) => {
  * gathers fresh leads first (24h deadline, shortfall auto-refunded at Send).
  * No account needed — Stripe collects the buyer's email. */
 router.post("/pack-checkout", async (req, res) => {
-  const body = (req.body ?? {}) as { category?: string; state?: string; request?: string };
+  const body = (req.body ?? {}) as { category?: string; state?: string; request?: string; size?: number };
   const filters = await resolveFilters(body);
   if (!filters) {
     res.status(400).json({ error: "Unknown category or state." });
@@ -195,11 +195,17 @@ router.post("/pack-checkout", async (req, res) => {
     res.status(422).json({ error: "We couldn't tell which business type you meant — try e.g. \"plumbers in Austin, TX\"." });
     return;
   }
+  // Volume tier (homepage pricing grid). Whitelisted sizes only; default 100.
+  const tier = PACK_TIERS.get(Number(body.size ?? LEAD_PACK.leadCount));
+  if (!tier) {
+    res.status(400).json({ error: "Unknown pack size." });
+    return;
+  }
 
   const stripe = await getUncachableStripeClient();
   const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}`;
   const available = await countPackLeads(filters);
-  const instant = available >= LEAD_PACK.leadCount;
+  const instant = available >= tier.leadCount;
 
   const token = newOrderToken();
   const session = await stripe.checkout.sessions.create({
@@ -208,12 +214,12 @@ router.post("/pack-checkout", async (req, res) => {
     line_items: [{
       price_data: {
         currency: "usd",
-        unit_amount: LEAD_PACK.priceCents,
+        unit_amount: tier.priceCents,
         product_data: {
-          name: packDisplayName(filters),
+          name: packDisplayName(filters, tier.leadCount),
           description: instant
             ? "Emailed to you after a quick quality check — usually within a few hours."
-            : "Built to order — we gather 100 fresh matching leads and email your CSV within 24 hours (auto partial-refund if we fall short).",
+            : `Built to order — we gather ${tier.leadCount} fresh matching leads and email your CSV within 24 hours (auto partial-refund if we fall short).`,
         },
       },
       quantity: 1,
@@ -226,13 +232,13 @@ router.post("/pack-checkout", async (req, res) => {
   await db.insert(packOrders).values({
     token,
     stripeSessionId: session.id,
-    amountCents: LEAD_PACK.priceCents,
+    amountCents: tier.priceCents,
     rawRequest: body.request ?? null,
     category: filters.category,
     label: filters.label,
     city: filters.city,
     state: filters.state,
-    requested: LEAD_PACK.leadCount,
+    requested: tier.leadCount,
     deadlineAt: new Date(Date.now() + BUILD_DEADLINE_MS),
   });
 

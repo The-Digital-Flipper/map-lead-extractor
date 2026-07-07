@@ -779,7 +779,7 @@ h1{font-size:22px}p{color:#8b949e;line-height:1.6}</style></head>
 <h1>${ready ? "Your leads are ready" : "Order received — we're on it"}</h1>
 ${ready
   ? `<p>Your lead pack is ready to download.</p><a class="btn" href="${dl}">⬇ Download leads CSV</a>`
-  : `<p>Thanks! We're putting together <strong>100 ${order.label || "local business"} leads</strong>${order.city || order.state ? ` in ${[order.city, order.state].filter(Boolean).join(", ")}` : ""} for you now — every pack gets a human quality check before it ships. We'll email your CSV download link${order.email ? ` to <strong>${order.email}</strong>` : ""} usually within a few hours (24 hours max). If we come up short, we'll automatically refund the difference.</p>`}
+  : `<p>Thanks! We're putting together <strong>${order.requested} ${order.label || "local business"} leads</strong>${order.city || order.state ? ` in ${[order.city, order.state].filter(Boolean).join(", ")}` : ""} for you now — every pack gets a human quality check before it ships. We'll email your CSV download link${order.email ? ` to <strong>${order.email}</strong>` : ""} usually within a few hours (24 hours max). If we come up short, we'll automatically refund the difference.</p>`}
 <p style="font-size:12px;margin-top:18px">Order ref: ${order.token.slice(0, 8)}</p></div></body></html>`);
 });
 

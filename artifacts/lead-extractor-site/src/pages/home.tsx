@@ -1081,6 +1081,38 @@ export default function Home() {
                   Want a custom volume? <a href="mailto:support@mapleadextractor.net?subject=Bulk%20Lead%20Order" className="text-primary hover:underline">Email us</a> — we handle orders of any size.
                 </p>
               </div>
+
+              {/* Human review quality section */}
+              <div className="mt-10 rounded-2xl border border-border bg-card/30 overflow-hidden">
+                <div className="flex items-center gap-3 px-5 py-4 border-b border-border bg-card/40">
+                  <Shield className="w-5 h-5 text-primary shrink-0" />
+                  <span className="font-display font-bold text-foreground">Every lead is human-reviewed before it ships</span>
+                </div>
+                <div className="p-5 space-y-4">
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    We don't just dump raw scraped data into a CSV and call it done. Before your pack leaves our hands, a real person goes through every record and checks it against our quality standards.
+                  </p>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    {[
+                      { icon: "🔍", title: "Dead records removed", desc: "Permanently closed, moved, or duplicate businesses are filtered out before delivery." },
+                      { icon: "📞", title: "Phone numbers spot-checked", desc: "We verify a sample of phone numbers are active and match the listed business." },
+                      { icon: "✉️", title: "Email format validated", desc: "Every email address is checked for correct format and a live mail server — no obvious bounces." },
+                      { icon: "📍", title: "Location confirmed", desc: "Addresses are verified to be in your requested city or region — no out-of-area listings slipping through." },
+                    ].map(item => (
+                      <div key={item.title} className="flex gap-3 items-start">
+                        <span className="text-lg shrink-0 mt-0.5">{item.icon}</span>
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">{item.title}</div>
+                          <div className="text-xs text-muted-foreground leading-relaxed mt-0.5">{item.desc}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground pt-1 border-t border-border">
+                    If a pack comes up short after review, we either source more leads to hit your count or refund the difference automatically — no questions asked.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </section>
