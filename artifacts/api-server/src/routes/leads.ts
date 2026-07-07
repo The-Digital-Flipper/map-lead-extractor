@@ -569,13 +569,20 @@ router.post("/outreach/bulk", async (req, res) => {
   const validIds = Array.isArray(ids) ? ids.map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, 25) : [];
   if (validIds.length === 0) { res.status(400).json({ error: "ids must be a non-empty array (max 25)" }); return; }
 
+  const settings = await getOutreachSettings();
+  if (!settings.offer?.trim()) {
+    res.status(400).json({ error: "Add what you're offering in Automate settings first — the emails are written around it." });
+    return;
+  }
+  const sender = { name: settings.fromName, offer: settings.offer };
+
   const rows = await db.select().from(leads).where(and(inArray(leads.id, validIds), isNull(leads.deletedAt)));
   const results: { id: number; ok: boolean; error?: string }[] = [];
   // Sequential to stay within AI rate limits and keep memory flat.
   for (const lead of rows) {
     if (lead.outreach && !force) { results.push({ id: lead.id, ok: true }); continue; }
     try {
-      const outreach = await generateOutreach(lead);
+      const outreach = await generateOutreach(lead, sender);
       await db.update(leads).set({ outreach, outreachAt: new Date(), updatedAt: new Date() }).where(eq(leads.id, lead.id));
       results.push({ id: lead.id, ok: true });
     } catch (err) {
@@ -601,8 +608,13 @@ router.post("/:id/outreach", async (req, res) => {
     res.json({ ok: true, id, outreach: lead.outreach, outreachAt: lead.outreachAt, cached: true });
     return;
   }
+  const settings = await getOutreachSettings();
+  if (!settings.offer?.trim()) {
+    res.status(400).json({ error: "Add what you're offering in Automate settings first — the emails are written around it." });
+    return;
+  }
   try {
-    const outreach = await generateOutreach(lead);
+    const outreach = await generateOutreach(lead, { name: settings.fromName, offer: settings.offer });
     const at = new Date();
     await db.update(leads).set({ outreach, outreachAt: at, updatedAt: at }).where(eq(leads.id, id));
     res.json({ ok: true, id, outreach, outreachAt: at, cached: false });

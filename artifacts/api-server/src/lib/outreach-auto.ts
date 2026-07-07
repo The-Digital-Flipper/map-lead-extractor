@@ -327,7 +327,7 @@ export async function enrollLeads(ids: number[]): Promise<{ enrolled: number; sk
     if (!primaryEmail(lead) || lead.unsubscribedAt || lead.emailHealth) { skipped++; continue; }
     let outreach = lead.outreach as LeadOutreach | null;
     if (!outreach?.email?.body) {
-      try { outreach = await generateOutreach(lead); } catch { skipped++; continue; }
+      try { outreach = await generateOutreach(lead, { name: s.fromName, offer: s.offer }); } catch { skipped++; continue; }
     }
     const step = lead.outreachStep && lead.outreachStep > 0 ? lead.outreachStep : 0;
     const nextStep = step + 1;

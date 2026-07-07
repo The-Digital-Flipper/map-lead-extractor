@@ -14,22 +14,17 @@ function openAiKey(): string {
   return process.env.OPENAI_API_KEY || process.env.CHAT_GPT_API || "";
 }
 
-// What the sender is selling — mirrors the framing used elsewhere so the
-// pitch stays consistent. The agency sells web/marketing services to local
-// businesses; tweak here if the offer changes.
-const SENDER = {
-  fromName: "Gulf Coast",
-  offer: "websites, SEO, Google/Facebook ads, reputation and marketing automation for local businesses",
-};
-
-const SYSTEM = `You are an elite B2B copywriter for an agency that sells ${SENDER.offer}. You are given ONE real business lead scraped from Google Maps, with whatever data we have plus the specific weaknesses we detected in their online presence.
+// The sender's identity and offer are NOT hardcoded — they come from the
+// owner's own outreach settings and are passed into generateOutreach. Nothing
+// about a specific company name or pitch is assumed here.
+const SYSTEM = `You are an elite B2B copywriter writing cold outreach on behalf of the sender described below. You are given ONE real business lead scraped from Google Maps, with whatever data we have plus the specific weaknesses we detected in their online presence.
 
 Write outreach that lands, grounded ONLY in the data provided — never invent facts, awards, names, or numbers you weren't given.
 
 Produce:
-1. angle: one short line naming the single strongest hook you're playing (e.g. "no website — losing mobile searchers", "site last updated 2016", "great reviews but no online booking").
+1. angle: one short line naming the single strongest hook you're playing, based on the sender's offer and this lead's situation.
 2. email.subject: 4-8 words, specific, curiosity or benefit driven, NOT spammy, no ALL CAPS, no "Re:" tricks.
-3. email.body: 70-120 words. Open by referencing something concrete about THEM (their category, city, review strength, or the gap). State the one problem and the payoff of fixing it. One clear soft call to action (a reply or a quick call). Warm, human, peer-to-peer — not corporate. No fake personalization tokens, no "[Name]" — if you don't have a contact name, address the business naturally. Sign as ${SENDER.fromName}.
+3. email.body: 70-120 words. Open by referencing something concrete about THEM (their category, city, review strength, or a gap). Connect it to what the sender offers, and the payoff for the lead. One clear soft call to action (a reply or a quick call). Warm, human, peer-to-peer — not corporate. No fake personalization tokens, no "[Name]" — if you don't have a contact name, address the business naturally. Do NOT invent or append any company or personal name in the sign-off — leave the closing name out unless the sender's name is given to you below.
 4. sms: under 300 characters, friendly, one sentence of value + one question. No links unless natural.
 5. followUps: 2-3 timed nudges as {day, channel, subject?, body}. day = days after the first email (e.g. 3, 7). channel = "email" or "sms". Each adds a NEW angle or piece of value — never just "bumping this up". Emails need a subject; SMS omit it and stay under 300 chars.
 
@@ -119,8 +114,21 @@ async function runAi(user: string): Promise<string> {
   throw new Error("No AI key set — add OPENAI_API_KEY (or CHAT_GPT_API), or ANTHROPIC_API_KEY, in the Replit Secrets panel.");
 }
 
-// Generate outreach for a single lead.
-export async function generateOutreach(lead: Lead): Promise<LeadOutreach> {
-  const user = `Write outreach for this lead:\n${JSON.stringify(leadPayload(lead))}`;
+// Who's sending and what they offer — all owner-provided, never assumed.
+export type OutreachSender = { name?: string | null; offer?: string | null };
+
+// Generate outreach for a single lead, pitching the SENDER's own offer and
+// signing with the sender's own name (both supplied by the caller from the
+// owner's settings). Throws if no offer is set — there's no default pitch.
+export async function generateOutreach(lead: Lead, sender: OutreachSender = {}): Promise<LeadOutreach> {
+  const offer = sender.offer?.trim();
+  if (!offer) {
+    throw new Error("No offer set — add what you're offering in the Automate settings before generating outreach.");
+  }
+  const senderBlock = [
+    `The sender offers: ${offer}`,
+    sender.name?.trim() ? `Sign the email as: ${sender.name.trim()}` : `Do not add any sign-off name.`,
+  ].join("\n");
+  const user = `SENDER:\n${senderBlock}\n\nWrite outreach for this lead:\n${JSON.stringify(leadPayload(lead))}`;
   return parseOutreach(await runAi(user));
 }

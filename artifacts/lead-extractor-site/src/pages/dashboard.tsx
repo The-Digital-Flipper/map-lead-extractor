@@ -148,6 +148,7 @@ interface OutreachSettings {
   replyTo: string | null;
   signature: string | null;
   businessAddress: string | null;
+  offer: string | null;
   dailyCap: number;
   windowStartHour: number;
   windowEndHour: number;
@@ -2404,6 +2405,15 @@ export default function Dashboard() {
                     </p>
                   </div>
 
+                  {/* What you're offering — the emails are written entirely around this */}
+                  <label className="block">
+                    <span className="text-xs font-semibold text-foreground block mb-1.5">What are you offering? <span className="text-red-400">*</span></span>
+                    <textarea value={autoDraft.offer ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, offer: e.target.value } : d)} rows={3}
+                      placeholder="In your own words — e.g. what you do, who for, and the main benefit. Every email is written around this."
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/50" />
+                    <span className="text-[11px] text-muted-foreground mt-1 block">Nothing about your business is assumed — the AI writes each email around exactly what you type here. Leave it blank and nothing generates or sends.</span>
+                  </label>
+
                   {/* Live counters */}
                   {autoInfo && (
                     <div className="grid grid-cols-3 gap-3">
@@ -2458,6 +2468,9 @@ export default function Dashboard() {
                         </button>
                       ))}
                     </div>
+                    <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                      Emails send from this connected mailbox only — it's separate from the email you log in with, and each lead is contacted at their own address.
+                    </p>
                   </div>
 
                   {/* Gmail path */}

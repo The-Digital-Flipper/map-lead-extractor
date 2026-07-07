@@ -14,12 +14,16 @@ export const outreachSettings = pgTable("outreach_settings", {
   // GMAIL_USER / GMAIL_APP_PASSWORD secrets), "resend" = Resend API + verified
   // domain. Gmail is the zero-cost, most-personal option; Resend scales better.
   provider: text("provider").notNull().default("gmail"),
-  // Sender identity. fromEmail MUST be a Resend-verified address (or the shared
-  // onboarding@resend.dev while testing). replyTo lets replies land in a real
-  // inbox even when fromEmail is a no-reply.
-  fromName: text("from_name").notNull().default("Gulf Coast"),
+  // Sender identity — all owner-provided, nothing assumed. fromName signs the
+  // emails (blank = no sign-off name). fromEmail (Resend only) MUST be a
+  // Resend-verified address. replyTo lets replies land wherever the owner wants.
+  fromName: text("from_name").notNull().default(""),
   fromEmail: text("from_email"),
   replyTo: text("reply_to"),
+  // What the owner is offering / pitching in the emails, in their own words
+  // (e.g. "we buy used cars for cash, fast pickup"). The AI writes every email
+  // around THIS — there is no default pitch. Blank = can't generate outreach.
+  offer: text("offer"),
   // Plain-text signature appended under every email body (before the footer).
   signature: text("signature"),
   // Physical mailing address shown in the footer — required for compliant bulk
