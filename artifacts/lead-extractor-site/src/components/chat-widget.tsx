@@ -7,13 +7,13 @@ type Msg = { role: "user" | "assistant"; content: string };
 
 const GREETING: Msg = {
   role: "assistant",
-  content: "Hey! 👋 Looking to buy local-business leads? Tell me what you sell (websites, SEO, ads, reputation…) or who you target, and I'll tell you which lead packs fit best.",
+  content: "Hey! 👋 What kind of local businesses are you looking to reach — and where? Tell me the industry and location and I'll check what we have.",
 };
 
 const SUGGESTIONS = [
-  "What kinds of leads do you sell?",
-  "I build websites — what should I buy?",
-  "Do you have dentists in Texas?",
+  "Dentists in Texas",
+  "Roofers in Florida",
+  "What's your most popular pack?",
 ];
 
 interface ChatWidgetProps {
