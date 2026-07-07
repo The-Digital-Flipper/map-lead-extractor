@@ -71,7 +71,11 @@ function parseReport(text: string): SocialScanReport | null {
   if (s === -1 || e < s) return null;
   try {
     const o = JSON.parse(cleaned.slice(s, e + 1)) as Partial<SocialScanReport>;
-    const str = (v: unknown) => String(v ?? "").trim();
+    // "unknown"/"n/a" filler = the model couldn't verify it — drop, don't show.
+    const str = (v: unknown) => {
+      const t = String(v ?? "").trim();
+      return /^(unknown|n\/?a|none|unable to (verify|access)[^.]*)\.?$/i.test(t) ? "" : t;
+    };
     const platforms: SocialScanPlatform[] = Array.isArray(o.platforms)
       ? o.platforms.map((p) => ({
           platform: str((p as SocialScanPlatform).platform).toLowerCase(),
