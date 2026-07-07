@@ -71,6 +71,13 @@ interface MoneySummary {
   noWebsite: number; reachable: number;
 }
 interface NeedCount { need: string; count: number }
+interface PackOrderRow {
+  id: number; token: string; email: string | null; rawRequest: string | null;
+  label: string; category: string; city: string; state: string; status: string;
+  requested: number; delivered: number; attempts: number;
+  amountCents: number; refundedCents: number;
+  createdAt: string; paidAt: string | null; readyAt: string | null; deadlineAt: string;
+}
 interface TrafficData {
   days: number;
   summary: {
@@ -237,7 +244,7 @@ export default function Admin() {
       return next;
     });
   };
-  const [activeTab, setActiveTab] = useState<"command" | "scraper" | "traffic" | "social" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
+  const [activeTab, setActiveTab] = useState<"command" | "orders" | "scraper" | "traffic" | "social" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
 
   // ── Site traffic analytics (Traffic tab) ──────────────────────────────────
   const [traffic, setTraffic] = useState<TrafficData | null>(null);
@@ -252,6 +259,36 @@ export default function Admin() {
     setLoadingTraffic(false);
   }, []);
   useEffect(() => { if (activeTab === "traffic") loadTraffic(trafficDays); }, [activeTab, trafficDays, loadTraffic]);
+
+  // ── Pack orders (Orders tab): the review-and-send queue ───────────────────
+  const [packOrdersList, setPackOrdersList] = useState<PackOrderRow[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [sendingOrderId, setSendingOrderId] = useState<number | null>(null);
+  const loadPackOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    try {
+      const r = await fetch(`${basePath}/api/admin/pack-orders`);
+      if (r.ok) setPackOrdersList((await r.json()).orders ?? []);
+    } catch { /* ignore */ }
+    setOrdersLoading(false);
+  }, []);
+  // Load on mount too so the tab badge shows waiting orders immediately.
+  useEffect(() => { loadPackOrders(); }, [loadPackOrders]);
+  useEffect(() => { if (activeTab === "orders") loadPackOrders(); }, [activeTab, loadPackOrders]);
+  const sendPackOrder = async (o: PackOrderRow) => {
+    const short = o.delivered < o.requested
+      ? `\n\nONLY ${o.delivered}/${o.requested} leads — sending will auto-refund the buyer $${((o.amountCents * (o.requested - o.delivered)) / o.requested / 100).toFixed(2)}.`
+      : "";
+    if (!confirm(`Send order #${o.id} (${o.delivered} leads) to ${o.email ?? "the buyer"}?${short}`)) return;
+    setSendingOrderId(o.id);
+    try {
+      const r = await fetch(`${basePath}/api/admin/pack-orders/${o.id}/send`, { method: "POST" });
+      if (!r.ok) alert((await r.json().catch(() => ({})) as { error?: string }).error ?? "Send failed");
+    } catch { alert("Send failed"); }
+    setSendingOrderId(null);
+    loadPackOrders();
+  };
+  const ordersNeedingReview = packOrdersList.filter(o => o.status === "needs_review").length;
 
   // ── Social auto-poster (Social tab) ────────────────────────────────────────
   const [social, setSocial] = useState<SocialData | null>(null);
@@ -1042,14 +1079,97 @@ export default function Admin() {
           {/* ── TABS ──────────────────────────────────────────────────────── */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.09 }} className="mb-6">
             <div className="flex gap-1 bg-card border border-border rounded-xl p-1 w-fit flex-wrap">
-              {(["command", "scraper", "traffic", "social", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
+              {(["command", "orders", "scraper", "traffic", "social", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
                 <button key={tab} onClick={() => { setActiveTab(tab); if (tab === "leads" || tab === "money") setPage(1); if (tab === "deleted") setDeletedPage(1); }}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors capitalize ${activeTab === tab ? tab === "deleted" ? "bg-red-500/80 text-white" : "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                  {tab === "command" ? "⚡ Command" : tab === "scraper" ? "🕷️ Scraper" : tab === "traffic" ? "📈 Traffic" : tab === "social" ? "📣 Social" : tab === "research" ? "🎯 AI Research" :tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
+                  {tab === "command" ? "⚡ Command" : tab === "orders" ? `📦 Orders${ordersNeedingReview > 0 ? ` (${ordersNeedingReview})` : ""}` : tab === "scraper" ? "🕷️ Scraper" : tab === "traffic" ? "📈 Traffic" : tab === "social" ? "📣 Social" : tab === "research" ? "🎯 AI Research" :tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
                 </button>
               ))}
             </div>
           </motion.div>
+
+          {/* ── ORDERS TAB (lead-pack review & send queue) ───────────────── */}
+          {activeTab === "orders" && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="font-display font-bold text-lg flex items-center gap-2"><Package className="w-5 h-5 text-primary" /> Lead Pack Orders</h2>
+                    <p className="text-sm text-muted-foreground">Every paid order waits here — preview the CSV, then hit Send to email the buyer their download link. Partial packs auto-refund the shortfall when you send.</p>
+                  </div>
+                  <button onClick={loadPackOrders} disabled={ordersLoading}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-colors disabled:opacity-50">
+                    <RefreshCw className={`w-4 h-4 ${ordersLoading ? "animate-spin" : ""}`} /> Refresh
+                  </button>
+                </div>
+                {packOrdersList.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-8 text-center">{ordersLoading ? "Loading…" : "No orders yet. They'll show up here the moment someone buys a pack."}</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-muted-foreground border-b border-border">
+                          <th className="py-2 pr-3">#</th><th className="py-2 pr-3">Ordered</th><th className="py-2 pr-3">Pack</th>
+                          <th className="py-2 pr-3">Buyer</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Leads</th>
+                          <th className="py-2 pr-3">Paid</th><th className="py-2">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {packOrdersList.map(o => {
+                          const what = [o.label || o.category || "leads", [o.city, o.state].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
+                          const chip = o.status === "needs_review" ? "bg-amber-500/15 text-amber-500"
+                            : o.status === "building" ? "bg-blue-500/15 text-blue-400"
+                            : o.status === "ready" ? "bg-emerald-500/15 text-emerald-500"
+                            : o.status === "partial" ? "bg-lime-500/15 text-lime-500"
+                            : o.status === "failed" ? "bg-red-500/15 text-red-500"
+                            : "bg-muted text-muted-foreground";
+                          const label = o.status === "needs_review" ? "Needs review" : o.status === "awaiting_payment" ? "Awaiting payment" : o.status.charAt(0).toUpperCase() + o.status.slice(1);
+                          return (
+                            <tr key={o.id} className="border-b border-border/50 align-top">
+                              <td className="py-2.5 pr-3 font-mono">{o.id}</td>
+                              <td className="py-2.5 pr-3 whitespace-nowrap">{o.createdAt ? new Date(o.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</td>
+                              <td className="py-2.5 pr-3">
+                                <div className="font-semibold">{what}</div>
+                                {o.rawRequest && <div className="text-xs text-muted-foreground max-w-[220px] truncate" title={o.rawRequest}>"{o.rawRequest}"</div>}
+                              </td>
+                              <td className="py-2.5 pr-3">{o.email ?? <span className="text-muted-foreground">—</span>}</td>
+                              <td className="py-2.5 pr-3"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${chip}`}>{label}</span>
+                                {o.status === "building" && <div className="text-xs text-muted-foreground mt-1">round {o.attempts}</div>}
+                              </td>
+                              <td className="py-2.5 pr-3 whitespace-nowrap font-mono">{o.delivered}/{o.requested}</td>
+                              <td className="py-2.5 pr-3 whitespace-nowrap">${(o.amountCents / 100).toFixed(0)}{o.refundedCents > 0 && <span className="text-xs text-amber-500 block">-${(o.refundedCents / 100).toFixed(2)} refunded</span>}</td>
+                              <td className="py-2.5">
+                                <div className="flex gap-2 whitespace-nowrap">
+                                  {o.status !== "awaiting_payment" && o.status !== "failed" && (
+                                    <a href={`${basePath}/api/admin/pack-orders/${o.id}/preview.csv`}
+                                      className="px-2.5 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors inline-flex items-center gap-1">
+                                      <Download className="w-3.5 h-3.5" /> Preview CSV
+                                    </a>
+                                  )}
+                                  {o.status === "needs_review" && (
+                                    <button onClick={() => sendPackOrder(o)} disabled={sendingOrderId === o.id}
+                                      className="px-2.5 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50 inline-flex items-center gap-1">
+                                      <Zap className="w-3.5 h-3.5" /> {sendingOrderId === o.id ? "Sending…" : `Send to buyer${o.delivered < o.requested ? ` (${o.delivered} + refund)` : ""}`}
+                                    </button>
+                                  )}
+                                  {(o.status === "ready" || o.status === "partial") && (
+                                    <a href={`${basePath}/api/leads/pack-order-download?token=${o.token}`}
+                                      className="px-2.5 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors inline-flex items-center gap-1">
+                                      <ExternalLink className="w-3.5 h-3.5" /> Buyer link
+                                    </a>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
 
           {/* ── SCRAPER TAB (Apify-style run console) ────────────────────── */}
           {activeTab === "scraper" && (

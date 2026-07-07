@@ -2,7 +2,17 @@
   "permissions": {
     "allow": [
       "Bash(pnpm --filter @workspace/lead-extractor-site run build)",
-      "Bash(git tag *)"
+      "Bash(git tag *)",
+      "Bash(pnpm run *)",
+      "Bash(PORT=5000 NODE_ENV=development node *)",
+      "Bash(mkdir -p /tmp/claude-1000/-home-runner-workspace/4de120ed-9894-45fa-b122-c780a69ceb2a/scratchpad)",
+      "Bash(curl -s -X POST http://127.0.0.1:5000/api/stripe/pack-quote -H 'content-type: application/json' -d '{\"request\":\"plumbers in Mobile, AL\"}')",
+      "Bash(curl -s -X POST http://127.0.0.1:5000/api/stripe/pack-quote -H 'content-type: application/json' -d '{\"request\":\"auto repair shops anywhere\"}')",
+      "Bash(curl -s -X POST http://127.0.0.1:5000/api/stripe/pack-quote -H 'content-type: application/json' -d '{\"request\":\"asdf qwerty zzz\"}')",
+      "Bash(curl -s \"http://127.0.0.1:5000/api/stripe/pack-availability?category=roof\")",
+      "Bash(curl -s \"http://127.0.0.1:5000/api/stripe/pack-availability?category=hacker\")",
+      "Bash(pkill -f \"dist/index.mjs\")",
+      "Bash(env)"
     ]
   }
 }

@@ -1,6 +1,6 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Download, Map, Zap, Search, Chrome, FileSpreadsheet, Lock, Shield, Settings2, Code2, Users, Database, Pin, MousePointerClick, Play, CheckCircle2, Package, Globe, Star, MapPin, Building2, Calendar, Share2, TrendingUp } from "lucide-react";
+import { ArrowRight, Download, Map, Zap, Search, Chrome, FileSpreadsheet, Lock, Shield, Settings2, Code2, Users, Database, Pin, Play, CheckCircle2, Package, Globe, Star, MapPin, Building2, Calendar, Share2, TrendingUp, Mail } from "lucide-react";
 import { SiGoogle, SiGooglechrome, SiFacebook, SiYelp } from "react-icons/si";
 import { Show } from "@clerk/react";
 
@@ -27,6 +27,83 @@ import step4GoogleMaps from "@assets/step4-google-maps-search.png";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
 const YELP_STORE_URL = "https://chromewebstore.google.com/detail/yelp-lead-extractor/ogmnanpogeipkoahnphaelmjmbepdpml";
+
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// Business types for the lead-pack dropdown. `value` is the search term the
+// API matches against lead categories — keep in sync with PACK_CATEGORIES in
+// api-server/src/routes/stripe.ts.
+const PACK_CATEGORIES: { value: string; label: string }[] = [
+  { value: "accountant", label: "Accountants" },
+  { value: "auto repair", label: "Auto Repair Shops" },
+  { value: "barber", label: "Barber Shops" },
+  { value: "cafe", label: "Cafés" },
+  { value: "car deal", label: "Car Dealerships" },
+  { value: "chiropract", label: "Chiropractors" },
+  { value: "clean", label: "Cleaning Services" },
+  { value: "coffee", label: "Coffee Shops" },
+  { value: "contractor", label: "Contractors & Construction" },
+  { value: "dentist", label: "Dentists" },
+  { value: "electric", label: "Electricians" },
+  { value: "fence", label: "Fence Contractors" },
+  { value: "floor", label: "Flooring Contractors" },
+  { value: "florist", label: "Florists" },
+  { value: "garage door", label: "Garage Door Services" },
+  { value: "gutter", label: "Gutter Services" },
+  { value: "gym", label: "Gyms & Fitness" },
+  { value: "handyman", label: "Handyman Services" },
+  { value: "home inspect", label: "Home Inspectors" },
+  { value: "hvac", label: "HVAC Contractors" },
+  { value: "insurance", label: "Insurance Agents" },
+  { value: "junk", label: "Junk Removal" },
+  { value: "landscap", label: "Landscapers" },
+  { value: "lawn", label: "Lawn Care" },
+  { value: "lawyer", label: "Lawyers" },
+  { value: "locksmith", label: "Locksmiths" },
+  { value: "mason", label: "Masonry Contractors" },
+  { value: "massage", label: "Massage Therapists" },
+  { value: "medical", label: "Medical Practices" },
+  { value: "moving", label: "Moving Companies" },
+  { value: "paint", label: "Painters" },
+  { value: "pest", label: "Pest Control" },
+  { value: "pet groom", label: "Pet Groomers" },
+  { value: "photograph", label: "Photographers" },
+  { value: "plumb", label: "Plumbers" },
+  { value: "pool", label: "Pool Services" },
+  { value: "pressure wash", label: "Pressure Washing" },
+  { value: "real estate", label: "Real Estate Agents" },
+  { value: "restaurant", label: "Restaurants" },
+  { value: "retail", label: "Retail Stores" },
+  { value: "roof", label: "Roofers" },
+  { value: "salon", label: "Salons" },
+  { value: "septic", label: "Septic Services" },
+  { value: "spa", label: "Spas" },
+  { value: "tile", label: "Tile Contractors" },
+  { value: "towing", label: "Towing Services" },
+  { value: "tree", label: "Tree Services" },
+  { value: "veterinar", label: "Veterinarians" },
+  { value: "window", label: "Window Cleaning" },
+];
+
+const US_STATES: { value: string; label: string }[] = [
+  { value: "AL", label: "Alabama" }, { value: "AK", label: "Alaska" }, { value: "AZ", label: "Arizona" },
+  { value: "AR", label: "Arkansas" }, { value: "CA", label: "California" }, { value: "CO", label: "Colorado" },
+  { value: "CT", label: "Connecticut" }, { value: "DE", label: "Delaware" }, { value: "DC", label: "Washington DC" },
+  { value: "FL", label: "Florida" }, { value: "GA", label: "Georgia" }, { value: "HI", label: "Hawaii" },
+  { value: "ID", label: "Idaho" }, { value: "IL", label: "Illinois" }, { value: "IN", label: "Indiana" },
+  { value: "IA", label: "Iowa" }, { value: "KS", label: "Kansas" }, { value: "KY", label: "Kentucky" },
+  { value: "LA", label: "Louisiana" }, { value: "ME", label: "Maine" }, { value: "MD", label: "Maryland" },
+  { value: "MA", label: "Massachusetts" }, { value: "MI", label: "Michigan" }, { value: "MN", label: "Minnesota" },
+  { value: "MS", label: "Mississippi" }, { value: "MO", label: "Missouri" }, { value: "MT", label: "Montana" },
+  { value: "NE", label: "Nebraska" }, { value: "NV", label: "Nevada" }, { value: "NH", label: "New Hampshire" },
+  { value: "NJ", label: "New Jersey" }, { value: "NM", label: "New Mexico" }, { value: "NY", label: "New York" },
+  { value: "NC", label: "North Carolina" }, { value: "ND", label: "North Dakota" }, { value: "OH", label: "Ohio" },
+  { value: "OK", label: "Oklahoma" }, { value: "OR", label: "Oregon" }, { value: "PA", label: "Pennsylvania" },
+  { value: "RI", label: "Rhode Island" }, { value: "SC", label: "South Carolina" }, { value: "SD", label: "South Dakota" },
+  { value: "TN", label: "Tennessee" }, { value: "TX", label: "Texas" }, { value: "UT", label: "Utah" },
+  { value: "VT", label: "Vermont" }, { value: "VA", label: "Virginia" }, { value: "WA", label: "Washington" },
+  { value: "WV", label: "West Virginia" }, { value: "WI", label: "Wisconsin" }, { value: "WY", label: "Wyoming" },
+];
 
 const fadeIn = {
   hidden: { opacity: 0, y: 20 },
@@ -56,6 +133,106 @@ function PhotoSlot({ icon, label, hint }: { icon: React.ReactNode; label: string
 }
 
 export default function Home() {
+  const [packLoading, setPackLoading] = useState(false);
+  const [packError, setPackError] = useState<string | null>(null);
+  const [packCategory, setPackCategory] = useState("");
+  const [packState, setPackState] = useState("");
+  // Free-text request path
+  const [packRequest, setPackRequest] = useState("");
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quote, setQuote] = useState<
+    | { ok: true; instant: boolean; available: number; label: string; location: string; displayName: string }
+    | { ok: false; message: string }
+    | null
+  >(null);
+
+  const handleQuote = async () => {
+    const request = packRequest.trim();
+    if (request.length < 3) return;
+    setQuoteLoading(true);
+    setQuote(null);
+    setPackError(null);
+    try {
+      const res = await fetch(`${basePath}/api/stripe/pack-quote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setQuote({ ok: true, instant: data.instant, available: data.available, label: data.label, location: data.location, displayName: data.displayName });
+      } else {
+        setQuote({ ok: false, message: data.message ?? "We couldn't read that request — try e.g. \"roofers in Mobile, AL\"." });
+      }
+    } catch {
+      setQuote({ ok: false, message: "Couldn't check availability right now — please try again." });
+    }
+    setQuoteLoading(false);
+  };
+
+  const handleBuyRequest = async () => {
+    setPackLoading(true);
+    setPackError(null);
+    try {
+      const res = await fetch(`${basePath}/api/stripe/pack-checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request: packRequest.trim() }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      setPackError(data.error ?? "Checkout is unavailable right now — please try again.");
+    } catch {
+      setPackError("Checkout is unavailable right now — please try again.");
+    }
+    setPackLoading(false);
+  };
+  // null = not yet known (endpoint unreachable or still loading)
+  const [packAvail, setPackAvail] = useState<{ available: number; ok: boolean } | null>(null);
+  const [packAvailLoading, setPackAvailLoading] = useState(false);
+
+  // Live availability check so the buyer sees "only N available" before paying.
+  useEffect(() => {
+    let cancelled = false;
+    setPackAvailLoading(true);
+    setPackError(null);
+    const params = new URLSearchParams();
+    if (packCategory) params.set("category", packCategory);
+    if (packState) params.set("state", packState);
+    fetch(`${basePath}/api/stripe/pack-availability?${params}`)
+      .then(r => r.json())
+      .then(d => {
+        if (!cancelled) setPackAvail(typeof d?.available === "number" ? { available: d.available, ok: !!d.ok } : null);
+      })
+      .catch(() => { if (!cancelled) setPackAvail(null); })
+      .finally(() => { if (!cancelled) setPackAvailLoading(false); });
+    return () => { cancelled = true; };
+  }, [packCategory, packState]);
+
+  const handleBuyPack = async () => {
+    setPackLoading(true);
+    setPackError(null);
+    try {
+      const res = await fetch(`${basePath}/api/stripe/pack-checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: packCategory, state: packState }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      setPackError(data.error ?? "Checkout is unavailable right now — please try again.");
+    } catch {
+      setPackError("Checkout is unavailable right now — please try again.");
+    }
+    setPackLoading(false);
+  };
+
   useEffect(() => {
     const schema = {
       "@context": "https://schema.org",
@@ -451,9 +628,9 @@ export default function Home() {
                 </div>
               </motion.div>
 
-              {/* Step 2 — PHOTO SLOT */}
-              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="grid md:grid-cols-2 gap-12 items-center">
-                <div className="md:order-2">
+              {/* Step 2 */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={fadeIn} className="max-w-3xl mx-auto">
+                <div>
                   <div className="flex items-center gap-3 mb-5">
                     <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-xl shrink-0 shadow-lg shadow-primary/30">2</div>
                     <p className="font-mono text-xs text-primary uppercase tracking-widest">Step 2</p>
@@ -467,13 +644,6 @@ export default function Home() {
                     <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>No account or login required — install and go immediately</span></li>
                     <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span>You'll see a confirmation notification once installed</span></li>
                   </ul>
-                </div>
-                <div className="md:order-1">
-                  <PhotoSlot
-                    icon={<MousePointerClick className="w-8 h-8" />}
-                    label='Upload screenshot of the "Add to Chrome" dialog'
-                    hint="Take a screenshot showing the Chrome permissions popup and Add extension button"
-                  />
                 </div>
               </motion.div>
 
@@ -700,12 +870,115 @@ export default function Home() {
 
             <div className="text-center mt-14">
               <p className="text-muted-foreground mb-6 max-w-xl mx-auto">
-                Delivered as clean CSV with phone, email, website, ratings & more. Buy a single niche pack or a full territory — filtered by industry, city, or state.
+                Get a <strong className="text-foreground">100 Local Business Leads</strong> pack — a clean CSV with phone, email, website, ratings & more, for <strong className="text-foreground">$29</strong>. One-time payment, no subscription, no account needed.
               </p>
-              <a href="/pricing"
-                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity">
-                <Download className="w-5 h-5" /> Get a Lead Pack
-              </a>
+
+              {/* Free-text request */}
+              <div className="max-w-xl mx-auto mb-8 bg-card/60 border border-border rounded-2xl p-5">
+                <label className="block text-sm font-semibold text-foreground mb-2 text-left">Describe the leads you want</label>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <input
+                    type="text"
+                    value={packRequest}
+                    onChange={e => { setPackRequest(e.target.value); setQuote(null); }}
+                    onKeyDown={e => { if (e.key === "Enter") handleQuote(); }}
+                    placeholder="e.g. roofers in Mobile, AL — or plumbers anywhere"
+                    data-testid="input-pack-request"
+                    className="flex-1 h-12 px-4 rounded-xl bg-background border border-border text-foreground text-sm focus:outline-none focus:border-primary transition-colors"
+                  />
+                  <button
+                    onClick={handleQuote}
+                    disabled={quoteLoading || packRequest.trim().length < 3}
+                    data-testid="btn-pack-quote"
+                    className="h-12 px-5 rounded-xl border border-primary/60 text-primary font-bold text-sm hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
+                    {quoteLoading ? "Checking…" : "Check availability"}
+                  </button>
+                </div>
+
+                {quote && quote.ok === false && (
+                  <p className="text-sm text-amber-400 mt-4 text-left" data-testid="text-quote-error">{quote.message}</p>
+                )}
+                {quote && quote.ok && (
+                  <div className="mt-4 text-left" data-testid="box-quote-result">
+                    {quote.instant ? (
+                      <p className="text-sm text-primary mb-3">
+                        In stock — we have {quote.available.toLocaleString()} {quote.label}{quote.location ? ` in ${quote.location}` : ""} ready. We'll email your CSV after a quick quality check — usually within a few hours.
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground mb-3">
+                        We don't have 100 {quote.label}{quote.location ? ` in ${quote.location}` : ""} on hand right now ({quote.available.toLocaleString()} in stock). Order it and we'll <strong className="text-foreground">gather 100 fresh leads and email your CSV within 24 hours</strong> — if we come up short, we automatically refund the difference.
+                      </p>
+                    )}
+                    <button
+                      onClick={handleBuyRequest}
+                      disabled={packLoading}
+                      data-testid="btn-buy-request"
+                      className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed">
+                      {packLoading ? (
+                        <><span className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" /> Redirecting…</>
+                      ) : (
+                        <><Download className="w-5 h-5" /> {quote.instant ? "Buy now — $29 (emailed to you)" : "Order for $29 — email me the CSV"}</>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <p className="text-sm text-muted-foreground mb-4">Or pick from a list:</p>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center items-center mb-5">
+                <select
+                  value={packCategory}
+                  onChange={e => setPackCategory(e.target.value)}
+                  data-testid="select-pack-category"
+                  aria-label="Business type"
+                  className="h-12 w-full sm:w-64 px-4 rounded-xl bg-card border border-border text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors">
+                  <option value="">All business types</option>
+                  {PACK_CATEGORIES.map(c => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+                <select
+                  value={packState}
+                  onChange={e => setPackState(e.target.value)}
+                  data-testid="select-pack-state"
+                  aria-label="State"
+                  className="h-12 w-full sm:w-56 px-4 rounded-xl bg-card border border-border text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors">
+                  <option value="">All states (nationwide)</option>
+                  {US_STATES.map(s => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {packAvail && !packAvail.ok && !packAvailLoading && (
+                <p className="text-sm text-amber-400 mb-5 max-w-md mx-auto" data-testid="text-pack-unavailable">
+                  Only {packAvail.available} leads available for this combination right now — choose a different business type or state (or "All") to fill a 100-lead pack.
+                </p>
+              )}
+              {packAvail?.ok && (packCategory || packState) && !packAvailLoading && (
+                <p className="text-sm text-primary mb-5" data-testid="text-pack-available">
+                  {packAvail.available.toLocaleString()} matching leads — you'll get the top 100.
+                </p>
+              )}
+
+              <button
+                onClick={handleBuyPack}
+                disabled={packLoading || packAvailLoading || (packAvail !== null && !packAvail.ok)}
+                data-testid="btn-buy-lead-pack"
+                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed">
+                {packLoading ? (
+                  <>
+                    <span className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+                    Redirecting to checkout…
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-5 h-5" /> Get 100 Leads — $29
+                  </>
+                )}
+              </button>
+              {packError && <p className="text-sm text-red-400 mt-4">{packError}</p>}
+              <p className="text-xs text-muted-foreground mt-4">Secure checkout via Stripe. Every pack is human-reviewed before it ships — your CSV download link arrives by email, usually within a few hours (24h max).</p>
             </div>
           </div>
         </section>
@@ -718,9 +991,13 @@ export default function Home() {
             <p className="text-xl text-muted-foreground mb-8">
               Building something with leads? We work with developers and partners on custom integrations and programmatic access. Reach out and tell us what you're building.
             </p>
-            <a href="#leads-for-sale" className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity">
-              <Code2 className="w-5 h-5" /> Apply for access
+            <a
+              href="mailto:support@mapleadextractor.net?subject=Developer%20Program%20Application&body=Tell%20us%20what%20you%27re%20building%20and%20how%20you%20want%20to%20use%20our%20leads%3A%0A%0A"
+              data-testid="link-developer-apply"
+              className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity">
+              <Mail className="w-5 h-5" /> Apply for access
             </a>
+            <p className="text-xs text-muted-foreground mt-4">Opens an email to support@mapleadextractor.net — we reply within 1–2 business days.</p>
           </div>
         </section>
 

@@ -1,11 +1,19 @@
 import { Router } from "express";
 import { clerkMiddleware, getAuth } from "@clerk/express";
+import { db, packOrders } from "@workspace/db";
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
+import {
+  LEAD_PACK, validateFilters, parseRequest, countPackLeads, packDisplayName, locationString,
+  type PackFilters,
+} from "../lib/packs";
+import { newOrderToken } from "../lib/packWorker";
 
 const router = Router();
 
 const FREE_LEAD_LIMIT = 100;
+// Build-to-order fulfillment window; also the auto-partial-refund deadline.
+const BUILD_DEADLINE_MS = 24 * 60 * 60 * 1000;
 
 /** Check if a Clerk user has an active Pro subscription */
 async function getProStatus(clerkUserId: string): Promise<{
@@ -117,6 +125,118 @@ router.post("/checkout", async (req, res) => {
   });
 
   res.json({ url: session.url });
+});
+
+// Resolve request filters from either the dropdowns ({category,state}, strictly
+// whitelisted) or a free-text request ({request}, parsed). Returns null only
+// when dropdown values are off the whitelist.
+async function resolveFilters(body: { category?: string; state?: string; request?: string }): Promise<PackFilters | null> {
+  const request = String(body.request ?? "").trim();
+  if (request) return parseRequest(request);
+  return validateFilters(body.category, body.state);
+}
+
+/** GET /api/stripe/pack-availability — live count for a whitelisted
+ * category/state combo (the dropdown path). */
+router.get("/pack-availability", async (req, res) => {
+  const filters = validateFilters(req.query.category, req.query.state);
+  if (!filters) {
+    res.status(400).json({ error: "Unknown category or state." });
+    return;
+  }
+  const available = await countPackLeads(filters);
+  res.json({ available, required: LEAD_PACK.leadCount, ok: available >= LEAD_PACK.leadCount });
+});
+
+/** POST /api/stripe/pack-quote — parse a free-text request and report whether
+ * we can fill it instantly (100+ on hand) or will build it to order. */
+router.post("/pack-quote", async (req, res) => {
+  const request = String((req.body as { request?: string })?.request ?? "").trim();
+  if (request.length < 3) {
+    res.status(400).json({ error: "Tell us what leads you want — e.g. \"roofers in Mobile, AL\"." });
+    return;
+  }
+  const f = await parseRequest(request);
+  if (!f.category) {
+    res.json({ ok: false, reason: "no_category", message: "We couldn't tell which business type you meant — try e.g. \"plumbers in Austin, TX\"." });
+    return;
+  }
+  const available = await countPackLeads(f);
+  const instant = available >= LEAD_PACK.leadCount;
+  res.json({
+    ok: true,
+    instant,
+    available,
+    required: LEAD_PACK.leadCount,
+    label: f.label,
+    city: f.city,
+    state: f.state,
+    location: locationString(f),
+    displayName: packDisplayName(f),
+    priceCents: LEAD_PACK.priceCents,
+  });
+});
+
+/** POST /api/stripe/pack-checkout — one-time $29 payment for a 100-lead pack.
+ * Accepts a free-text { request } OR whitelisted { category, state }. EVERY
+ * order creates a pack_orders row that the owner must review and Send from the
+ * admin dashboard before the buyer gets anything. "Instant" (100+ in stock)
+ * just means the worker snapshots the pack on its first tick; otherwise it
+ * gathers fresh leads first (24h deadline, shortfall auto-refunded at Send).
+ * No account needed — Stripe collects the buyer's email. */
+router.post("/pack-checkout", async (req, res) => {
+  const body = (req.body ?? {}) as { category?: string; state?: string; request?: string };
+  const filters = await resolveFilters(body);
+  if (!filters) {
+    res.status(400).json({ error: "Unknown category or state." });
+    return;
+  }
+  if (body.request && !filters.category) {
+    res.status(422).json({ error: "We couldn't tell which business type you meant — try e.g. \"plumbers in Austin, TX\"." });
+    return;
+  }
+
+  const stripe = await getUncachableStripeClient();
+  const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}`;
+  const available = await countPackLeads(filters);
+  const instant = available >= LEAD_PACK.leadCount;
+
+  const token = newOrderToken();
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    payment_method_types: ["card"],
+    line_items: [{
+      price_data: {
+        currency: "usd",
+        unit_amount: LEAD_PACK.priceCents,
+        product_data: {
+          name: packDisplayName(filters),
+          description: instant
+            ? "Emailed to you after a quick quality check — usually within a few hours."
+            : "Built to order — we gather 100 fresh matching leads and email your CSV within 24 hours (auto partial-refund if we fall short).",
+        },
+      },
+      quantity: 1,
+    }],
+    metadata: { pack_mode: instant ? "instant" : "build", pack_order_token: token },
+    success_url: `${baseUrl}/api/leads/pack-order-received?token=${token}`,
+    cancel_url: `${baseUrl}/#leads-for-sale`,
+  });
+
+  await db.insert(packOrders).values({
+    token,
+    stripeSessionId: session.id,
+    amountCents: LEAD_PACK.priceCents,
+    rawRequest: body.request ?? null,
+    category: filters.category,
+    label: filters.label,
+    city: filters.city,
+    state: filters.state,
+    requested: LEAD_PACK.leadCount,
+    deadlineAt: new Date(Date.now() + BUILD_DEADLINE_MS),
+  });
+
+  res.json({ url: session.url, mode: instant ? "instant" : "build", available });
 });
 
 /** POST /api/stripe/portal — customer billing portal */

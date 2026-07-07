@@ -1,8 +1,10 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "@clerk/express";
-import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, computeOpportunity, computeValue, type ScrapePlatform } from "@workspace/db";
-import { sql, count, gte, eq, and, desc, asc, isNull, isNotNull, getTableColumns } from "drizzle-orm";
+import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, packOrders, computeOpportunity, computeValue, type ScrapePlatform } from "@workspace/db";
+import { sql, count, gte, eq, and, desc, asc, isNull, isNotNull, inArray, getTableColumns } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
+import { packWhere } from "../lib/packs";
+import { sendOrder } from "../lib/packWorker";
 import { scrapeAndSave } from "../lib/scrape";
 import { researchTargets } from "../lib/research";
 import { analyzeLeads } from "../lib/analyze";
@@ -1385,6 +1387,56 @@ router.put("/social/settings", requireAuth, async (req, res) => {
   const settings = await updateSocialSettings(patch);
   const { fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p, ...safeSettings } = settings;
   res.json({ ok: true, settings: safeSettings });
+});
+
+// ---- Pack orders: the owner's review-and-send queue -------------------------
+// Every paid lead-pack order parks at needs_review; nothing reaches the buyer
+// until the owner hits Send here.
+
+router.get("/pack-orders", requireAuth, async (_req, res) => {
+  const rows = await db.select().from(packOrders).orderBy(desc(packOrders.id)).limit(200);
+  res.json({ orders: rows });
+});
+
+function packCsvCell(v: unknown): string {
+  if (v == null) return "";
+  const s = Array.isArray(v) ? v.join("; ") : String(v);
+  return (s.includes(",") || s.includes('"') || s.includes("\n")) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+// The exact rows the buyer would receive. Snapshotted orders use their frozen
+// lead IDs; still-building orders preview the current best matches.
+router.get("/pack-orders/:id/preview.csv", requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  const [order] = Number.isFinite(id) ? await db.select().from(packOrders).where(eq(packOrders.id, id)) : [];
+  if (!order) { res.status(404).json({ error: "Order not found." }); return; }
+
+  const ids = (order.leadIds ?? []) as number[];
+  const rows = ids.length
+    ? await db.select().from(leads).where(inArray(leads.id, ids)).orderBy(sql`value_score DESC, opportunity_score DESC`)
+    : await db.select().from(leads).where(packWhere(order)).orderBy(sql`value_score DESC, opportunity_score DESC`).limit(order.requested);
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="order-${order.id}-preview.csv"`);
+  const headers = ["Name", "Phone", "Emails", "Website", "Facebook", "Instagram", "Twitter", "LinkedIn", "Address", "Category", "Rating", "Reviews", "Opportunity", "Value", "Needs", "Google Maps URL"];
+  let csv = headers.join(",") + "\n";
+  for (const r of rows) {
+    csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, r.gmapsUrl].map(packCsvCell).join(",") + "\n";
+  }
+  res.send(csv);
+});
+
+// The Send button: emails the buyer their download link (refunding any
+// shortfall first) and marks the order delivered.
+router.post("/pack-orders/:id/send", requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad order id." }); return; }
+  try {
+    const order = await sendOrder(id);
+    res.json({ ok: true, order });
+  } catch (err) {
+    res.status(409).json({ error: err instanceof Error ? err.message : "Send failed." });
+  }
 });
 
 export default router;

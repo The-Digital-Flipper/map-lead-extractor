@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { createHash } from "node:crypto";
-import { db, leads, leadNotes, computeScore, computeOpportunity, computeDemand, computeValue } from "@workspace/db";
+import { db, leads, leadNotes, packOrders, computeScore, computeOpportunity, computeDemand, computeValue } from "@workspace/db";
 import { sql, ilike, or, gte, and, count, eq, ne, inArray, isNull, type SQL } from "drizzle-orm";
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
@@ -730,13 +730,19 @@ router.get("/pack-download", async (req, res) => {
 
   const category = meta.pack_category ?? "";
   const state = (meta.pack_state ?? "").toUpperCase();
+  const city = meta.pack_city ?? "";
   const minOpp = parseInt(meta.pack_min_opp ?? "0", 10) || 0;
+  // Fixed-size packs (e.g. the $29 / 100-lead pack) set pack_limit; admin-sold
+  // packs without it deliver everything matching the filters.
+  const packLimit = parseInt(meta.pack_limit ?? "0", 10) || 0;
 
   const conditions: SQL[] = [isNull(leads.deletedAt)];
   if (category) conditions.push(ilike(leads.category, `%${category}%`));
+  if (city) conditions.push(ilike(leads.address, `%${city}%`));
   if (/^[A-Z]{2}$/.test(state)) conditions.push(sql`address ~ ${"\\y" + state + "\\s+\\d{5}"}`);
   if (minOpp > 0) conditions.push(gte(leads.opportunityScore, minOpp));
-  const rows = await db.select().from(leads).where(and(...conditions)!).orderBy(sql`value_score DESC, opportunity_score DESC`);
+  const baseQuery = db.select().from(leads).where(and(...conditions)!).orderBy(sql`value_score DESC, opportunity_score DESC`);
+  const rows = packLimit > 0 ? await baseQuery.limit(packLimit) : await baseQuery;
 
   const dateStr = new Date().toISOString().slice(0, 10);
   res.setHeader("Content-Type", "text/csv");
@@ -747,6 +753,59 @@ router.get("/pack-download", async (req, res) => {
     csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, r.gmapsUrl].map(csvCellSafe).join(",") + "\n";
   }
   req.log.info({ rows: rows.length, category, state }, "paid pack downloaded");
+  res.send(csv);
+});
+
+// ---- Build-to-order packs: token-gated status page + CSV download -----------
+
+// GET /pack-order-received — the page Stripe redirects a BUILD buyer to after
+// payment. Their leads aren't ready yet (the worker gathers them async), so
+// this just confirms the order and tells them to watch their email.
+router.get("/pack-order-received", async (req, res) => {
+  const token = String(req.query.token ?? "");
+  const [order] = token ? await db.select().from(packOrders).where(eq(packOrders.token, token)) : [];
+  res.setHeader("Content-Type", "text/html");
+  if (!order) { res.status(404).send("<p>Order not found.</p>"); return; }
+  const ready = order.status === "ready" || order.status === "partial";
+  const dl = `/api/leads/pack-order-download?token=${encodeURIComponent(token)}`;
+  res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Order received</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{background:#0b0f14;color:#e6edf3;font-family:system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
+.card{background:#111722;border:1px solid #21262d;border-radius:16px;padding:40px;text-align:center;max-width:440px}
+.btn{display:inline-block;margin-top:20px;background:#00e676;color:#0b0f14;font-weight:700;padding:14px 28px;border-radius:10px;text-decoration:none}
+h1{font-size:22px}p{color:#8b949e;line-height:1.6}</style></head>
+<body><div class="card"><div style="font-size:42px">${ready ? "✅" : "⏳"}</div>
+<h1>${ready ? "Your leads are ready" : "Order received — we're on it"}</h1>
+${ready
+  ? `<p>Your lead pack is ready to download.</p><a class="btn" href="${dl}">⬇ Download leads CSV</a>`
+  : `<p>Thanks! We're putting together <strong>100 ${order.label || "local business"} leads</strong>${order.city || order.state ? ` in ${[order.city, order.state].filter(Boolean).join(", ")}` : ""} for you now — every pack gets a human quality check before it ships. We'll email your CSV download link${order.email ? ` to <strong>${order.email}</strong>` : ""} usually within a few hours (24 hours max). If we come up short, we'll automatically refund the difference.</p>`}
+<p style="font-size:12px;margin-top:18px">Order ref: ${order.token.slice(0, 8)}</p></div></body></html>`);
+});
+
+// GET /pack-order-download — streams a build order's snapshotted CSV, gated by
+// its unguessable token (the link we email the buyer). Works once fulfilled.
+router.get("/pack-order-download", async (req, res) => {
+  const token = String(req.query.token ?? "");
+  const [order] = token ? await db.select().from(packOrders).where(eq(packOrders.token, token)) : [];
+  if (!order) { res.status(404).send("Order not found."); return; }
+  if (order.status !== "ready" && order.status !== "partial") {
+    res.status(425).send("Your leads aren't ready yet — we'll email you the moment they are.");
+    return;
+  }
+  const ids = (order.leadIds ?? []) as number[];
+  const rows = ids.length
+    ? await db.select().from(leads).where(inArray(leads.id, ids)).orderBy(sql`value_score DESC, opportunity_score DESC`)
+    : [];
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="lead-pack-${order.token.slice(0, 8)}-${dateStr}.csv"`);
+  const headers = ["Name", "Phone", "Emails", "Website", "Facebook", "Instagram", "Twitter", "LinkedIn", "Address", "Category", "Rating", "Reviews", "Opportunity", "Value", "Needs", "Google Maps URL"];
+  let csv = headers.join(",") + "\n";
+  for (const r of rows) {
+    csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, r.gmapsUrl].map(csvCellSafe).join(",") + "\n";
+  }
+  req.log.info({ orderId: order.id, rows: rows.length, status: order.status }, "build pack downloaded");
   res.send(csv);
 });
 

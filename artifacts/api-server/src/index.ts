@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { startSocialScheduler } from "./lib/social";
 import { startOutreachScheduler } from "./lib/outreach-auto";
 import { startReplyWatcher } from "./lib/outreach-reply";
+import { startPackScheduler } from "./lib/packWorker";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -18,4 +19,5 @@ app.listen(port, (err) => {
   startSocialScheduler();
   startOutreachScheduler();
   startReplyWatcher();
+  startPackScheduler();
 });
