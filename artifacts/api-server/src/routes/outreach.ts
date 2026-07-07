@@ -109,11 +109,6 @@ router.patch("/settings", requireAuth, async (req, res) => {
 router.post("/enroll", requireAuth, async (req, res) => {
   const ids = parseIds(req.body);
   if (ids.length === 0) { res.status(400).json({ error: "ids must be a non-empty array" }); return; }
-  const s = await getOutreachSettings();
-  if (!s.offer?.trim()) {
-    res.status(400).json({ error: "Add what you're offering in Automate settings first — the emails are written around it." });
-    return;
-  }
   const r = await enrollLeads(ids);
   res.json({ ok: true, ...r });
 });

@@ -114,17 +114,17 @@ async function runAi(user: string, system: string = SYSTEM): Promise<string> {
   throw new Error("No AI key set — add OPENAI_API_KEY (or CHAT_GPT_API), or ANTHROPIC_API_KEY, in the Replit Secrets panel.");
 }
 
-// Who's sending and what they offer — all owner-provided, never assumed.
+// Who's sending and what they offer — owner-provided via the Automate settings.
 export type OutreachSender = { name?: string | null; offer?: string | null };
 
-// Generate outreach for a single lead, pitching the SENDER's own offer and
-// signing with the sender's own name (both supplied by the caller from the
-// owner's settings). Throws if no offer is set — there's no default pitch.
+// The pitch used whenever the owner hasn't typed their own offer — sending
+// works out of the box; the settings field customizes it.
+export const DEFAULT_OFFER = "websites, SEO, Google/Facebook ads, reputation and marketing automation for local businesses";
+
+// Generate outreach for a single lead, pitching the sender's own offer (or the
+// default pitch when none is set) and signing with the sender's own name.
 export async function generateOutreach(lead: Lead, sender: OutreachSender = {}): Promise<LeadOutreach> {
-  const offer = sender.offer?.trim();
-  if (!offer) {
-    throw new Error("No offer set — add what you're offering in the Automate settings before generating outreach.");
-  }
+  const offer = sender.offer?.trim() || DEFAULT_OFFER;
   const senderBlock = [
     `The sender offers: ${offer}`,
     sender.name?.trim() ? `Sign the email as: ${sender.name.trim()}` : `Do not add any sign-off name.`,
@@ -157,8 +157,7 @@ Return ONLY JSON: {"shouldReply": boolean, "leadDone": boolean, "body": string}.
 // Decide how (and whether) to answer a lead's reply. Grounded in the owner's
 // offer + the thread so far; the model can also flag the lead as done.
 export async function generateReply(lead: Lead, thread: ReplyTurn[], sender: OutreachSender): Promise<ReplyDecision> {
-  const offer = sender.offer?.trim();
-  if (!offer) throw new Error("No offer set — add what you're offering in the Automate settings first.");
+  const offer = sender.offer?.trim() || DEFAULT_OFFER;
   const convo = thread.map((t) => `${t.from === "us" ? "US" : "THEM"}:\n${t.body.trim()}`).join("\n\n---\n\n");
   const user = [
     `SENDER:\nThe sender offers: ${offer}`,

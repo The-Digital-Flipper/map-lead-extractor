@@ -201,7 +201,7 @@ async function processInbound(msg: InboundMsg, s: OutreachSettings): Promise<voi
       .where(eq(leads.id, lead.id));
     return;
   }
-  if (!s.autoReply || !s.offer?.trim() || lead.unsubscribedAt) return;
+  if (!s.autoReply || lead.unsubscribedAt) return;
   if (await autoRepliesSent(lead.id) >= MAX_AUTO_REPLIES_PER_LEAD) return;
 
   try {

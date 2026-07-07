@@ -570,10 +570,6 @@ router.post("/outreach/bulk", async (req, res) => {
   if (validIds.length === 0) { res.status(400).json({ error: "ids must be a non-empty array (max 25)" }); return; }
 
   const settings = await getOutreachSettings();
-  if (!settings.offer?.trim()) {
-    res.status(400).json({ error: "Add what you're offering in Automate settings first — the emails are written around it." });
-    return;
-  }
   const sender = { name: settings.fromName, offer: settings.offer };
 
   const rows = await db.select().from(leads).where(and(inArray(leads.id, validIds), isNull(leads.deletedAt)));
@@ -609,10 +605,6 @@ router.post("/:id/outreach", async (req, res) => {
     return;
   }
   const settings = await getOutreachSettings();
-  if (!settings.offer?.trim()) {
-    res.status(400).json({ error: "Add what you're offering in Automate settings first — the emails are written around it." });
-    return;
-  }
   try {
     const outreach = await generateOutreach(lead, { name: settings.fromName, offer: settings.offer });
     const at = new Date();

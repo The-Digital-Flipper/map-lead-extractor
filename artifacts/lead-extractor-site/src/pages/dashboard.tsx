@@ -2459,11 +2459,11 @@ export default function Dashboard() {
 
                   {/* What you're offering — the emails are written entirely around this */}
                   <label className="block">
-                    <span className="text-xs font-semibold text-foreground block mb-1.5">What are you offering? <span className="text-red-400">*</span></span>
+                    <span className="text-xs font-semibold text-foreground block mb-1.5">What are you offering? <span className="text-muted-foreground/60 font-normal">(optional)</span></span>
                     <textarea value={autoDraft.offer ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, offer: e.target.value } : d)} rows={3}
                       placeholder="In your own words — e.g. what you do, who for, and the main benefit. Every email is written around this."
                       className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/50" />
-                    <span className="text-[11px] text-muted-foreground mt-1 block">Nothing about your business is assumed — the AI writes each email around exactly what you type here. Leave it blank and nothing generates or sends.</span>
+                    <span className="text-[11px] text-muted-foreground mt-1 block">Type your own pitch and every email is written around exactly that. Left blank, emails pitch the standard offer: websites, SEO, ads, reputation & marketing automation for local businesses.</span>
                   </label>
 
                   {/* One-click auto-replies: AI answers leads who write back */}
