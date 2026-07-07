@@ -30,6 +30,25 @@ const YELP_STORE_URL = "https://chromewebstore.google.com/detail/yelp-lead-extra
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+// Official-listing trust seal shown beside every extension install button —
+// links straight to the Chrome Web Store listing it vouches for.
+function ChromeStoreSeal({ href, testId, className = "" }: { href: string; testId: string; className?: string }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" data-testid={testId}
+      className={`inline-flex items-center gap-2.5 px-4 py-2 rounded-lg bg-card border border-border hover:border-primary/50 transition-colors ${className}`}>
+      <SiGooglechrome className="w-5 h-5 shrink-0" />
+      <span className="text-left leading-tight">
+        <span className="block text-[10px] uppercase tracking-widest text-muted-foreground">Available in the</span>
+        <span className="block text-sm font-bold">Chrome Web Store</span>
+      </span>
+      <span className="flex items-center gap-1 pl-2.5 ml-0.5 border-l border-border text-primary">
+        <CheckCircle2 className="w-4 h-4" />
+        <span className="text-[10px] font-semibold uppercase tracking-wide">Verified<br/>listing</span>
+      </span>
+    </a>
+  );
+}
+
 // Business types for the lead-pack dropdown. `value` is the search term the
 // API matches against lead categories — keep in sync with PACK_CATEGORIES in
 // api-server/src/routes/stripe.ts.
@@ -356,7 +375,10 @@ export default function Home() {
                       <SiGooglechrome className="mr-3 h-6 w-6" /> Add to Chrome — It's Free
                     </a>
                   </Button>
-                  <p className="text-sm text-muted-foreground font-mono">v1.2.3 Google • v2.5.5 Bing</p>
+                  <div className="flex flex-col items-center sm:items-start gap-2">
+                    <ChromeStoreSeal href={STORE_URL} testId="seal-hero-cws" />
+                    <p className="text-sm text-muted-foreground font-mono">v1.2.3 Google • v2.5.5 Bing</p>
+                  </div>
                 </motion.div>
 
                 {/* Promo Screenshots */}
@@ -491,6 +513,7 @@ export default function Home() {
                     <Button variant="outline" className="w-full h-12 text-md group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary transition-all" asChild>
                       <a href={STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-google-install">Install Extractor</a>
                     </Button>
+                    <div className="mt-4 flex justify-center"><ChromeStoreSeal href={STORE_URL} testId="seal-google-cws" /></div>
                   </CardContent>
                 </Card>
               </motion.div>
@@ -519,6 +542,7 @@ export default function Home() {
                     <Button variant="outline" className="w-full h-12 text-md group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary transition-all" asChild>
                       <a href={STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-bing-install">Install Extractor</a>
                     </Button>
+                    <div className="mt-4 flex justify-center"><ChromeStoreSeal href={STORE_URL} testId="seal-bing-cws" /></div>
                   </CardContent>
                 </Card>
               </motion.div>
@@ -547,6 +571,7 @@ export default function Home() {
                     <Button variant="outline" className="w-full h-12 text-md group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary transition-all" asChild>
                       <a href={YELP_STORE_URL} target="_blank" rel="noopener noreferrer" data-testid="link-yelp-install">Install Extractor</a>
                     </Button>
+                    <div className="mt-4 flex justify-center"><ChromeStoreSeal href={YELP_STORE_URL} testId="seal-yelp-cws" /></div>
                   </CardContent>
                 </Card>
               </motion.div>

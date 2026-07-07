@@ -12,7 +12,13 @@
       "Bash(curl -s \"http://127.0.0.1:5000/api/stripe/pack-availability?category=roof\")",
       "Bash(curl -s \"http://127.0.0.1:5000/api/stripe/pack-availability?category=hacker\")",
       "Bash(pkill -f \"dist/index.mjs\")",
-      "Bash(env)"
+      "Bash(env)",
+      "Bash(PORT=5173 pnpm run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://127.0.0.1:5173/)",
+      "Bash(BASE_PATH=/ PORT=5173 pnpm run *)",
+      "Bash(node shot-el.mjs \"http://127.0.0.1:5173/\" '[data-testid=\"seal-hero-cws\"]' hero-seal.png)",
+      "Bash(node shot-el.mjs \"http://127.0.0.1:5173/\" '[data-testid=\"seal-google-cws\"]' card-seal.png)",
+      "Bash(pkill -f \"vite --config\")"
     ]
   }
 }
