@@ -347,7 +347,6 @@ export default function Home() {
             <a href="#how-it-works" className="hover:text-foreground transition-colors">How it Works</a>
             <a href="#data" className="hover:text-foreground transition-colors">Data Fields</a>
             <a href="#features" className="hover:text-foreground transition-colors">Engine</a>
-            <a href="#install-tutorial" className="hover:text-foreground transition-colors">Install Guide</a>
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
             <a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a>
             <a href="/blog" className="hover:text-foreground transition-colors">Blog</a>
@@ -609,10 +608,8 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Section: Install Tutorial */}
-        <section id="install-tutorial" className="py-24 border-y border-border relative overflow-hidden bg-card/10">
-          <div className="absolute -left-32 top-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl -z-10" />
-          <div className="absolute -right-32 bottom-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl -z-10" />
+        {/* Section: Install Tutorial — removed */}
+        {false && <section id="install-tutorial" className="hidden">
           <div className="container mx-auto px-6 max-w-5xl">
             <div className="text-center mb-20">
               <Badge variant="outline" className="px-4 py-1.5 border-primary/50 text-primary bg-primary/10 font-mono text-xs uppercase tracking-wider mb-4">
@@ -797,7 +794,7 @@ export default function Home() {
               </Button>
             </motion.div>
           </div>
-        </section>
+        </section>}
 
         {/* Section 4: Data Fields Grid */}
         <section id="data" className="py-24 bg-secondary text-secondary-foreground border-y border-border">
