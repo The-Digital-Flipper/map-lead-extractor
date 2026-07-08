@@ -58,7 +58,10 @@ router.get("/traffic", requireAuth, async (req, res) => {
   const days = Math.min(90, Math.max(1, parseInt(String(req.query.days ?? "30"), 10) || 30));
   const windowSql = sql`created_at >= NOW() - make_interval(days => ${days})`;
 
-  const [summaryRows, liveRows, dailyRows, pageRows, refRows, deviceRows, sourceRows] = await Promise.all([
+  const [
+    summaryRows, liveRows, dailyRows, pageRows, refRows, deviceRows, sourceRows,
+    newRetRows, entryRows, exitRows, heatRows, countryRows, engageRows,
+  ] = await Promise.all([
     db.execute(sql`
       SELECT
         COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')::int AS views_today,
@@ -104,6 +107,65 @@ router.get("/traffic", requireAuth, async (req, res) => {
       FROM site_visits WHERE ${windowSql} AND utm_source IS NOT NULL
       GROUP BY 1 ORDER BY visitors DESC LIMIT 10
     `),
+    // New vs returning: a visitor is "returning" if their first-ever pageview
+    // predates the window; "new" if they first appeared inside it.
+    db.execute(sql`
+      WITH active AS (
+        SELECT DISTINCT visitor_id FROM site_visits WHERE ${windowSql}
+      ), firsts AS (
+        SELECT visitor_id, MIN(created_at) AS first_seen FROM site_visits GROUP BY visitor_id
+      )
+      SELECT
+        COUNT(*) FILTER (WHERE f.first_seen >= NOW() - make_interval(days => ${days}))::int AS new_visitors,
+        COUNT(*) FILTER (WHERE f.first_seen <  NOW() - make_interval(days => ${days}))::int AS returning_visitors
+      FROM active a JOIN firsts f USING (visitor_id)
+    `),
+    // Entry pages: the first page of each session.
+    db.execute(sql`
+      SELECT path, COUNT(*)::int AS sessions FROM (
+        SELECT DISTINCT ON (session_id) session_id, path
+        FROM site_visits WHERE ${windowSql} AND session_id IS NOT NULL
+        ORDER BY session_id, created_at ASC
+      ) t GROUP BY path ORDER BY sessions DESC LIMIT 10
+    `),
+    // Exit pages: the last page of each session.
+    db.execute(sql`
+      SELECT path, COUNT(*)::int AS sessions FROM (
+        SELECT DISTINCT ON (session_id) session_id, path
+        FROM site_visits WHERE ${windowSql} AND session_id IS NOT NULL
+        ORDER BY session_id, created_at DESC
+      ) t GROUP BY path ORDER BY sessions DESC LIMIT 10
+    `),
+    // Hour-of-day × day-of-week heatmap, bucketed in the owner's local time
+    // (Central) so peaks line up with when their audience is actually awake.
+    db.execute(sql`
+      SELECT
+        EXTRACT(DOW  FROM created_at AT TIME ZONE 'America/Chicago')::int AS dow,
+        EXTRACT(HOUR FROM created_at AT TIME ZONE 'America/Chicago')::int AS hour,
+        COUNT(*)::int AS views
+      FROM site_visits WHERE ${windowSql}
+      GROUP BY 1, 2
+    `),
+    // Country breakdown (populated once a CDN/proxy sets the geo header).
+    db.execute(sql`
+      SELECT COALESCE(NULLIF(country, ''), '—') AS country,
+             COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE ${windowSql}
+      GROUP BY 1 ORDER BY visitors DESC LIMIT 12
+    `),
+    // Engagement: bounce rate + avg pages/session over sessions in the window.
+    db.execute(sql`
+      WITH s AS (
+        SELECT session_id, COUNT(*) AS views
+        FROM site_visits WHERE ${windowSql} AND session_id IS NOT NULL
+        GROUP BY session_id
+      )
+      SELECT
+        COUNT(*)::int AS sessions,
+        COUNT(*) FILTER (WHERE views = 1)::int AS bounced,
+        COALESCE(SUM(views), 0)::int AS total_views
+      FROM s
+    `),
   ]);
 
   type SumRow = {
@@ -135,6 +197,29 @@ router.get("/traffic", requireAuth, async (req, res) => {
       .map(r => ({ device: r.device ?? "unknown", visitors: Number(r.visitors) })),
     sources: (sourceRows.rows as { source: string; visitors: number }[])
       .map(r => ({ source: r.source, visitors: Number(r.visitors) })),
+    newVsReturning: (() => {
+      const r = (newRetRows.rows[0] ?? {}) as { new_visitors?: number; returning_visitors?: number };
+      return { new: Number(r.new_visitors ?? 0), returning: Number(r.returning_visitors ?? 0) };
+    })(),
+    entryPages: (entryRows.rows as { path: string; sessions: number }[])
+      .map(r => ({ path: r.path, sessions: Number(r.sessions) })),
+    exitPages: (exitRows.rows as { path: string; sessions: number }[])
+      .map(r => ({ path: r.path, sessions: Number(r.sessions) })),
+    heatmap: (heatRows.rows as { dow: number; hour: number; views: number }[])
+      .map(r => ({ dow: Number(r.dow), hour: Number(r.hour), views: Number(r.views) })),
+    countries: (countryRows.rows as { country: string; visitors: number }[])
+      .map(r => ({ country: r.country, visitors: Number(r.visitors) })),
+    engagement: (() => {
+      const r = (engageRows.rows[0] ?? {}) as { sessions?: number; bounced?: number; total_views?: number };
+      const sessions = Number(r.sessions ?? 0);
+      const bounced = Number(r.bounced ?? 0);
+      const totalViews = Number(r.total_views ?? 0);
+      return {
+        sessions,
+        bounceRate: sessions ? bounced / sessions : 0,
+        pagesPerSession: sessions ? totalViews / sessions : 0,
+      };
+    })(),
   });
 });
 

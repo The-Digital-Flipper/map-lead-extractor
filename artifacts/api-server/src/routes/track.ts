@@ -6,6 +6,11 @@ const router: IRouter = Router();
 // Crawlers/monitors — don't count these as human traffic.
 const BOT_RE = /bot|crawl|spider|slurp|bingpreview|headless|lighthouse|pingdom|uptime|monitor|facebookexternalhit|preview|scan|curl|wget|python-requests/i;
 
+// The Replit editor/preview iframe — this is the owner building/testing the
+// site, not a real visitor. Beacons fired from there carry a replit host in
+// their Origin/Referer, so we drop them before they reach the DB.
+const PREVIEW_RE = /replit\.dev|replit\.com|repl\.co|riker\.replit/i;
+
 function parseDevice(ua: string): string {
   if (/ipad|tablet|kindle|silk/i.test(ua)) return "tablet";
   if (/mobi|iphone|android/i.test(ua)) return "mobile";
@@ -45,6 +50,10 @@ router.post("/track", async (req, res) => {
   try {
     const ua = String(req.headers["user-agent"] ?? "");
     if (BOT_RE.test(ua)) return;
+
+    // Drop the owner's own editor/preview traffic (Replit iframe).
+    const source = `${req.headers.origin ?? ""} ${req.headers.referer ?? ""}`;
+    if (PREVIEW_RE.test(source)) return;
 
     const b = (req.body ?? {}) as Record<string, unknown>;
     const path = clean(b.path, 300);

@@ -89,6 +89,12 @@ interface TrafficData {
   referrers: { referrer: string; views: number }[];
   devices: { device: string; visitors: number }[];
   sources: { source: string; visitors: number }[];
+  newVsReturning: { new: number; returning: number };
+  entryPages: { path: string; sessions: number }[];
+  exitPages: { path: string; sessions: number }[];
+  heatmap: { dow: number; hour: number; views: number }[];
+  countries: { country: string; visitors: number }[];
+  engagement: { sessions: number; bounceRate: number; pagesPerSession: number };
 }
 
 interface SocialPostRow {
@@ -1470,6 +1476,123 @@ export default function Admin() {
                     </div>
                   ) : <p className="text-sm text-muted-foreground">No data yet</p>}
                 </div>
+              </div>
+
+              {/* Engagement + new vs returning */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {(() => {
+                  const e = traffic?.engagement;
+                  const nr = traffic?.newVsReturning;
+                  const nrTotal = Math.max(1, (nr?.new ?? 0) + (nr?.returning ?? 0));
+                  const cards = [
+                    { label: "Bounce rate", value: e ? `${Math.round(e.bounceRate * 100)}%` : "…", sub: "left after one page", icon: <TrendingUp className="w-4 h-4 text-red-400" /> },
+                    { label: "Pages / session", value: e ? e.pagesPerSession.toFixed(1) : "…", sub: `${(e?.sessions ?? 0).toLocaleString()} sessions`, icon: <Eye className="w-4 h-4 text-green-400" /> },
+                    { label: "New visitors", value: nr ? nr.new.toLocaleString() : "…", sub: `${Math.round((nr?.new ?? 0) / nrTotal * 100)}% of visitors`, icon: <Users className="w-4 h-4 text-primary" /> },
+                    { label: "Returning", value: nr ? nr.returning.toLocaleString() : "…", sub: `${Math.round((nr?.returning ?? 0) / nrTotal * 100)}% of visitors`, icon: <Users className="w-4 h-4 text-blue-400" /> },
+                  ];
+                  return cards.map((c, i) => (
+                    <div key={i} className="rounded-xl p-4 border bg-card border-border">
+                      <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">{c.icon} {c.label}</div>
+                      <div className="text-2xl font-display font-bold text-foreground">{c.value}</div>
+                      <div className="text-xs text-muted-foreground mt-1">{c.sub}</div>
+                    </div>
+                  ));
+                })()}
+              </div>
+
+              {/* Entry pages / Exit pages / Countries */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="bg-card border border-border rounded-2xl p-6">
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Entry pages</h3>
+                  {traffic && traffic.entryPages.length > 0 ? (
+                    <div className="space-y-2">
+                      {traffic.entryPages.map((p, i) => (
+                        <div key={i} className="flex items-center justify-between gap-2">
+                          <span className="text-sm text-foreground truncate font-mono">{p.path}</span>
+                          <span className="text-xs font-bold text-primary shrink-0">{p.sessions.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="text-sm text-muted-foreground">No data yet</p>}
+                </div>
+
+                <div className="bg-card border border-border rounded-2xl p-6">
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Exit pages</h3>
+                  {traffic && traffic.exitPages.length > 0 ? (
+                    <div className="space-y-2">
+                      {traffic.exitPages.map((p, i) => (
+                        <div key={i} className="flex items-center justify-between gap-2">
+                          <span className="text-sm text-foreground truncate font-mono">{p.path}</span>
+                          <span className="text-xs font-bold text-primary shrink-0">{p.sessions.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="text-sm text-muted-foreground">No data yet</p>}
+                </div>
+
+                <div className="bg-card border border-border rounded-2xl p-6">
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Countries</h3>
+                  {(() => {
+                    const rows = (traffic?.countries ?? []).filter(c => c.country && c.country !== "—");
+                    if (rows.length === 0) {
+                      return <p className="text-sm text-muted-foreground">Location shows once the site runs behind a CDN that adds a geo header.</p>;
+                    }
+                    const flag = (cc: string) => /^[a-z]{2}$/i.test(cc)
+                      ? cc.toUpperCase().replace(/./g, ch => String.fromCodePoint(127397 + ch.charCodeAt(0)))
+                      : "🌐";
+                    return (
+                      <div className="space-y-2">
+                        {rows.map((c, i) => (
+                          <div key={i} className="flex items-center justify-between gap-2">
+                            <span className="text-sm text-foreground truncate">{flag(c.country)} {c.country}</span>
+                            <span className="text-xs font-bold text-primary shrink-0">{c.visitors.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Hour × day-of-week heatmap */}
+              <div className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <Activity className="w-4 h-4 text-primary" />
+                  <h3 className="text-lg font-display font-bold">When visitors show up</h3>
+                  <span className="text-xs text-muted-foreground">(Central time)</span>
+                </div>
+                {traffic && traffic.heatmap.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[600px]">
+                      <div className="flex items-center gap-1 mb-1 pl-9">
+                        {Array.from({ length: 24 }).map((_, h) => (
+                          <div key={h} className="flex-1 text-center text-[9px] text-muted-foreground">{h % 6 === 0 ? `${h}:00` : ""}</div>
+                        ))}
+                      </div>
+                      {(() => {
+                        const cells = traffic.heatmap;
+                        const max = Math.max(1, ...cells.map(c => c.views));
+                        const lookup = new Map(cells.map(c => [`${c.dow}-${c.hour}`, c.views]));
+                        const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                        return dow.map((lbl, d) => (
+                          <div key={d} className="flex items-center gap-1 mb-1">
+                            <div className="w-8 text-[10px] text-muted-foreground shrink-0">{lbl}</div>
+                            {Array.from({ length: 24 }).map((_, h) => {
+                              const v = lookup.get(`${d}-${h}`) ?? 0;
+                              return (
+                                <div key={h} title={`${lbl} ${h}:00 — ${v} view${v === 1 ? "" : "s"}`}
+                                  className="flex-1 h-5 rounded-sm"
+                                  style={{ background: v ? `rgba(0,230,118,${0.15 + (v / max) * 0.85})` : "rgba(255,255,255,0.04)" }} />
+                              );
+                            })}
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No visits recorded yet — this fills in as traffic arrives.</p>
+                )}
               </div>
             </motion.div>
           )}
