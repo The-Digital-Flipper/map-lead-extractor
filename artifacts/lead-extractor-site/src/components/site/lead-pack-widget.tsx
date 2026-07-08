@@ -318,20 +318,24 @@ export default function LeadPackWidget() {
           </select>
         </div>
 
-        {packAvail && !packAvail.ok && !packAvailLoading && (
-          <p className="text-sm text-amber-400 mb-4" data-testid="text-pack-unavailable">
-            Only {packAvail.available} leads available for this combination — choose a different type or state to fill a 100-lead pack.
-          </p>
-        )}
-        {packAvail?.ok && (packCategory || packState) && !packAvailLoading && (
-          <p className="text-sm text-primary mb-4 font-medium" data-testid="text-pack-available">
-            ✅ {packAvail.available.toLocaleString()} matching leads available — you'll get the top 100.
-          </p>
+        {/* Every category/state is always orderable. If we have 100+ on hand it
+            ships instantly; if not, it's built to order (queued for fulfillment,
+            24h delivery, auto refund on any shortfall) — never blocked. */}
+        {(packCategory || packState) && !packAvailLoading && packAvail && (
+          packAvail.ok ? (
+            <p className="text-sm text-primary mb-4 font-medium" data-testid="text-pack-available">
+              ✅ {packAvail.available.toLocaleString()} matching leads in stock — you'll get the top 100.
+            </p>
+          ) : (
+            <p className="text-sm text-primary mb-4 font-medium" data-testid="text-pack-buildorder">
+              ✨ Built to order — we gather 100 fresh matching leads and email your CSV within 24 hours. Automatic refund if we come up short.
+            </p>
+          )
         )}
 
         <button
           onClick={handleBuyPack}
-          disabled={packLoading || packAvailLoading || (packAvail !== null && !packAvail.ok)}
+          disabled={packLoading || packAvailLoading}
           data-testid="btn-buy-lead-pack"
           className="w-full flex items-center justify-center gap-2 px-7 py-4 rounded-xl bg-primary text-primary-foreground font-bold text-lg hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed shadow-lg shadow-primary/30">
           {packLoading ? (

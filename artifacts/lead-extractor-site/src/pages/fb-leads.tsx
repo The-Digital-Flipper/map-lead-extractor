@@ -34,9 +34,9 @@ const stagger = {
 // paid-traffic destination, not an SEO page.
 export default function FbLeads() {
   useSeo({
-    title: "Ready-to-Close Local Business Leads — Delivered to Your Inbox",
+    title: "Local Business Leads With Phone, Email, Address & Social Links",
     description:
-      "Skip the cold prospecting. Get 100 scored, human-reviewed local business leads — phone, email, website & ratings — emailed as a clean CSV within hours. One-time $29. Refund if we come up short.",
+      "Every lead includes phone, email, address & social links. Get 100 scored, human-reviewed local business leads emailed as a clean CSV within hours. One-time $29. Refund if we come up short.",
     path: "/get-leads",
   });
 
@@ -94,8 +94,9 @@ export default function FbLeads() {
                 variants={fadeIn}
                 className="text-4xl md:text-6xl font-display font-bold leading-[1.1] tracking-tight mb-6"
               >
-                Ready-to-Close Local Business Leads —{" "}
-                <span className="text-primary">Delivered to Your Inbox</span>
+                Local Business Leads With{" "}
+                <span className="text-primary">Phone, Email, Address &amp; Social Links</span>{" "}
+                — on Every Lead
               </motion.h1>
 
               <motion.p
@@ -103,8 +104,8 @@ export default function FbLeads() {
                 className="text-lg md:text-2xl text-muted-foreground mb-8 leading-relaxed"
               >
                 Stop scraping and cold-guessing. Pick your industry and city, and we email you{" "}
-                <strong className="text-foreground">100 scored, human-reviewed leads</strong> — phone,
-                email, website & ratings — as a clean CSV. Usually within hours.
+                <strong className="text-foreground">100 scored, human-reviewed leads</strong> — each with
+                phone, email, address & social links — as a clean CSV. Usually within hours.
               </motion.p>
 
               <motion.div variants={fadeIn} className="flex flex-col items-center gap-4">
