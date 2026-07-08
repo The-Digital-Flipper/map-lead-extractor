@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, Clock, Zap } from "lucide-react";
 import { useParams } from "wouter";
@@ -9,6 +9,7 @@ import { MobileNav } from "@/components/site/mobile-nav";
 
 const SITE = "https://mapleadextractor.net";
 const DEFAULT_IMAGE = `${SITE}/opengraph.jpg`;
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
 
@@ -99,7 +100,25 @@ function renderContent(post: Post) {
 
 export default function BlogPost() {
   const { slug } = useParams<{ slug: string }>();
-  const post = posts.find((p) => p.slug === slug);
+  const staticPost = posts.find((p) => p.slug === slug);
+
+  // Static posts render instantly; auto-generated (DB) posts are fetched from
+  // the API so a direct visit to /blog/<auto-slug> renders instead of 404ing.
+  const [dbPost, setDbPost] = useState<Post | null>(null);
+  const [loading, setLoading] = useState(!staticPost);
+  useEffect(() => {
+    if (staticPost || !slug) return;
+    let cancelled = false;
+    setLoading(true);
+    fetch(`${API_BASE}/api/blog/posts/${encodeURIComponent(slug)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) setDbPost(d?.post ?? null); })
+      .catch(() => { if (!cancelled) setDbPost(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [slug, staticPost]);
+
+  const post = staticPost ?? dbPost;
 
   // Per-article title + description so each post ranks on its own keywords.
   useSeo({
@@ -140,7 +159,12 @@ export default function BlogPost() {
     };
   }, [post]);
 
-  if (!post) return <NotFound />;
+  if (!post) {
+    // Still fetching an auto-generated post — hold the shell rather than
+    // flashing "Not Found" (which the crawler-served HTML already avoids).
+    if (loading) return <div className="min-h-screen bg-background" />;
+    return <NotFound />;
+  }
 
   const related = posts.filter((p) => p.slug !== slug).slice(0, 3);
 

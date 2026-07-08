@@ -6,6 +6,7 @@ import { publishableKeyFromHost } from "@clerk/shared/keys";
 import router from "./routes";
 import privacyRouter from "./routes/privacy.js";
 import { mountSite, resolveSiteDir } from "./serveSite.js";
+import { mountBlog } from "./blogSite.js";
 import { logger } from "./lib/logger";
 import {
   CLERK_PROXY_PATH,
@@ -88,6 +89,10 @@ app.use("/api", router);
 // app routes like /dashboard. Registered after /api so the API always wins.
 const SITE_DIR = resolveSiteDir();
 if (SITE_DIR) {
+  // Auto-generated blog posts are rendered here (DB-backed, full SEO HTML)
+  // BEFORE the static server so a slug we own wins; everything else falls
+  // through to the prerendered files.
+  mountBlog(app, SITE_DIR);
   mountSite(app, SITE_DIR);
   logger.info({ siteDir: SITE_DIR }, "Serving prerendered site");
 } else {

@@ -1,11 +1,13 @@
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Clock, Tag, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { posts } from "@/data/posts";
+import { posts, type Post } from "@/data/posts";
 import { useSeo } from "@/lib/seo";
 import { MobileNav } from "@/components/site/mobile-nav";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const fadeIn = {
   hidden: { opacity: 0, y: 20 },
@@ -27,7 +29,27 @@ export default function Blog() {
     description: "Tutorials and guides on finding Google Maps leads, cold email outreach, lead-gen for agencies and web designers, and staying compliant.",
     path: "/blog",
   });
-  const [featured, ...rest] = posts;
+
+  // Merge the hand-written static posts with the daily auto-generated ones from
+  // the API (metadata only — cards don't render body content). Newest first.
+  const [allPosts, setAllPosts] = useState<Post[]>(posts);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/api/blog/posts`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !Array.isArray(d?.posts)) return;
+        const bySlug = new Map<string, Post>();
+        for (const p of posts) bySlug.set(p.slug, p);
+        for (const p of d.posts as Post[]) if (!bySlug.has(p.slug)) bySlug.set(p.slug, { ...p, content: p.content ?? [] });
+        const merged = [...bySlug.values()].sort((a, b) => (b.datePublished ?? "").localeCompare(a.datePublished ?? ""));
+        setAllPosts(merged);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const [featured, ...rest] = allPosts;
 
   return (
     <div className="min-h-screen bg-background text-foreground">

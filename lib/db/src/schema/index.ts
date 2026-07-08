@@ -10,4 +10,5 @@ export * from "./packOrders";
 export * from "./proxies";
 export * from "./siteVisits";
 export * from "./socialPosts";
+export * from "./blogPosts";
 export * from "./outreach";
