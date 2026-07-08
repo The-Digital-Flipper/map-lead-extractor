@@ -24,7 +24,8 @@
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}  final=%{url_effective}  time=%{time_total}s\\\\n\" -L --max-time 15 https://mapleadextractor.net/)",
       "Bash(curl -s -o /dev/null -w \"POST /api/track -> HTTP %{http_code}\\\\n\" -X POST --max-time 15 -H \"Content-Type: application/json\" -d '{\"path\":\"/\",\"visitorId\":\"conn-test-ignore\"}' https://mapleadextractor.net/api/track)",
       "Bash(PORT=5000 BASE_PATH=/ pnpm --filter @workspace/lead-extractor-site run build)",
-      "Bash(grep -rn -iE \"per lead|/lead|per-lead|\\\\\\\\\\\\$[0-9]+.{0,15}lead|volume|leads-for-sale|lead pricing|human.review|verif\" src/pages/home.tsx src/pages/pricing.tsx)"
+      "Bash(grep -rn -iE \"per lead|/lead|per-lead|\\\\\\\\\\\\$[0-9]+.{0,15}lead|volume|leads-for-sale|lead pricing|human.review|verif\" src/pages/home.tsx src/pages/pricing.tsx)",
+      "Bash(xargs -n1 basename)"
     ]
   }
 }

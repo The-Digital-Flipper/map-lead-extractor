@@ -3,11 +3,12 @@ import { Download, Lock, Shield, Mail } from "lucide-react";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-// Volume tiers in the pricing grid. Sizes/prices must stay in sync with
-// PACK_TIERS in api-server/src/lib/packs.ts (the server re-prices anyway —
-// these are display values).
+// Volume tiers in the pricing grid, for buyers who want MORE than the 100-lead
+// pack sold in the main conversion card above (that's why 100 isn't repeated
+// here — repeating it read as two competing offers). Sizes/prices must stay
+// in sync with PACK_TIERS in api-server/src/lib/packs.ts (the server
+// re-prices anyway — these are display values).
 const PACK_TIERS_UI = [
-  { size: 100, qty: "100", price: "$29", per: "$0.29/lead", highlight: false },
   { size: 500, qty: "500", price: "$99", per: "$0.20/lead", save: "Save $46", highlight: false },
   { size: 1000, qty: "1,000", price: "$179", per: "$0.18/lead", save: "Save $111", highlight: true },
   { size: 5000, qty: "5,000", price: "$599", per: "$0.12/lead", save: "Save $856", highlight: false },
@@ -351,7 +352,7 @@ export default function LeadPackWidget() {
       <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground mb-6">
         <span className="flex items-center gap-1.5"><Lock className="w-3.5 h-3.5 text-primary" /> Secure Stripe checkout</span>
         <span className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5 text-primary" /> Refund if we come up short</span>
-        <span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-primary" /> CSV emailed within 2 hours</span>
+        <span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-primary" /> CSV usually emailed within hours</span>
       </div>
 
       {/* Mini social proof */}
@@ -372,10 +373,10 @@ export default function LeadPackWidget() {
       <div className="mt-10">
         <div className="flex items-center gap-3 mb-5">
           <div className="flex-1 h-px bg-border" />
-          <span className="text-sm font-semibold text-foreground">Need more leads? Buy in bulk & save.</span>
+          <span className="text-sm font-semibold text-foreground">Need more than 100? Buy in bulk & save.</span>
           <div className="flex-1 h-px bg-border" />
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {PACK_TIERS_UI.map(tier => (
             <div key={tier.qty} className={`relative rounded-xl p-4 text-center border transition-colors flex flex-col ${selectedTier === tier.size ? "border-primary bg-primary/10 shadow-md shadow-primary/20" : tier.highlight ? "border-primary/50 bg-primary/5 shadow-md shadow-primary/10" : "border-border bg-card/40 hover:border-primary/30"}`}>
               {tier.highlight && (

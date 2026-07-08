@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { clerkMiddleware, getAuth } from "@clerk/express";
+import { and, gte, isNotNull, sql } from "drizzle-orm";
 import { db, packOrders } from "@workspace/db";
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
@@ -85,6 +86,22 @@ router.get("/products", async (_req, res) => {
   }
 
   res.json({ products: Array.from(map.values()) });
+});
+
+/**
+ * GET /api/stripe/recent-orders-count — public, real count of paid pack
+ * orders in the last N days (default 7). Backs the "X businesses bought
+ * leads this week" trust ticker on the landing page — this must stay a
+ * genuine number, never a hardcoded/marketing figure.
+ */
+router.get("/recent-orders-count", async (req, res) => {
+  const days = Math.min(30, Math.max(1, parseInt(String(req.query.days ?? "7"), 10) || 7));
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(packOrders)
+    .where(and(isNotNull(packOrders.paidAt), gte(packOrders.paidAt, cutoff)));
+  res.json({ count: row?.count ?? 0, days });
 });
 
 /** POST /api/stripe/checkout — create a Stripe Checkout session */
