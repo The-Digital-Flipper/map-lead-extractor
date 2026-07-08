@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useUser, useClerk } from "@clerk/react";
+import { useUser, useClerk, useAuth } from "@clerk/react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import {
@@ -207,7 +207,19 @@ function GeoHeatmap({ byState, selected, onSelect }: {
 export default function Admin() {
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
+  const { getToken } = useAuth();
   const [, setLocation] = useLocation();
+
+  const adminFetch = useCallback(async (url: string, init?: RequestInit): Promise<Response> => {
+    const token = await getToken();
+    return fetch(url, {
+      ...init,
+      headers: {
+        ...(init?.headers ?? {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+  }, [getToken]);
 
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [revenue, setRevenue] = useState<Revenue | null>(null);
@@ -253,7 +265,7 @@ export default function Admin() {
   const loadTraffic = useCallback(async (days: number) => {
     setLoadingTraffic(true);
     try {
-      const r = await fetch(`${basePath}/api/admin/traffic?days=${days}`);
+      const r = await adminFetch(`${basePath}/api/admin/traffic?days=${days}`);
       if (r.ok) setTraffic(await r.json());
     } catch { /* ignore */ }
     setLoadingTraffic(false);
@@ -267,7 +279,7 @@ export default function Admin() {
   const loadPackOrders = useCallback(async () => {
     setOrdersLoading(true);
     try {
-      const r = await fetch(`${basePath}/api/admin/pack-orders`);
+      const r = await adminFetch(`${basePath}/api/admin/pack-orders`);
       if (r.ok) setPackOrdersList((await r.json()).orders ?? []);
     } catch { /* ignore */ }
     setOrdersLoading(false);
@@ -282,7 +294,7 @@ export default function Admin() {
     if (!confirm(`Send order #${o.id} (${o.delivered} leads) to ${o.email ?? "the buyer"}?${short}`)) return;
     setSendingOrderId(o.id);
     try {
-      const r = await fetch(`${basePath}/api/admin/pack-orders/${o.id}/send`, { method: "POST" });
+      const r = await adminFetch(`${basePath}/api/admin/pack-orders/${o.id}/send`, { method: "POST" });
       if (!r.ok) alert((await r.json().catch(() => ({})) as { error?: string }).error ?? "Send failed");
     } catch { alert("Send failed"); }
     setSendingOrderId(null);
@@ -301,7 +313,7 @@ export default function Admin() {
   const loadSocial = useCallback(async () => {
     setLoadingSocial(true);
     try {
-      const r = await fetch(`${basePath}/api/admin/social`);
+      const r = await adminFetch(`${basePath}/api/admin/social`);
       if (r.ok) setSocial(await r.json());
     } catch { /* ignore */ }
     setLoadingSocial(false);
@@ -310,7 +322,7 @@ export default function Admin() {
   const socialGenerate = async () => {
     setGeneratingSocial(true); setSocialMsg(null);
     try {
-      const r = await fetch(`${basePath}/api/admin/social/generate`, {
+      const r = await adminFetch(`${basePath}/api/admin/social/generate`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ count: 5 }),
       });
       const d = await r.json();
@@ -323,7 +335,7 @@ export default function Admin() {
   const socialPostNow = async (id: number) => {
     setSocialBusyId(id); setSocialMsg(null);
     try {
-      const r = await fetch(`${basePath}/api/admin/social/${id}/post-now`, { method: "POST" });
+      const r = await adminFetch(`${basePath}/api/admin/social/${id}/post-now`, { method: "POST" });
       const d = await r.json();
       setSocialMsg(r.ok ? "✓ Posted to Facebook" : (d.error || "Post failed"));
     } catch (e) { setSocialMsg(e instanceof Error ? e.message : "Post failed"); }
@@ -332,14 +344,14 @@ export default function Admin() {
   };
   const socialDelete = async (id: number) => {
     setSocialBusyId(id);
-    try { await fetch(`${basePath}/api/admin/social/${id}`, { method: "DELETE" }); } catch { /* ignore */ }
+    try { await adminFetch(`${basePath}/api/admin/social/${id}`, { method: "DELETE" }); } catch { /* ignore */ }
     setSocialBusyId(null);
     loadSocial();
   };
   const socialSaveEdit = async (id: number) => {
     setSocialBusyId(id);
     try {
-      await fetch(`${basePath}/api/admin/social/${id}`, {
+      await adminFetch(`${basePath}/api/admin/social/${id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: socialDraft }),
       });
     } catch { /* ignore */ }
@@ -349,7 +361,7 @@ export default function Admin() {
   const socialRequeue = async (id: number) => {
     setSocialBusyId(id);
     try {
-      await fetch(`${basePath}/api/admin/social/${id}`, {
+      await adminFetch(`${basePath}/api/admin/social/${id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requeue: true }),
       });
     } catch { /* ignore */ }
@@ -358,7 +370,7 @@ export default function Admin() {
   };
   const socialSettingsSave = async (patch: { enabled?: boolean; postHourUtc?: number; autoRefill?: boolean }) => {
     try {
-      await fetch(`${basePath}/api/admin/social/settings`, {
+      await adminFetch(`${basePath}/api/admin/social/settings`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
       });
     } catch { /* ignore */ }
@@ -372,7 +384,7 @@ export default function Admin() {
   const socialSyncStats = async () => {
     setSyncingStats(true); setSocialMsg(null);
     try {
-      const r = await fetch(`${basePath}/api/admin/social/sync-stats`, { method: "POST" });
+      const r = await adminFetch(`${basePath}/api/admin/social/sync-stats`, { method: "POST" });
       const d = await r.json();
       setSocialMsg(r.ok ? `✓ Engagement refreshed for ${d.synced} post${d.synced === 1 ? "" : "s"}` : (d.error || "Sync failed"));
     } catch (e) { setSocialMsg(e instanceof Error ? e.message : "Sync failed"); }
@@ -382,7 +394,7 @@ export default function Admin() {
   const socialGenImage = async (id: number) => {
     setImageBusyId(id); setSocialMsg(null);
     try {
-      const r = await fetch(`${basePath}/api/admin/social/${id}/image`, { method: "POST" });
+      const r = await adminFetch(`${basePath}/api/admin/social/${id}/image`, { method: "POST" });
       const d = await r.json();
       if (!r.ok) setSocialMsg(d.error || "Image generation failed");
       else { setSocialMsg("✓ Image ready — it'll be attached when this post publishes"); setImgVersion((v) => v + 1); }
@@ -392,7 +404,7 @@ export default function Admin() {
   };
   const socialRemoveImage = async (id: number) => {
     setImageBusyId(id);
-    try { await fetch(`${basePath}/api/admin/social/${id}/image`, { method: "DELETE" }); } catch { /* ignore */ }
+    try { await adminFetch(`${basePath}/api/admin/social/${id}/image`, { method: "DELETE" }); } catch { /* ignore */ }
     setImageBusyId(null); setImgVersion((v) => v + 1);
     loadSocial();
   };
@@ -414,7 +426,7 @@ export default function Admin() {
     if (!groupName.trim() || !groupUrl.trim()) return;
     setAddingGroup(true); setSocialMsg(null);
     try {
-      const r = await fetch(`${basePath}/api/admin/social/groups`, {
+      const r = await adminFetch(`${basePath}/api/admin/social/groups`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: groupName, url: groupUrl }),
       });
@@ -428,7 +440,7 @@ export default function Admin() {
   const groupDiscover = async () => {
     setDiscoveringGroups(true); setSocialMsg(null);
     try {
-      const r = await fetch(`${basePath}/api/admin/social/groups/discover`, {
+      const r = await adminFetch(`${basePath}/api/admin/social/groups/discover`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ count: 8 }),
       });
       const d = await r.json();
@@ -441,14 +453,14 @@ export default function Admin() {
   };
   const groupDelete = async (id: number) => {
     setGroupBusyId(id);
-    try { await fetch(`${basePath}/api/admin/social/groups/${id}`, { method: "DELETE" }); } catch { /* ignore */ }
+    try { await adminFetch(`${basePath}/api/admin/social/groups/${id}`, { method: "DELETE" }); } catch { /* ignore */ }
     setGroupBusyId(null);
     loadSocial();
   };
   const groupGenerate = async () => {
     setGeneratingGroupPosts(true); setSocialMsg(null);
     try {
-      const r = await fetch(`${basePath}/api/admin/social/groups/generate`, {
+      const r = await adminFetch(`${basePath}/api/admin/social/groups/generate`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ count: 5 }),
       });
       const d = await r.json();
@@ -467,7 +479,7 @@ export default function Admin() {
     window.open(g.url, "_blank", "noopener");
     setGroupBusyId(g.id); setSocialMsg(null);
     try {
-      const r = await fetch(`${basePath}/api/admin/social/groups/${g.id}/posted`, {
+      const r = await adminFetch(`${basePath}/api/admin/social/groups/${g.id}/posted`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ postId: next.id }),
       });
       const d = await r.json();
@@ -504,13 +516,13 @@ export default function Admin() {
   const runEnrich = async () => {
     setEnriching(true);
     try {
-      const r = await fetch(`${basePath}/api/admin/enrich`, {
+      const r = await adminFetch(`${basePath}/api/admin/enrich`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 25 }),
       });
       if (r.ok) {
         const d = await r.json();
         setEnrichResult({ enriched: d.enriched, remaining: d.remaining, emailsFound: d.emailsFound, socialsFound: d.socialsFound, phonesFound: d.phonesFound });
-        fetch(`${basePath}/api/admin/opportunity-by-category${selectedState ? `?state=${selectedState}` : ""}`)
+        adminFetch(`${basePath}/api/admin/opportunity-by-category${selectedState ? `?state=${selectedState}` : ""}`)
           .then(rr => rr.json()).then(dd => { setCategoryMoney(dd.categories ?? []); setSummary(dd.summary ?? null); setNeeds(dd.needs ?? []); }).catch(() => {});
       }
     } catch { /* ignore */ }
@@ -527,7 +539,7 @@ export default function Admin() {
     if (!scrapeCategory.trim() || scraping) return;
     setScraping(true); setScrapeError(""); setScrapeResult(null);
     try {
-      const r = await fetch(`${basePath}/api/admin/scrape`, {
+      const r = await adminFetch(`${basePath}/api/admin/scrape`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category: scrapeCategory.trim(), location: scrapeLocation.trim() }),
       });
@@ -535,7 +547,7 @@ export default function Admin() {
       if (r.ok) {
         setScrapeResult(d);
         // Refresh the headline lead counts so the new leads show up.
-        fetch(`${basePath}/api/admin/stats`).then(rr => rr.json()).then(setStats).catch(() => {});
+        adminFetch(`${basePath}/api/admin/stats`).then(rr => rr.json()).then(setStats).catch(() => {});
       } else {
         setScrapeError(d.error ?? "Scrape failed");
       }
@@ -569,7 +581,7 @@ export default function Admin() {
   const loadRuns = useCallback(async () => {
     setRunsLoading(true);
     try {
-      const r = await fetch(`${basePath}/api/admin/scraper/runs`);
+      const r = await adminFetch(`${basePath}/api/admin/scraper/runs`);
       const d = await r.json();
       if (r.ok) setRuns(d.runs);
     } catch { /* keep whatever was already loaded */ }
@@ -581,14 +593,14 @@ export default function Admin() {
     if (!runnerCategory.trim() || runStarting) return;
     setRunStarting(true); setRunError("");
     try {
-      const r = await fetch(`${basePath}/api/admin/scraper/runs`, {
+      const r = await adminFetch(`${basePath}/api/admin/scraper/runs`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category: runnerCategory.trim(), location: runnerLocation.trim(), maxScrolls: runnerMaxScrolls }),
       });
       const d = await r.json();
       if (!r.ok) setRunError(d.error ?? "Run failed to start");
       else {
-        fetch(`${basePath}/api/admin/stats`).then(rr => rr.json()).then(setStats).catch(() => {});
+        adminFetch(`${basePath}/api/admin/stats`).then(rr => rr.json()).then(setStats).catch(() => {});
         if (d.run) viewRun(d.run.id);
       }
     } catch {
@@ -601,7 +613,7 @@ export default function Admin() {
   const viewRun = async (id: number) => {
     setRunDetailLoading(true);
     try {
-      const r = await fetch(`${basePath}/api/admin/scraper/runs/${id}`);
+      const r = await adminFetch(`${basePath}/api/admin/scraper/runs/${id}`);
       const d = await r.json();
       if (r.ok) setSelectedRun(d.run);
     } catch { /* ignore */ }
@@ -610,7 +622,7 @@ export default function Admin() {
 
   const deleteRun = async (id: number) => {
     setRunDeleteBusyId(id);
-    try { await fetch(`${basePath}/api/admin/scraper/runs/${id}`, { method: "DELETE" }); } catch { /* ignore */ }
+    try { await adminFetch(`${basePath}/api/admin/scraper/runs/${id}`, { method: "DELETE" }); } catch { /* ignore */ }
     if (selectedRun?.id === id) setSelectedRun(null);
     setRunDeleteBusyId(null);
     loadRuns();
@@ -638,7 +650,7 @@ export default function Admin() {
 
   const loadTargets = useCallback(async () => {
     try {
-      const r = await fetch(`${basePath}/api/admin/scrape-targets`);
+      const r = await adminFetch(`${basePath}/api/admin/scrape-targets`);
       const d = await r.json();
       setTargets(d.targets ?? []);
     } catch { /* ignore */ }
@@ -649,7 +661,7 @@ export default function Admin() {
     if (!researchGoal.trim() || researching) return;
     setResearching(true); setResearchError("");
     try {
-      const r = await fetch(`${basePath}/api/admin/research`, {
+      const r = await adminFetch(`${basePath}/api/admin/research`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ goal: researchGoal.trim(), count: researchCount }),
       });
@@ -669,7 +681,7 @@ export default function Admin() {
     if (analyzing) return;
     setAnalyzing(true); setAnalyzeError("");
     try {
-      const r = await fetch(`${basePath}/api/admin/analyze`, {
+      const r = await adminFetch(`${basePath}/api/admin/analyze`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 30 }),
       });
       const d = await r.json();
@@ -689,11 +701,11 @@ export default function Admin() {
     if (!discoverGoal.trim() || discovering) return;
     setDiscovering(true); setDiscoverError(""); setDiscoverResult(null);
     try {
-      const r = await fetch(`${basePath}/api/admin/discover`, {
+      const r = await adminFetch(`${basePath}/api/admin/discover`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ goal: discoverGoal.trim() }),
       });
       const d = await r.json();
-      if (r.ok) { setDiscoverResult(d); fetch(`${basePath}/api/admin/stats`).then(rr => rr.json()).then(setStats).catch(() => {}); }
+      if (r.ok) { setDiscoverResult(d); adminFetch(`${basePath}/api/admin/stats`).then(rr => rr.json()).then(setStats).catch(() => {}); }
       else setDiscoverError(d.error ?? "Discovery failed");
     } catch { setDiscoverError("Could not reach the server"); }
     setDiscovering(false);
@@ -709,7 +721,7 @@ export default function Admin() {
     if (reconning) return;
     setReconning(true); setReconError("");
     try {
-      const r = await fetch(`${basePath}/api/admin/recon`, {
+      const r = await adminFetch(`${basePath}/api/admin/recon`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 5 }),
       });
       const d = await r.json();
@@ -730,7 +742,7 @@ export default function Admin() {
     if (socialScanning) return;
     setSocialScanning(true); setSocialScanError("");
     try {
-      const r = await fetch(`${basePath}/api/admin/social-scan`, {
+      const r = await adminFetch(`${basePath}/api/admin/social-scan`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 5 }),
       });
       const d = await r.json();
@@ -745,14 +757,14 @@ export default function Admin() {
     const t = targets.find(x => x.id === id);
     if (t) setTargetLiveMsg(`Scraping ${t.category} in ${t.location}…`);
     try {
-      const r = await fetch(`${basePath}/api/admin/scrape-targets/${id}/scrape`, { method: "POST" });
+      const r = await adminFetch(`${basePath}/api/admin/scrape-targets/${id}/scrape`, { method: "POST" });
       const d = await r.json();
       if (r.ok) {
         setTargets(prev => prev.map(x => x.id === id
           ? { ...x, leadCount: (x.leadCount ?? 0) + (d.saved ?? 0), lastScrapedAt: new Date().toISOString() }
           : x));
         setTargetLiveMsg(`✓ ${t?.location}: ${d.saved} new · ${d.duplicates} dup`);
-        fetch(`${basePath}/api/admin/stats`).then(rr => rr.json()).then(setStats).catch(() => {});
+        adminFetch(`${basePath}/api/admin/stats`).then(rr => rr.json()).then(setStats).catch(() => {});
       } else {
         setTargetLiveMsg(`⚠ ${d.error ?? "failed"}`);
       }
@@ -791,7 +803,7 @@ export default function Admin() {
 
   const loadProxies = useCallback(async () => {
     try {
-      const r = await fetch(`${basePath}/api/admin/proxies`);
+      const r = await adminFetch(`${basePath}/api/admin/proxies`);
       const d = await r.json();
       setProxyList(d.proxies ?? []);
       setProxySummary(d.summary ?? null);
@@ -803,7 +815,7 @@ export default function Admin() {
     if (!proxyText.trim() || proxyBusy) return;
     setProxyBusy(true); setProxyMsg("");
     try {
-      const r = await fetch(`${basePath}/api/admin/proxies`, {
+      const r = await adminFetch(`${basePath}/api/admin/proxies`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: proxyText.trim() }),
       });
@@ -817,7 +829,7 @@ export default function Admin() {
   const testProxy = async (id: number) => {
     setTestingProxyId(id);
     try {
-      const r = await fetch(`${basePath}/api/admin/proxies/${id}/test`, { method: "POST" });
+      const r = await adminFetch(`${basePath}/api/admin/proxies/${id}/test`, { method: "POST" });
       const d = await r.json();
       setProxyMsg(d.ok ? `✓ #${id} healthy (${d.ms}ms)` : `✗ #${id} dead: ${d.error ?? ""}`);
       loadProxies();
@@ -829,7 +841,7 @@ export default function Admin() {
     if (proxyBusy) return;
     setProxyBusy(true); setProxyMsg("Testing all proxies…");
     try {
-      const r = await fetch(`${basePath}/api/admin/proxies/test-all`, { method: "POST" });
+      const r = await adminFetch(`${basePath}/api/admin/proxies/test-all`, { method: "POST" });
       const d = await r.json();
       setProxyMsg(`✓ Tested ${d.tested} · ${d.healthy} healthy`);
       loadProxies();
@@ -838,14 +850,14 @@ export default function Admin() {
   };
 
   const toggleProxy = async (id: number, active: boolean) => {
-    await fetch(`${basePath}/api/admin/proxies/${id}`, {
+    await adminFetch(`${basePath}/api/admin/proxies/${id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active }),
     }).catch(() => {});
     loadProxies();
   };
 
   const deleteProxy = async (id: number) => {
-    await fetch(`${basePath}/api/admin/proxies/${id}`, { method: "DELETE" }).catch(() => {});
+    await adminFetch(`${basePath}/api/admin/proxies/${id}`, { method: "DELETE" }).catch(() => {});
     loadProxies();
   };
 
@@ -853,7 +865,7 @@ export default function Admin() {
     if (!sellPack) return;
     setSellLoading(true); setSellError(""); setSellResult(null);
     try {
-      const r = await fetch(`${basePath}/api/admin/packs/checkout`, {
+      const r = await adminFetch(`${basePath}/api/admin/packs/checkout`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           category: sellPack.category, state: sellPack.state,
@@ -871,7 +883,7 @@ export default function Admin() {
     setLoadingLeads(true);
     const sort = activeTab === "money" ? "&sort=value" : "";
     try {
-      const r = await fetch(`${basePath}/api/admin/leads?page=${page}&limit=50${sort}`);
+      const r = await adminFetch(`${basePath}/api/admin/leads?page=${page}&limit=50${sort}`);
       const data = await r.json();
       setLeads(data.leads ?? []);
       setTotal(data.total ?? 0);
@@ -883,7 +895,7 @@ export default function Admin() {
   const fetchUsers = useCallback(async () => {
     setLoadingUsers(true);
     try {
-      const r = await fetch(`${basePath}/api/admin/users?page=${usersPage}&limit=50`);
+      const r = await adminFetch(`${basePath}/api/admin/users?page=${usersPage}&limit=50`);
       const data = await r.json();
       setAdminUsers(data.users ?? []);
       setTotalUsers(data.total ?? 0);
@@ -893,17 +905,17 @@ export default function Admin() {
   }, [usersPage]);
 
   useEffect(() => {
-    fetch(`${basePath}/api/admin/stats`).then(r => r.json()).then(setStats).catch(() => {});
-    fetch(`${basePath}/api/admin/geo`).then(r => r.json()).then(setGeo).catch(() => {});
-    fetch(`${basePath}/api/admin/geo?minOpportunity=40`).then(r => r.json()).then(setMoneyGeo).catch(() => {});
+    adminFetch(`${basePath}/api/admin/stats`).then(r => r.json()).then(setStats).catch(() => {});
+    adminFetch(`${basePath}/api/admin/geo`).then(r => r.json()).then(setGeo).catch(() => {});
+    adminFetch(`${basePath}/api/admin/geo?minOpportunity=40`).then(r => r.json()).then(setMoneyGeo).catch(() => {});
     setRevenueLoading(true);
-    fetch(`${basePath}/api/admin/revenue`).then(r => r.json()).then(data => { setRevenue(data); setRevenueLoading(false); }).catch(() => setRevenueLoading(false));
+    adminFetch(`${basePath}/api/admin/revenue`).then(r => r.json()).then(data => { setRevenue(data); setRevenueLoading(false); }).catch(() => setRevenueLoading(false));
   }, []);
 
   // Money intelligence — refetches whenever the selected state changes.
   useEffect(() => {
     const q = selectedState ? `?state=${selectedState}` : "";
-    fetch(`${basePath}/api/admin/opportunity-by-category${q}`)
+    adminFetch(`${basePath}/api/admin/opportunity-by-category${q}`)
       .then(r => r.json())
       .then(d => { setCategoryMoney(d.categories ?? []); setSummary(d.summary ?? null); setNeeds(d.needs ?? []); })
       .catch(() => {});
@@ -912,7 +924,7 @@ export default function Admin() {
   const fetchDeletedLeads = useCallback(async () => {
     setLoadingDeleted(true);
     try {
-      const r = await fetch(`${basePath}/api/admin/deleted-leads?page=${deletedPage}&limit=50`);
+      const r = await adminFetch(`${basePath}/api/admin/deleted-leads?page=${deletedPage}&limit=50`);
       const data = await r.json();
       setDeletedLeads(data.leads ?? []);
       setDeletedTotal(data.total ?? 0);
@@ -925,7 +937,7 @@ export default function Admin() {
     setRestoringIds(prev => new Set(prev).add(id));
     setRestoreResult(null);
     try {
-      const r = await fetch(`${basePath}/api/admin/restore/${id}`, { method: "POST" });
+      const r = await adminFetch(`${basePath}/api/admin/restore/${id}`, { method: "POST" });
       if (r.ok) {
         setDeletedLeads(prev => prev.filter(l => l.id !== id));
         setDeletedTotal(prev => Math.max(0, prev - 1));
@@ -941,7 +953,7 @@ export default function Admin() {
     setLoadingDeleted(true);
     setRestoreResult(null);
     try {
-      const r = await fetch(`${basePath}/api/admin/restore-bulk`, {
+      const r = await adminFetch(`${basePath}/api/admin/restore-bulk`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
       });
@@ -1501,7 +1513,7 @@ export default function Admin() {
                   {social?.facebookConnected ? (
                     <>
                       <div className="text-lg font-display font-bold text-primary">✓ {social.pageName || "Connected"}</div>
-                      <button onClick={async () => { await fetch(`${basePath}/api/admin/social/fb/disconnect`, { method: "POST" }); loadSocial(); }}
+                      <button onClick={async () => { await adminFetch(`${basePath}/api/admin/social/fb/disconnect`, { method: "POST" }); loadSocial(); }}
                         className="text-xs text-muted-foreground hover:text-red-400 mt-1">Disconnect</button>
                     </>
                   ) : (
