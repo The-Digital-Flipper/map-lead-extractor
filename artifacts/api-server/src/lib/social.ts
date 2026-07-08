@@ -141,24 +141,22 @@ export async function fbDisconnect(): Promise<void> {
     .where(eq(socialSettings.id, 1));
 }
 
-// What the posts sell — same product framing as scripts/src/social-posts.ts,
-// tuned for a brand's own Facebook Page (a bit more promo is fine there).
+// What the posts sell: done-for-you local-business lead lists. We sell the
+// LEADS — a ready-to-use, human-reviewed CSV delivered to the buyer. Posts
+// are about buying leads only; never pitch the free scraper tool.
 const PRODUCT = {
   name: "Map Lead Extractor",
-  url: "https://mapleadextractor.net",
-  // The free, no-install web tool (as opposed to the Chrome extension) —
-  // worth its own link since "try it free, no install" is a strong hook.
-  freeToolUrl: "https://mapleadextractor.net/scraper",
+  url: "https://mapleadextractor.net/get-leads",
   oneLiner:
-    "A tool that extracts business leads (name, phone, address, website, rating) from Google Maps so you can build targeted local-business lead lists in minutes instead of copying them by hand.",
+    "Done-for-you local-business lead lists: tell us the business type + area (e.g. \"roofers in Mobile, AL\") and we deliver a clean, human-reviewed CSV — name, phone, email, website, and rating — usually within hours. 100 targeted leads for $29.",
   audience:
     "sales reps, marketing/lead-gen agencies, SaaS founders doing outbound, and small-business owners who sell to other local businesses",
   keyBenefits: [
-    "Pull hundreds of local-business leads from Google Maps in a few minutes",
-    "Export name, phone, website, address, category, and rating to CSV/spreadsheet",
-    "Skip hours of manual copy-pasting from Maps",
-    "Build hyper-targeted lists by city + business type for cold outreach",
-    "Free, no-install web scraper at mapleadextractor.net/scraper — run a search right in the browser, no signup required to try it, no download to install",
+    "Buy 100 targeted, ready-to-use local-business leads for $29 — CSV emailed to you, usually within hours (bulk tiers: 500 / 1,000 / 5,000 at a lower price per lead)",
+    "Every lead is human-reviewed before it ships — dead/closed businesses removed, phone numbers spot-checked, emails format-validated, location confirmed",
+    "Pick any business type + state (or just describe what you want) and get a hyper-targeted list — no scraping, no cleanup, no software to learn",
+    "Automatic refund if a pack ever comes up short — you only pay for leads you actually get",
+    "Skip hours of manual copy-pasting from Google Maps — the list arrives done and ready for cold outreach",
   ],
 };
 
@@ -232,20 +230,22 @@ export async function generateSocialPosts(n: number): Promise<SocialPost[]> {
   ).filter((p) => p.score > 0);
 
   const user = [
-    `You write Facebook Page posts for a software product's own brand page.`,
+    `You write Facebook Page posts for a business that SELLS done-for-you local-business lead lists.`,
     ``,
-    `PRODUCT: ${PRODUCT.name} (${PRODUCT.url})`,
-    `WHAT IT DOES: ${PRODUCT.oneLiner}`,
+    `WHAT WE SELL: ${PRODUCT.oneLiner}`,
+    `BUY IT AT: ${PRODUCT.url}`,
     `AUDIENCE: ${PRODUCT.audience}`,
-    `KEY BENEFITS:`,
+    `KEY SELLING POINTS:`,
     ...PRODUCT.keyBenefits.map((b) => `  - ${b}`),
     ``,
     `Write ${howMany} distinct Facebook Page posts. Rules:`,
-    `- Value-first: lead with a concrete tip, mini-story, relatable pain, or question — not a sales pitch.`,
-    `- Sound like a real person who builds and uses the product, not an ad agency.`,
+    `- Every post is about BUYING our ready-made lead lists. Never pitch a free tool, scraper, extension, or "do it yourself" — we sell the finished leads, not software.`,
+    `- Value-first: lead with a concrete tip, mini-story, relatable pain, or question — then land on how a ready-to-use lead list solves it.`,
+    `- Sound like a real person who runs this lead business, not an ad agency.`,
     `- 60–130 words each. At most 1-2 emojis. 2-4 relevant hashtags at the very end.`,
-    `- Vary the format across posts (tip / story / feature spotlight / question / myth-bust).`,
-    `- Mention ${PRODUCT.url} naturally in at most half of the posts; the rest can omit the link entirely (the page profile carries it).`,
+    `- Vary the format across posts (tip / story / customer win / offer spotlight / question / myth-bust).`,
+    `- Work in a concrete hook where it fits — "100 targeted leads for $29", human-reviewed CSV, delivered in hours, refund if we come up short.`,
+    `- These go out as image ads, so the link shows no preview card — put ${PRODUCT.url} in the body of EVERY post as a clear call to action (e.g. "Grab a pack → ${PRODUCT.url}").`,
     recent.length
       ? `- Do NOT repeat the angle or wording of these recent posts:\n${recent.map((r) => `  • ${r.body.slice(0, 100).replace(/\n/g, " ")}`).join("\n")}`
       : ``,
@@ -298,16 +298,16 @@ export async function generateGroupPosts(n: number): Promise<SocialPost[]> {
   const user = [
     `You write posts for OTHER PEOPLE'S Facebook Groups (marketing, lead-gen, SaaS, and local-business communities). The author is a member sharing value, NOT the group owner, so anything that smells like an ad gets deleted by moderators.`,
     ``,
-    `PRODUCT (mention sparingly): ${PRODUCT.name}`,
-    `WHAT IT DOES: ${PRODUCT.oneLiner}`,
+    `WHAT THE AUTHOR SELLS (mention sparingly): ${PRODUCT.name} — ${PRODUCT.oneLiner}`,
     `AUDIENCE IN THESE GROUPS: ${PRODUCT.audience}`,
     `THINGS YOU COULD MENTION BY NAME (never as a link — see rules below):`,
     ...PRODUCT.keyBenefits.map((b) => `  - ${b}`),
     ``,
     `Write ${howMany} distinct group posts. Rules:`,
     `- Value-first and community-toned: a concrete tactic, a lesson learned, a mini case study, or a genuine question that starts discussion.`,
+    `- The offer is a done-for-you lead list you SELL — never pitch a free tool, scraper, or "do it yourself"; when the product comes up it's "I sell targeted lead lists for this."`,
     `- NO links at all — groups bury or remove link posts. No hashtags either.`,
-    `- Mention the product by name in AT MOST a third of the posts, and only as a casual aside ("I ended up building a little tool for this"); the rest should be pure value with no product mention.`,
+    `- Mention the product by name in AT MOST a third of the posts, and only as a casual aside ("I actually sell ready-made lists for this if anyone wants one"); the rest should be pure value with no product mention.`,
     `- 80–150 words. At most 1 emoji. Sound like a practitioner typing in a group, not a brand.`,
     recent.length
       ? `- Do NOT repeat the angle or wording of these recent posts:\n${recent.map((r) => `  • ${r.body.slice(0, 100).replace(/\n/g, " ")}`).join("\n")}`
@@ -536,7 +536,7 @@ export async function generatePostImage(postId: number): Promise<void> {
   if (post.status === "posted") throw new Error("Already posted — images can only be added before publishing.");
 
   const prompt = [
-    `Clean, modern flat-vector illustration for a B2B social media post by a lead-generation software brand.`,
+    `Clean, modern flat-vector illustration for a B2B social media ad by a service that sells ready-made local-business lead lists.`,
     `Post topic: ${post.body.slice(0, 300).replace(/\n/g, " ")}`,
     `Style: dark navy background, vivid green (#00E676) and soft blue accents, business motifs (map pins, location markers, charts, contact lists, magnifying glass over a city map).`,
     `Composition: bold, simple, readable as a small thumbnail. Absolutely NO text, no words, no letters, no numbers, no logos, no watermarks.`,
@@ -705,6 +705,17 @@ export async function socialTick(): Promise<void> {
       .orderBy(asc(socialPosts.id))
       .limit(1);
     if (!next[0]) return;
+
+    // Every ad goes out with a picture (photo posts get ~2-3x the reach).
+    // Generate one first if this post doesn't already have an image; a failure
+    // here just falls back to a text/link post rather than blocking the day's ad.
+    if (!next[0].imageB64) {
+      try {
+        await generatePostImage(next[0].id);
+      } catch (err) {
+        logger.warn({ postId: next[0].id, err }, "Ad image generation failed — publishing without a picture");
+      }
+    }
 
     await publishPost(next[0].id);
   } catch (err) {
