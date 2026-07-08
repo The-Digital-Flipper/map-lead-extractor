@@ -25,7 +25,13 @@
       "Bash(curl -s -o /dev/null -w \"POST /api/track -> HTTP %{http_code}\\\\n\" -X POST --max-time 15 -H \"Content-Type: application/json\" -d '{\"path\":\"/\",\"visitorId\":\"conn-test-ignore\"}' https://mapleadextractor.net/api/track)",
       "Bash(PORT=5000 BASE_PATH=/ pnpm --filter @workspace/lead-extractor-site run build)",
       "Bash(grep -rn -iE \"per lead|/lead|per-lead|\\\\\\\\\\\\$[0-9]+.{0,15}lead|volume|leads-for-sale|lead pricing|human.review|verif\" src/pages/home.tsx src/pages/pricing.tsx)",
-      "Bash(xargs -n1 basename)"
+      "Bash(xargs -n1 basename)",
+      "Bash(pnpm --filter @workspace/lead-extractor-site run typecheck)",
+      "Bash(curl -s --max-time 3 \"http://localhost:8080/get-leads\")",
+      "Bash(curl -s -o /dev/null -w \"/ = %{http_code}\\\\n\" --max-time 4 \"http://localhost:22118/\")",
+      "Bash(curl -s -o /dev/null -w \"/get-leads = %{http_code}\\\\n\" --max-time 4 \"http://localhost:22118/get-leads\")",
+      "Bash(curl -s --max-time 4 \"http://localhost:22118/src/App.tsx\")",
+      "Bash(curl -s -o /dev/null -w \"/get-leads = %{http_code}\\\\n\" --max-time 4 \"http://localhost:8081/get-leads\")"
     ]
   }
 }

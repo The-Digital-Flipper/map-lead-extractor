@@ -10,6 +10,7 @@ const BlogPost = lazy(() => import("@/pages/blog-post"));
 const Privacy = lazy(() => import("@/pages/privacy"));
 const Terms = lazy(() => import("@/pages/terms"));
 const IndustryLanding = lazy(() => import("@/pages/industry-landing"));
+const FbLeads = lazy(() => import("@/pages/fb-leads"));
 const ToolsIndex = lazy(() => import("@/pages/tools"));
 const ToolPage = lazy(() => import("@/pages/tool"));
 
@@ -57,6 +58,7 @@ function Shell() {
         <Route path="/blog" component={Blog} />
         <Route path="/blog/:slug" component={BlogPost} />
         <Route path="/leads/:industry" component={IndustryLanding} />
+        <Route path="/get-leads" component={FbLeads} />
         <Route path="/tools" component={ToolsIndex} />
         <Route path="/tools/:tool" component={ToolPage} />
         <Route path="/privacy" component={Privacy} />
