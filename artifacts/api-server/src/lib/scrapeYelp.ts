@@ -1,36 +1,39 @@
 /**
- * In-process Yelp Business scrape — same shape/pipeline as scrape.ts's Google
- * Maps engine (proxy pool, headless Chromium, save via loopback /api/leads/save)
- * but reading Yelp's search-results DOM directly instead of Google's internal
- * XHR payloads, since Yelp has no equivalent parse-* endpoint.
+ * Yelp lead engine — backed by Yelp's official Fusion API, not DOM scraping.
  *
- * Yelp's result cards don't expose phone/website — those only live on each
- * business's own detail page, which this scraper does NOT visit (too slow,
- * too much extra scrape surface for an MVP). phone/website are always null
- * here; that's a real, known gap, not a bug.
+ * Yelp aggressively blocks headless-browser scraping (HTTP 403 even through
+ * residential proxies + a real Chromium), so the old Playwright engine could
+ * never reliably return results. The Fusion Business Search API is the
+ * supported, un-blockable path: an API key, JSON responses, and a generous
+ * free quota (~5,000 calls/day). Same output shape + loopback save as the
+ * Google/Bing engines, so nothing downstream changes.
+ *
+ * Field coverage vs. the old scraper: Fusion now gives us a real PHONE number
+ * (the DOM scraper never could). It does NOT expose the business's own website
+ * or email — those aren't in the Fusion payload — so Website/Email stay blank
+ * here (a real, documented gap, not a bug).
  */
-import { chromium } from "playwright";
-import { pickProxy, recordProxyResult } from "./proxyPool";
 import type { ScrapeResult } from "./scrape";
 
-const CHROMIUM_PATH =
-  process.env.CHROMIUM_PATH || process.env.REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined;
+const YELP_SEARCH_URL = "https://api.yelp.com/v3/businesses/search";
+const PER_PAGE = 50; // Fusion hard max per request
+const HARD_CAP = 240; // Fusion caps how deep search paging goes; stay under it
+const DEFAULT_CAP = 50;
 
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-
-type YelpResult = {
-  name: string | null;
-  href: string | null;
-  address: string | null;
-  rating: number | null;
-  reviews: number | null;
-  category: string | null;
+type YelpBusiness = {
+  name?: string;
+  phone?: string;
+  display_phone?: string;
+  url?: string;
+  rating?: number;
+  review_count?: number;
+  categories?: { alias: string; title: string }[];
+  location?: { display_address?: string[] };
 };
 
-const RESULTS_PER_PAGE = 10;
-const MAX_PAGES = 4;
+function yelpApiKey(): string {
+  return process.env.YELP_API_KEY || process.env.YELP_FUSION_API_KEY || "";
+}
 
 function loopbackBase(): string {
   return `http://127.0.0.1:${process.env.PORT ?? "5000"}`;
@@ -42,133 +45,76 @@ export async function scrapeYelpAndSave(opts: {
   maxPlaces?: number;
   apiKey?: string;
 }): Promise<ScrapeResult> {
-  const term = opts.location ? `${opts.category} in ${opts.location}` : opts.category;
-  const base = loopbackBase();
-  const cap = opts.maxPlaces && opts.maxPlaces > 0 ? Math.floor(opts.maxPlaces) : undefined;
-  const maxPages = cap ? Math.min(MAX_PAGES, Math.ceil(cap / RESULTS_PER_PAGE)) : MAX_PAGES;
+  const key = yelpApiKey();
+  if (!key) {
+    throw new Error(
+      "Yelp search needs a Yelp Fusion API key. Add a YELP_API_KEY secret (free at https://www.yelp.com/developers) and try again.",
+    );
+  }
+  const location = (opts.location ?? "").trim();
+  if (!location) {
+    throw new Error('Yelp search needs a location — e.g. "Mobile, AL" or "Austin, TX".');
+  }
 
-  const proxy = await pickProxy().catch(() => null);
+  const term = `${opts.category} in ${location}`;
+  const cap = Math.min(
+    opts.maxPlaces && opts.maxPlaces > 0 ? Math.floor(opts.maxPlaces) : DEFAULT_CAP,
+    HARD_CAP,
+  );
 
-  const browser = await chromium.launch({
-    headless: true,
-    executablePath: CHROMIUM_PATH,
-    proxy: proxy?.config,
-    args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"],
-  });
+  const byKey = new Map<string, YelpBusiness>();
+  let total = 0;
 
-  const byKey = new Map<string, YelpResult>();
-  let blocked = false;
-  try {
-    const context = await browser.newContext({
-      userAgent: UA,
-      locale: "en-US",
-      viewport: { width: 1280, height: 900 },
-      timezoneId: "America/Chicago",
-    });
-    const page = await context.newPage();
+  for (let offset = 0; offset < cap; offset += PER_PAGE) {
+    const limit = Math.min(PER_PAGE, cap - offset);
+    const url = `${YELP_SEARCH_URL}?term=${encodeURIComponent(opts.category)}&location=${encodeURIComponent(location)}&limit=${limit}&offset=${offset}`;
 
-    for (let pageIdx = 0; pageIdx < maxPages; pageIdx++) {
-      const url = `https://www.yelp.com/search?find_desc=${encodeURIComponent(opts.category)}&find_loc=${encodeURIComponent(opts.location ?? "")}&start=${pageIdx * RESULTS_PER_PAGE}`;
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
-
-      // Best-effort cookie/consent dismiss — never blocks scraping if absent.
-      await page.getByRole("button", { name: /accept/i }).first().click({ timeout: 2500 }).catch(() => {});
-
-      const hasResults = await page.locator('a[href^="/biz/"]').first().waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
-      if (!hasResults) {
-        // Either genuinely no more results, or a captcha/interstitial — check
-        // for a captcha hint and stop the whole run early rather than retry.
-        const captchaHint = await page.getByText(/verify you are a human|unusual traffic/i).count().catch(() => 0);
-        if (captchaHint > 0) blocked = true;
-        break;
-      }
-
-      // This callback runs in the browser, not Node — the server tsconfig has
-      // no "dom" lib, so DOM globals are typed loosely via `any` rather than
-      // pulling browser lib types into the whole server build.
-      const pageResults: YelpResult[] = await page.evaluate(() => {
-        const doc = (globalThis as any).document;
-        const out: { name: string; href: string | null; address: string | null; rating: number | null; reviews: number | null; category: string | null }[] = [];
-        const seenOnPage = new Set<any>();
-        const bizLinks: any[] = Array.from(doc.querySelectorAll('a[href^="/biz/"]'));
-        for (const link of bizLinks) {
-          // Business name links are the heading-level ones; Yelp also emits
-          // /biz/ links for photo thumbnails etc. — skip those (no text).
-          const name = link.textContent?.trim() || "";
-          if (!name) continue;
-          // Walk up to a reasonably-sized card container so rating/address
-          // lookups stay scoped to this one result, not the whole page.
-          let card: any = link;
-          for (let i = 0; i < 6 && card; i++) {
-            card = card.parentElement;
-            if (card && card.querySelector('[aria-label*="star rating" i]')) break;
-          }
-          if (!card || seenOnPage.has(card)) continue;
-          seenOnPage.add(card);
-
-          const ratingEl = card.querySelector('[aria-label*="star rating" i]');
-          const ratingLabel = ratingEl?.getAttribute("aria-label") ?? "";
-          const ratingMatch = ratingLabel.match(/([\d.]+)\s*star/i);
-          const rating = ratingMatch ? parseFloat(ratingMatch[1]) : null;
-
-          const cardText = card.textContent ?? "";
-          const reviewsMatch = cardText.match(/\((\d+)\)/);
-          const reviews = reviewsMatch ? parseInt(reviewsMatch[1], 10) : null;
-
-          // Address heuristic: a short text node containing a digit followed
-          // by street-ish words, since Yelp's address markup has no stable
-          // class name. Best-effort — may miss or misfire on some layouts.
-          let address: string | null = null;
-          const candidates: any[] = Array.from(card.querySelectorAll("p, span"));
-          for (const el of candidates) {
-            const t = el.textContent?.trim() ?? "";
-            if (/^\d+\s+\S/.test(t) && t.length < 80 && !/star rating/i.test(t)) { address = t; break; }
-          }
-
-          const categoryLinks = (Array.from(card.querySelectorAll('a[href*="cflt="]')) as any[])
-            .map((a) => a.textContent?.trim())
-            .filter(Boolean);
-          const category = categoryLinks.length ? categoryLinks.join(", ") : null;
-
-          out.push({ name, href: link.getAttribute("href"), address, rating, reviews, category });
-        }
-        return out;
-      }).catch(() => [] as YelpResult[]);
-
-      for (const r of pageResults) {
-        const k = r.href || `${r.name ?? ""}|${r.address ?? ""}`;
-        if (k && !byKey.has(k)) byKey.set(k, r);
-      }
-
-      if (cap && byKey.size >= cap) break;
-      if (pageResults.length === 0) break;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: { code?: string; description?: string } };
+      const desc = body.error?.description || body.error?.code || "";
+      // Yelp returns 400 with LOCATION_NOT_FOUND / TOO_MANY_RESULTS_REQUESTED
+      // once paging runs past the available set — stop cleanly and keep what
+      // we have rather than failing the whole run.
+      if (res.status === 400 && offset > 0) break;
+      if (res.status === 401)
+        throw new Error("Yelp rejected the API key (401). Check the YELP_API_KEY secret is a valid Fusion key.");
+      if (res.status === 429)
+        throw new Error("Yelp Fusion API daily rate limit reached (429). Try again tomorrow or raise your quota.");
+      throw new Error(`Yelp Fusion API error ${res.status}${desc ? `: ${desc}` : ""}`);
     }
-  } finally {
-    await browser.close().catch(() => {});
+
+    const data = (await res.json()) as { businesses?: YelpBusiness[]; total?: number };
+    total = data.total ?? total;
+    const businesses = data.businesses ?? [];
+    if (businesses.length === 0) break;
+
+    for (const b of businesses) {
+      const k = b.url || `${b.name ?? ""}|${b.location?.display_address?.join(" ") ?? ""}`;
+      if (k && !byKey.has(k)) byKey.set(k, b);
+    }
+
+    if (byKey.size >= cap) break;
+    if (offset + limit >= (data.total ?? Infinity)) break; // no more results to page
   }
 
-  if (proxy) await recordProxyResult(proxy.id, byKey.size > 0).catch(() => {});
-  if (blocked && byKey.size === 0) {
-    throw new Error("Yelp blocked this request (captcha/interstitial) before any results loaded — try again later or via a different proxy.");
-  }
+  const places = [...byKey.values()].slice(0, cap);
 
-  const allPlaces = [...byKey.values()];
-  const places = cap ? allPlaces.slice(0, cap) : allPlaces;
-
-  const rows = places.map((p) => ({
-    Name: p.name ?? "",
-    Phone: "",
+  const rows = places.map((b) => ({
+    Name: b.name ?? "",
+    Phone: b.display_phone || b.phone || "",
     Website: "",
-    Address: p.address ?? "",
-    Category: p.category || opts.category,
-    Rating: p.rating ?? "",
-    "Rating info": p.reviews != null ? `${p.reviews} reviews` : "",
+    Address: b.location?.display_address?.join(", ") ?? "",
+    Category: b.categories?.map((c) => c.title).join(", ") || opts.category,
+    Rating: b.rating ?? "",
+    "Rating info": b.review_count != null ? `${b.review_count} reviews` : "",
   }));
 
   let saved = 0;
   let duplicates = 0;
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (opts.apiKey) headers["x-api-key"] = opts.apiKey;
+  const base = loopbackBase();
   for (let i = 0; i < rows.length; i += 200) {
     try {
       const r = await fetch(`${base}/api/leads/save`, {
@@ -186,8 +132,14 @@ export async function scrapeYelpAndSave(opts: {
     }
   }
 
-  const items = places.slice(0, 200).map((p) => ({
-    name: p.name, phone: null, website: null, address: p.address, rating: p.rating, reviews: p.reviews,
+  const items = places.slice(0, 200).map((b) => ({
+    name: b.name ?? null,
+    phone: b.display_phone || b.phone || null,
+    website: null,
+    address: b.location?.display_address?.join(", ") ?? null,
+    rating: b.rating ?? null,
+    reviews: b.review_count ?? null,
   }));
-  return { term, places: allPlaces.length, saved, duplicates, items };
+
+  return { term, places: total || places.length, saved, duplicates, items };
 }

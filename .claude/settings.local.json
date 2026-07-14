@@ -34,7 +34,9 @@
       "Bash(curl -s -o /dev/null -w \"/get-leads = %{http_code}\\\\n\" --max-time 4 \"http://localhost:8081/get-leads\")",
       "Bash(magick -background none ad.svg -flatten ad.png)",
       "Bash(magick identify *)",
-      "Bash(magick ad.svg -background none -flatten -resize 1200x628^ -gravity center -extent 1200x628 ad-landscape.png)"
+      "Bash(magick ad.svg -background none -flatten -resize 1200x628^ -gravity center -extent 1200x628 ad-landscape.png)",
+      "Bash(timeout 100 node _yelptest.mjs)",
+      "Bash(pnpm --filter @workspace/api-server run typecheck)"
     ]
   }
 }
