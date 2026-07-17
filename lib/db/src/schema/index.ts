@@ -8,6 +8,7 @@ export * from "./scrapeTargets";
 export * from "./scrapeRuns";
 export * from "./packOrders";
 export * from "./testimonials";
+export * from "./chats";
 export * from "./proxies";
 export * from "./siteVisits";
 export * from "./socialPosts";
