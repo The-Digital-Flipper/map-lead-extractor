@@ -19,6 +19,7 @@ import {
   facebookCreds, fbAppConfigured, fbConnectUrl, fbHandleCallback, fbSelectPage, fbDisconnect, FB_REDIRECT_URI,
   generateGroupPosts, listGroups, addGroup, deleteGroup, markGroupPosted, discoverGroups,
   syncEngagementStats, generatePostImage, getPostImage, removePostImage,
+  socialChat, type SocialChatMessage,
 } from "../lib/social";
 
 const router = Router();
@@ -1426,6 +1427,28 @@ router.post("/social/generate", requireAuth, async (req, res) => {
     const count = Math.min(10, Math.max(1, Number((req.body as { count?: number })?.count) || 5));
     const posts = await generateSocialPosts(count);
     res.json({ ok: true, posts });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ---- POST /social/chat — AI assistant that manages the posting queue ---------
+// Body: { messages: [{role: "user"|"assistant", content}] } (the running chat).
+// The model edits the queue via tool calls; `changed` tells the UI to reload it.
+router.post("/social/chat", requireAuth, async (req, res) => {
+  try {
+    const raw = (req.body as { messages?: unknown })?.messages;
+    const messages = Array.isArray(raw)
+      ? raw.filter((m): m is SocialChatMessage =>
+          !!m && typeof m === "object" &&
+          ((m as SocialChatMessage).role === "user" || (m as SocialChatMessage).role === "assistant") &&
+          typeof (m as SocialChatMessage).content === "string")
+      : [];
+    if (messages.length === 0 || messages[messages.length - 1]!.role !== "user") {
+      res.status(400).json({ error: "messages must end with a user message" });
+      return;
+    }
+    res.json({ ok: true, ...(await socialChat(messages)) });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }

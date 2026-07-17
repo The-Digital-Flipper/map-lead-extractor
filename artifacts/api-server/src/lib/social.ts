@@ -160,6 +160,10 @@ const PRODUCT = {
   ],
 };
 
+// Every ad link carries UTM tags so Facebook traffic shows up by name in the
+// admin Traffic tab (site_visits.utm_source) instead of blending into Direct.
+const AD_URL = `${PRODUCT.url}?utm_source=facebook&utm_medium=social`;
+
 // ── Settings (singleton row, id = 1) ─────────────────────────────────────────
 
 export async function getSocialSettings(): Promise<SocialSettings> {
@@ -233,7 +237,7 @@ export async function generateSocialPosts(n: number): Promise<SocialPost[]> {
     `You write Facebook Page posts for a business that SELLS done-for-you local-business lead lists.`,
     ``,
     `WHAT WE SELL: ${PRODUCT.oneLiner}`,
-    `BUY IT AT: ${PRODUCT.url}`,
+    `BUY IT AT: ${AD_URL}`,
     `AUDIENCE: ${PRODUCT.audience}`,
     `KEY SELLING POINTS:`,
     ...PRODUCT.keyBenefits.map((b) => `  - ${b}`),
@@ -245,7 +249,7 @@ export async function generateSocialPosts(n: number): Promise<SocialPost[]> {
     `- 60–130 words each. At most 1-2 emojis. 2-4 relevant hashtags at the very end.`,
     `- Vary the format across posts (tip / story / customer win / offer spotlight / question / myth-bust).`,
     `- Work in a concrete hook where it fits — "100 targeted leads for $29", human-reviewed CSV, delivered in hours, refund if we come up short.`,
-    `- These go out as image ads, so the link shows no preview card — put ${PRODUCT.url} in the body of EVERY post as a clear call to action (e.g. "Grab a pack → ${PRODUCT.url}").`,
+    `- These go out as image ads, so the link shows no preview card — put ${AD_URL} in the body of EVERY post as a clear call to action (e.g. "Grab a pack → ${AD_URL}").`,
     recent.length
       ? `- Do NOT repeat the angle or wording of these recent posts:\n${recent.map((r) => `  • ${r.body.slice(0, 100).replace(/\n/g, " ")}`).join("\n")}`
       : ``,
@@ -723,6 +727,109 @@ export async function socialTick(): Promise<void> {
   } finally {
     tickInFlight = false;
   }
+}
+
+// ── AI posting assistant (chat box in the Social tab) ─────────────────────────
+// The admin talks to it in plain English ("write a post about the $29 pack",
+// "make #12 shorter", "delete anything that sounds fake") and the model edits
+// the real Facebook queue through tool calls — the same agentic pattern the
+// pro social-media suites ship as their "AI assistant".
+
+export type SocialChatMessage = { role: "user" | "assistant"; content: string };
+
+const CHAT_TOOLS = [
+  { type: "function", function: { name: "list_queue", description: "List the queued Facebook posts (id, text, note, hasImage) in publish order (oldest first). Always call this before editing or deleting.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "create_post", description: "Add a new ready-to-publish post to the Facebook queue.", parameters: { type: "object", properties: { body: { type: "string", description: "Ready-to-publish post text" }, note: { type: "string", description: "One short line: the angle and why it works" } }, required: ["body"] } } },
+  { type: "function", function: { name: "update_post", description: "Replace the text (and optionally the note) of a queued post.", parameters: { type: "object", properties: { id: { type: "number" }, body: { type: "string" }, note: { type: "string" } }, required: ["id", "body"] } } },
+  { type: "function", function: { name: "delete_post", description: "Remove a post from the queue.", parameters: { type: "object", properties: { id: { type: "number" } }, required: ["id"] } } },
+] as const;
+
+async function runChatTool(name: string, args: Record<string, unknown>): Promise<{ result: unknown; mutated: boolean }> {
+  // The assistant only ever touches queued Facebook posts — never history.
+  const queuedFb = and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook"));
+  switch (name) {
+    case "list_queue": {
+      const rows = await db
+        .select({ id: socialPosts.id, body: socialPosts.body, note: socialPosts.note, hasImage: sql<boolean>`${socialPosts.imageB64} IS NOT NULL` })
+        .from(socialPosts).where(queuedFb).orderBy(asc(socialPosts.id));
+      return { result: rows, mutated: false };
+    }
+    case "create_post": {
+      const body = typeof args.body === "string" ? args.body.trim() : "";
+      if (!body) return { result: { error: "body is required" }, mutated: false };
+      const note = typeof args.note === "string" && args.note.trim() ? args.note.trim() : null;
+      const rows = await db.insert(socialPosts).values({ platform: "facebook", body, note }).returning({ id: socialPosts.id });
+      return { result: { ok: true, id: rows[0]!.id }, mutated: true };
+    }
+    case "update_post": {
+      const id = Number(args.id);
+      const body = typeof args.body === "string" ? args.body.trim() : "";
+      if (!Number.isFinite(id) || !body) return { result: { error: "id and body are required" }, mutated: false };
+      const patch: Partial<typeof socialPosts.$inferInsert> = { body };
+      if (typeof args.note === "string" && args.note.trim()) patch.note = args.note.trim();
+      const rows = await db.update(socialPosts).set(patch).where(and(eq(socialPosts.id, id), queuedFb)).returning({ id: socialPosts.id });
+      return rows[0] ? { result: { ok: true }, mutated: true } : { result: { error: `No queued Facebook post with id ${id}` }, mutated: false };
+    }
+    case "delete_post": {
+      const id = Number(args.id);
+      if (!Number.isFinite(id)) return { result: { error: "id is required" }, mutated: false };
+      const rows = await db.delete(socialPosts).where(and(eq(socialPosts.id, id), queuedFb)).returning({ id: socialPosts.id });
+      return rows[0] ? { result: { ok: true }, mutated: true } : { result: { error: `No queued Facebook post with id ${id}` }, mutated: false };
+    }
+  }
+  return { result: { error: `Unknown tool ${name}` }, mutated: false };
+}
+
+export async function socialChat(history: SocialChatMessage[]): Promise<{ reply: string; changed: boolean }> {
+  const key = openAiKey();
+  if (!key) throw new Error("No OpenAI key set — add OPENAI_API_KEY (or CHAT_GPT_API) in the Replit Secrets panel.");
+
+  const system = [
+    `You are the Facebook posting assistant for ${PRODUCT.name}. You manage the Page's ad queue through your tools; the admin gives you plain-English instructions.`,
+    ``,
+    `WHAT WE SELL: ${PRODUCT.oneLiner}`,
+    `LINK FOR EVERY POST: ${AD_URL}`,
+    `AUDIENCE: ${PRODUCT.audience}`,
+    `KEY SELLING POINTS:`,
+    ...PRODUCT.keyBenefits.map((b) => `  - ${b}`),
+    ``,
+    `HOW POSTING WORKS: one queued post auto-publishes per day, oldest first; a branded ad image is generated and attached automatically at publish time; the queue refills itself with AI posts when it drops below 3.`,
+    ``,
+    `RULES for every post you write or edit:`,
+    `- Sell the done-for-you lead lists. Never pitch a free tool, scraper, extension, or "do it yourself".`,
+    `- 60–130 words, at most 1-2 emojis, 2-4 hashtags at the very end, and ${AD_URL} in the body as the call to action.`,
+    `- Never invent customer stories, testimonials, statistics, or results we don't have. Real claims only: pricing, human review, delivery speed, the refund guarantee.`,
+    `- Sound like a real person who runs this lead business, not an ad agency.`,
+    ``,
+    `Always call list_queue before updating or deleting so you act on real ids. After making changes, reply with a short plain-text summary of what you did (1-3 sentences, no markdown). If asked something outside the posting queue, answer briefly and say what you can help with.`,
+  ].join("\n");
+
+  const messages: unknown[] = [{ role: "system", content: system }, ...history.slice(-16)];
+  let changed = false;
+
+  for (let round = 0; round < 6; round++) {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model: "gpt-4o", temperature: 0.7, max_tokens: 1500, messages, tools: CHAT_TOOLS }),
+    });
+    if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+    const data = (await res.json()) as { choices?: { message?: { content?: string | null; tool_calls?: { id: string; function: { name: string; arguments: string } }[] } }[] };
+    const msg = data.choices?.[0]?.message;
+    if (!msg) throw new Error("OpenAI returned no reply — try again.");
+
+    if (!msg.tool_calls?.length) return { reply: (msg.content ?? "").trim() || "Done.", changed };
+
+    messages.push(msg);
+    for (const call of msg.tool_calls) {
+      let parsed: Record<string, unknown> = {};
+      try { parsed = JSON.parse(call.function.arguments || "{}") as Record<string, unknown>; } catch { /* leave empty — the tool reports what's missing */ }
+      const { result, mutated } = await runChatTool(call.function.name, parsed);
+      if (mutated) changed = true;
+      messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
+    }
+  }
+  return { reply: "Made the changes — check the queue above for the result.", changed };
 }
 
 export function startSocialScheduler(): void {

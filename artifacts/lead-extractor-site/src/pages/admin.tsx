@@ -7,7 +7,7 @@ import {
   MapPin, ChevronLeft, ChevronRight, DollarSign, CreditCard,
   UserCheck, UserX, Crown, BarChart2, RefreshCw,
   Flame, Globe, Target, Sparkles, Package, Phone, Trash2, RotateCcw,
-  Activity, Eye, Copy, ExternalLink, Search, Share2,
+  Activity, Eye, Copy, ExternalLink, Search, Share2, MessageSquare, Send,
 } from "lucide-react";
 import {
   ComposableMap, Geographies, Geography, ZoomableGroup, Marker,
@@ -382,6 +382,31 @@ export default function Admin() {
     } catch { /* ignore */ }
     loadSocial();
   };
+  // ── AI posting assistant (chat box) ────────────────────────────────────────
+  const [chatMsgs, setChatMsgs] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [chatMsgs, chatBusy]);
+  const chatSend = async () => {
+    const text = chatInput.trim();
+    if (!text || chatBusy) return;
+    const next = [...chatMsgs, { role: "user" as const, content: text }];
+    setChatMsgs(next); setChatInput(""); setChatBusy(true);
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/social/chat`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: next.slice(-12) }),
+      });
+      const d = await r.json();
+      setChatMsgs([...next, { role: "assistant" as const, content: r.ok ? d.reply : (d.error || "Something went wrong — try again.") }]);
+      if (r.ok && d.changed) loadSocial();
+    } catch (e) {
+      setChatMsgs([...next, { role: "assistant" as const, content: e instanceof Error ? e.message : "Something went wrong — try again." }]);
+    }
+    setChatBusy(false);
+  };
+
   // Show the UTC posting hour in the admin's local time so it reads naturally.
   // ── Engagement stats + AI post images ──────────────────────────────────────
   const [syncingStats, setSyncingStats] = useState(false);
@@ -1696,6 +1721,47 @@ export default function Admin() {
                   </p>
                 </div>
               )}
+
+              {/* AI posting assistant — chat box that edits the queue */}
+              <div className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-1">
+                  <MessageSquare className="w-4 h-4 text-primary" />
+                  <h3 className="text-lg font-display font-bold">AI Posting Assistant</h3>
+                </div>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Tell it what to post and it edits the queue for you — try “write a post about the $29 starter pack”, “make the next post shorter”, or “rewrite anything that sounds fake”.
+                </p>
+                {chatMsgs.length > 0 && (
+                  <div className="space-y-3 max-h-80 overflow-y-auto mb-4 pr-1">
+                    {chatMsgs.map((m, i) => (
+                      <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                        <div className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm whitespace-pre-wrap ${m.role === "user" ? "bg-primary/15 text-foreground" : "bg-background/60 border border-border text-foreground"}`}>
+                          {m.content}
+                        </div>
+                      </div>
+                    ))}
+                    {chatBusy && (
+                      <div className="flex justify-start">
+                        <div className="rounded-xl px-4 py-2.5 text-sm bg-background/60 border border-border text-muted-foreground flex items-center gap-2">
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Working on it…
+                        </div>
+                      </div>
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <input value={chatInput} onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); chatSend(); } }}
+                    placeholder={social?.aiConfigured ? "e.g. write a post about how fast the lists arrive" : "Add an OpenAI key (CHAT_GPT_API) in Secrets first"}
+                    disabled={!social?.aiConfigured || chatBusy}
+                    className="flex-1 bg-background border border-border rounded-lg px-4 py-2.5 text-sm text-foreground disabled:opacity-50" />
+                  <button onClick={chatSend} disabled={!social?.aiConfigured || chatBusy || !chatInput.trim()}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold bg-primary text-primary-foreground disabled:opacity-50 hover:opacity-90 transition-opacity">
+                    <Send className="w-4 h-4" /> Send
+                  </button>
+                </div>
+              </div>
 
               {/* Queue */}
               <div className="bg-card border border-border rounded-2xl p-6">
