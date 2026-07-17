@@ -13,6 +13,8 @@ const IndustryLanding = lazy(() => import("@/pages/industry-landing"));
 const FbLeads = lazy(() => import("@/pages/fb-leads"));
 const ToolsIndex = lazy(() => import("@/pages/tools"));
 const ToolPage = lazy(() => import("@/pages/tool"));
+const FreeTool = lazy(() => import("@/pages/free-tool"));
+const Review = lazy(() => import("@/pages/review"));
 
 // Everything auth-related (Clerk, dashboard, admin, pricing, account, home) is
 // isolated in a lazily-loaded module so it only loads on auth/account routes.
@@ -61,6 +63,8 @@ function Shell() {
         <Route path="/get-leads" component={FbLeads} />
         <Route path="/tools" component={ToolsIndex} />
         <Route path="/tools/:tool" component={ToolPage} />
+        <Route path="/free-tool" component={FreeTool} />
+        <Route path="/review" component={Review} />
         <Route path="/privacy" component={Privacy} />
         <Route path="/terms" component={Terms} />
         <Route component={NotFound} />

@@ -1,6 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "@clerk/express";
-import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, packOrders, computeOpportunity, computeValue, type ScrapePlatform } from "@workspace/db";
+import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, packOrders, testimonials, computeOpportunity, computeValue, type ScrapePlatform } from "@workspace/db";
 import { sql, count, gte, eq, and, desc, asc, isNull, isNotNull, inArray, getTableColumns } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 import { packWhere } from "../lib/packs";
@@ -1536,6 +1536,31 @@ router.put("/social/settings", requireAuth, async (req, res) => {
   const settings = await updateSocialSettings(patch);
   const { fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p, ...safeSettings } = settings;
   res.json({ ok: true, settings: safeSettings });
+});
+
+// ---- Buyer testimonials: moderation queue ------------------------------------
+// Real reviews submitted by delivered buyers (/review?token=...). Only
+// `approved` ones ever render on the public site.
+
+router.get("/testimonials", requireAuth, async (_req, res) => {
+  const rows = await db.select().from(testimonials).orderBy(desc(testimonials.createdAt)).limit(200);
+  res.json({ testimonials: rows });
+});
+
+router.patch("/testimonials/:id", requireAuth, async (req, res) => {
+  const status = (req.body as { status?: string })?.status;
+  if (status !== "approved" && status !== "hidden" && status !== "pending") {
+    res.status(400).json({ error: "status must be approved, hidden, or pending" });
+    return;
+  }
+  const rows = await db.update(testimonials).set({ status }).where(eq(testimonials.id, Number(req.params.id))).returning();
+  if (!rows[0]) { res.status(404).json({ error: "Not found" }); return; }
+  res.json({ ok: true, testimonial: rows[0] });
+});
+
+router.delete("/testimonials/:id", requireAuth, async (req, res) => {
+  await db.delete(testimonials).where(eq(testimonials.id, Number(req.params.id)));
+  res.json({ ok: true });
 });
 
 // ---- Pack orders: the owner's review-and-send queue -------------------------

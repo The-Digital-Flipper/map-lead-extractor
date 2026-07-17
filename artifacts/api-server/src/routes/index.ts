@@ -14,6 +14,7 @@ import smsRouter from "./sms.js";
 import trackRouter from "./track.js";
 import outreachRouter from "./outreach.js";
 import blogRouter from "./blog.js";
+import testimonialsRouter from "./testimonials.js";
 
 const router: IRouter = Router();
 
@@ -30,6 +31,7 @@ router.use("/v1", v1Router);
 router.use("/sms", smsRouter);
 router.use("/outreach", outreachRouter);
 router.use("/blog", blogRouter);
+router.use("/testimonials", testimonialsRouter);
 router.use(trackRouter);
 
 // Extension-facing routes — no prefix stripping; paths in ext.ts are full

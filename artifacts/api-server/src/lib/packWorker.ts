@@ -261,6 +261,7 @@ ${refundLine}
 <p><a href="${link}" style="display:inline-block;background:#00c853;color:#fff;font-weight:700;padding:12px 22px;border-radius:8px;text-decoration:none">⬇ Download your leads (CSV)</a></p>
 <p style="color:#666;font-size:13px">Or copy this link: ${link}</p>
 <p style="color:#666;font-size:13px">Keep this email — the link lets you re-download anytime.</p>
+<p style="margin-top:20px">Happy with your list? <a href="${PUBLIC_ORIGIN}/review?token=${order.token}" style="color:#00a844;font-weight:600">Leave a quick review</a> — it takes 30 seconds and genuinely helps a new business. If anything's off, just reply to this email and we'll make it right.</p>
 </div>`;
   try {
     const ok = await deliverEmail(order.email, subject, html, order.id);

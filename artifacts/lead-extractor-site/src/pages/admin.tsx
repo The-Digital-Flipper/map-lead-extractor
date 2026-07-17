@@ -293,6 +293,35 @@ export default function Admin() {
   // Load on mount too so the tab badge shows waiting orders immediately.
   useEffect(() => { loadPackOrders(); }, [loadPackOrders]);
   useEffect(() => { if (activeTab === "orders") loadPackOrders(); }, [activeTab, loadPackOrders]);
+
+  // ── Buyer testimonials moderation (Orders tab) ─────────────────────────────
+  type TestimonialRow = { id: number; orderId: number; name: string; business: string | null; rating: number; quote: string; status: string; createdAt: string };
+  const [testimonialsList, setTestimonialsList] = useState<TestimonialRow[]>([]);
+  const [testimonialBusyId, setTestimonialBusyId] = useState<number | null>(null);
+  const loadTestimonials = useCallback(async () => {
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/testimonials`);
+      if (r.ok) setTestimonialsList(((await r.json()) as { testimonials: TestimonialRow[] }).testimonials);
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => { if (activeTab === "orders") loadTestimonials(); }, [activeTab, loadTestimonials]);
+  const setTestimonialStatus = async (id: number, status: string) => {
+    setTestimonialBusyId(id);
+    try {
+      await adminFetch(`${basePath}/api/admin/testimonials/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
+      });
+    } catch { /* ignore */ }
+    setTestimonialBusyId(null);
+    loadTestimonials();
+  };
+  const deleteTestimonial = async (id: number) => {
+    if (!confirm("Delete this review permanently?")) return;
+    setTestimonialBusyId(id);
+    try { await adminFetch(`${basePath}/api/admin/testimonials/${id}`, { method: "DELETE" }); } catch { /* ignore */ }
+    setTestimonialBusyId(null);
+    loadTestimonials();
+  };
   const sendPackOrder = async (o: PackOrderRow) => {
     const short = o.delivered < o.requested
       ? `\n\nONLY ${o.delivered}/${o.requested} leads — sending will auto-refund the buyer $${((o.amountCents * (o.requested - o.delivered)) / o.requested / 100).toFixed(2)}.`
@@ -1229,6 +1258,44 @@ export default function Admin() {
                         })}
                       </tbody>
                     </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Buyer reviews — moderation queue for the home-page testimonials */}
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="mb-4">
+                  <h2 className="font-display font-bold text-lg flex items-center gap-2"><Star className="w-5 h-5 text-primary" /> Buyer Reviews</h2>
+                  <p className="text-sm text-muted-foreground">Real reviews from delivered orders (buyers get a review link in their delivery email). Approve to show on the home page — nothing appears without your OK.</p>
+                </div>
+                {testimonialsList.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-6 text-center">No reviews yet — they arrive after buyers receive their packs.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {testimonialsList.map((t) => (
+                      <div key={t.id} className="rounded-xl border border-border bg-background/40 p-4">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <span className="font-semibold text-sm">{t.name}</span>
+                          {t.business && <span className="text-xs text-muted-foreground">· {t.business}</span>}
+                          <span className="text-xs text-primary">{"★".repeat(t.rating)}{"☆".repeat(5 - t.rating)}</span>
+                          <span className="text-xs text-muted-foreground">· order #{t.orderId}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${t.status === "approved" ? "bg-emerald-500/15 text-emerald-500" : t.status === "pending" ? "bg-amber-500/15 text-amber-500" : "bg-muted text-muted-foreground"}`}>{t.status}</span>
+                        </div>
+                        <p className="text-sm text-foreground whitespace-pre-wrap mb-3">{t.quote}</p>
+                        <div className="flex gap-2 flex-wrap">
+                          {t.status !== "approved" && (
+                            <button onClick={() => setTestimonialStatus(t.id, "approved")} disabled={testimonialBusyId === t.id}
+                              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground disabled:opacity-50">Approve — show on site</button>
+                          )}
+                          {t.status === "approved" && (
+                            <button onClick={() => setTestimonialStatus(t.id, "hidden")} disabled={testimonialBusyId === t.id}
+                              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground disabled:opacity-50">Hide from site</button>
+                          )}
+                          <button onClick={() => deleteTestimonial(t.id)} disabled={testimonialBusyId === t.id}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-red-400 hover:text-red-300 disabled:opacity-50">Delete</button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

@@ -40,9 +40,15 @@ const BUILD_DATE = new Date().toISOString().slice(0, 10);
 const staticRoutes = [
   {
     path: "/",
-    title: "Map Lead Extractor — Find Google & Bing Maps Leads to CSV",
+    title: "Buy Local Business Leads — Human-Reviewed Lists by Industry & City | Map Lead Extractor",
     description:
-      "Extract local business leads from Google Maps & Bing Maps — names, phones, emails, websites & ratings — and export to CSV in seconds. Or buy ready-scored leads by industry and city.",
+      "Done-for-you local business lead lists: pick an industry and city, get a clean, human-reviewed CSV — names, phones, emails, websites & ratings. 100 targeted leads for $29, delivered in hours.",
+  },
+  {
+    path: "/free-tool",
+    title: "Free Google & Bing Maps Lead Extractor — Chrome Extension | Map Lead Extractor",
+    description:
+      "Free Chrome extensions that extract local business leads from Google Maps, Bing Maps & Yelp — names, phones, emails, websites & ratings — straight to CSV. No signup, no credit card.",
   },
   {
     path: "/pricing",
@@ -102,8 +108,17 @@ const toolRoutes = tools.map((t) => ({
 
 const allRoutes = [...staticRoutes, ...blogRoutes, ...landingRoutes, ...toolRoutes];
 
-// Home FAQ (mirrors the on-page accordion) + product/step summaries.
+// Home FAQ (mirrors the on-page accordion — buyer-focused).
 const FAQ = [
+  { q: "How fast do I get my leads?", a: "Most packs are delivered within hours of ordering. Every list is human-reviewed before it ships, so at busy times it can take a little longer — but it arrives as a clean CSV in your email inbox, ready to import into any CRM or spreadsheet." },
+  { q: "What's included with each lead?", a: "Business name, phone number, website, address, star rating and review count, and business category — plus a public email address when one can be found on the business's website. Each lead also carries the gap signal you bought it for, like no website or few reviews, so you know exactly what to pitch." },
+  { q: "What if my pack comes up short?", a: "You get an automatic refund for the difference. If you order 100 leads and we can only deliver 82 that pass review, you're refunded for the 18 we couldn't fill — you only ever pay for leads you actually receive." },
+  { q: "Where do the leads come from?", a: "Public business listings on Google Maps and Bing Maps, enriched with contact details from each business's own website. Dead and closed businesses are removed, duplicates are stripped, and every list is spot-checked by a human before delivery." },
+  { q: "Can I pick the industry and location?", a: "Yes — tell us any business type and any US city or state (for example roofers in Mobile, AL) and the list is built to that spec." },
+];
+
+// Free-tool FAQ (mirrors the /free-tool accordion — extension-focused).
+const EXT_FAQ = [
   { q: "Is it really free?", a: "Yes. Completely free. There are no paid tiers, no credits, and no paywalls. If you get value out of the tool and close deals, we provide an option to drop a tip, but it is never required." },
   { q: "Where is the data stored?", a: "Nowhere but your own hard drive. The extension runs entirely in your browser's local memory and exports directly to your Downloads folder. We do not have servers, databases, or tracking telemetry." },
   { q: "Why are there two different extensions?", a: "Google Maps and Bing Maps have completely different underlying architectures. To provide the fastest, most resilient lead finding possible, we built dedicated engines for each platform rather than a bloated, fragile hybrid." },
@@ -154,7 +169,7 @@ const replaceCanonical = (html, url) =>
 // ---------------------------------------------------------------------------
 
 const navHtml = () =>
-  `<nav aria-label="Primary"><a href="/">Map Lead Extractor</a> <a href="/#extensions">Products</a> <a href="/#how-it-works">How it works</a> <a href="/#industries">Industries</a> <a href="/#faq">FAQ</a> <a href="/pricing">Pricing</a> <a href="/blog">Blog</a> <a href="/tools">Free Tools</a> <a href="${STORE_URL}" rel="nofollow">Install Free</a></nav>`;
+  `<nav aria-label="Primary"><a href="/">Map Lead Extractor</a> <a href="/#leads-for-sale">Buy Leads</a> <a href="/#industries">Industries</a> <a href="/free-tool">Free Tool</a> <a href="/#faq">FAQ</a> <a href="/pricing">Pricing</a> <a href="/blog">Blog</a> <a href="/tools">Calculators</a> <a href="${STORE_URL}" rel="nofollow">Install Free</a></nav>`;
 
 const footerHtml = () =>
   `<footer><a href="/privacy">Privacy Policy</a> <a href="/terms">Terms of Service</a> <a href="/blog">Blog</a> <a href="/pricing">Pricing</a> <a href="/tools">Free Tools</a></footer>`;
@@ -192,17 +207,41 @@ function homeContent() {
   return `
     ${navHtml()}
     <main>
-      <h1>Google &amp; Bing Maps Lead Extractor — Find business leads in one click</h1>
-      <p>Extract local business leads — names, emails, phones, and socials — directly from Google Maps and Bing Maps. Built for serious prospectors. Export to CSV in seconds. Or buy ready-scored local business leads by industry and city.</p>
+      <h1>Buy ready-to-close local business leads for any industry, in any city</h1>
+      <p>Tell us the business type and area — we deliver a clean, human-reviewed CSV with names, phones, emails, websites, and ratings. 100 targeted leads for $29, usually within hours. One-time payment, refund if we come up short.</p>
+      <p><a href="/#leads-for-sale">Browse lead packs</a></p>
+      <section id="leads-for-sale"><h2>Pick the leads that match what you sell</h2><ul>
+        <li>No-website businesses — the easiest, highest-value web-design sale.</li>
+        <li>Outdated or broken sites — prime redesign prospects.</li>
+        <li>Few or no reviews — ready for reputation services.</li>
+        <li>Low-rating businesses — owners actively worried about their reputation.</li>
+        <li>No social presence — wide open for social media setup.</li>
+        <li>No online booking — ready for automation tools.</li>
+        <li>Weak map profiles — incomplete Google or Bing listings, ideal for local SEO.</li>
+        <li>By industry and territory — dentists, lawyers, roofers, HVAC, plumbers and more, in any US state or city.</li>
+      </ul></section>
+      <section id="industries"><h2>Buy leads by industry</h2>${landingLinksHtml()}</section>
+      <section><h2>Prefer to pull leads yourself? The extractor is free.</h2><p>Our free Chrome extensions extract local business leads straight from Google Maps, Bing Maps, and Yelp — no signup, no credit card. <a href="/free-tool">See the free tool</a>.</p></section>
+      <section><h2>Who buys our leads?</h2><ul><li>Agency owners</li><li>Sales development teams</li><li>Freelancers and web designers</li></ul></section>
+      <section id="faq"><h2>Questions &amp; answers</h2>${FAQ.map((f) => `<div><h3>${escHtml(f.q)}</h3><p>${escHtml(f.a)}</p></div>`).join("")}</section>
+      <section><h2>Read our lead generation guides</h2>${blogLinksHtml()}</section>
+    </main>
+    ${footerHtml()}
+  `;
+}
+
+function freeToolContent() {
+  return `
+    ${navHtml()}
+    <main>
+      <h1>The free Maps Lead Extractor Chrome extension</h1>
+      <p>Extract local business leads — names, emails, phones, and socials — directly from Google Maps, Bing Maps, and Yelp. Export to CSV in seconds. No signup, no credit card, no limits.</p>
       <p><a href="${STORE_URL}" rel="nofollow">Add to Chrome — it's free</a></p>
       <section id="extensions"><h2>Three platforms. One purpose.</h2><ul>${PRODUCTS.map((p) => `<li>${escHtml(p)}</li>`).join("")}</ul></section>
       <section id="how-it-works"><h2>Start extracting in seconds</h2><ol>${STEPS.map((s) => `<li>${escHtml(s)}</li>`).join("")}</ol></section>
       <section><h2>The data fields you get</h2><p>Business name, phone number, website URL, full address, star rating and review count, Google Maps URL, and — with Website Enrichment — public emails and social links.</p></section>
-      <section id="leads-for-sale"><h2>We sell leads, too</h2><p>Don't want to extract them yourself? Buy ready-scored local business leads — no-website businesses, low-review businesses and more — filtered by industry and city, delivered as clean CSV.</p></section>
-      <section><h2>Who is this for?</h2><ul><li>Agency owners</li><li>Sales development teams</li><li>Freelancers and web designers</li></ul></section>
-      <section id="industries"><h2>Find leads by industry</h2>${landingLinksHtml()}</section>
-      <section id="faq"><h2>Questions &amp; answers</h2>${FAQ.map((f) => `<div><h3>${escHtml(f.q)}</h3><p>${escHtml(f.a)}</p></div>`).join("")}</section>
-      <section><h2>Read our lead generation guides</h2>${blogLinksHtml()}</section>
+      <section id="faq"><h2>Questions &amp; answers</h2>${EXT_FAQ.map((f) => `<div><h3>${escHtml(f.q)}</h3><p>${escHtml(f.a)}</p></div>`).join("")}</section>
+      <section><h2>Rather have it done for you?</h2><p>Skip the scraping — <a href="/#leads-for-sale">buy a ready-made, human-reviewed lead list</a> filtered by industry and city, delivered as clean CSV.</p></section>
     </main>
     ${footerHtml()}
   `;
@@ -272,7 +311,7 @@ function landingContent(page) {
       <nav aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/#industries">Leads by Industry</a> / <span>${escHtml(page.industry)}</span></nav>
       <h1>${escHtml(page.h1)}</h1>
       ${page.intro.map((p) => `<p>${escHtml(p)}</p>`).join("")}
-      <p><a href="${STORE_URL}" rel="nofollow">Add to Chrome — it's free</a></p>
+      <p><a href="/#leads-for-sale">Buy a ready-made ${escHtml(page.industry.toLowerCase())} lead pack</a> — or <a href="/free-tool">extract leads yourself with the free extension</a>.</p>
       ${renderSections(page.body)}
       <section><h2>Why ${escHtml(page.industry.toLowerCase())} are worth prospecting</h2><ul>${page.painPoints.map((u) => `<li>${escHtml(u)}</li>`).join("")}</ul></section>
       <section><h2>What you can do with ${escHtml(page.industry.toLowerCase())} leads</h2><ul>${page.useCases.map((u) => `<li>${escHtml(u)}</li>`).join("")}</ul></section>
@@ -328,6 +367,7 @@ function contentForRoute(route, post, landing, tool) {
   if (tool) return toolContent(tool);
   switch (route.path) {
     case "/": return homeContent();
+    case "/free-tool": return freeToolContent();
     case "/pricing": return pricingContent();
     case "/blog": return blogIndexContent();
     case "/tools": return toolsIndexContent();
@@ -436,7 +476,6 @@ const pricingJsonLd = () =>
     description: "Browser extensions that extract local business leads from Google Maps and Bing Maps and export them to CSV.",
     brand: { "@type": "Brand", name: "Map Lead Extractor" },
     offers: { "@type": "Offer", name: "Free", price: "0", priceCurrency: "USD", availability: "https://schema.org/InStock", url: `${SITE}/pricing` },
-    aggregateRating: { "@type": "AggregateRating", ratingValue: "4.9", bestRating: "5", worstRating: "1", ratingCount: "386" },
   });
 
 // ---------------------------------------------------------------------------
@@ -467,6 +506,7 @@ function buildHtml(template, route, post, landing, tool) {
   if (landing) head.push(landingJsonLd(landing));
   if (tool) head.push(toolJsonLd(tool));
   if (route.path === "/") head.push(faqJsonLd(FAQ));
+  if (route.path === "/free-tool") head.push(faqJsonLd(EXT_FAQ));
   if (route.path === "/pricing") head.push(pricingJsonLd());
   // Use function replacers so injected JSON/content is never treated as a
   // String.replace substitution pattern (a `$'`/`$$` in content would corrupt it).
@@ -509,6 +549,7 @@ function writeSitemaps() {
   const pages = urlset([
     { loc: `${SITE}/`, lastmod: BUILD_DATE, changefreq: "weekly", priority: "1.0" },
     { loc: `${SITE}/pricing`, lastmod: BUILD_DATE, changefreq: "monthly", priority: "0.9" },
+    { loc: `${SITE}/free-tool`, lastmod: BUILD_DATE, changefreq: "monthly", priority: "0.8" },
     { loc: `${SITE}/blog`, lastmod: BUILD_DATE, changefreq: "weekly", priority: "0.8" },
     { loc: `${SITE}/tools`, lastmod: BUILD_DATE, changefreq: "monthly", priority: "0.7" },
     { loc: `${SITE}/privacy`, lastmod: BUILD_DATE, changefreq: "yearly", priority: "0.3" },
