@@ -168,11 +168,6 @@ router.get("/:publicId/messages", async (req, res) => {
 
 router.post("/", async (req, res) => {
   const apiKey = getOpenAiKey();
-  if (!apiKey) {
-    res.status(503).json({ error: "The chat assistant isn't configured yet." });
-    return;
-  }
-
   const body = req.body as { messages?: ChatMessage[]; conversationId?: string; page?: string };
   const incoming = Array.isArray(body.messages) ? body.messages : [];
   // Keep only valid user/assistant turns, cap history + length to bound cost.
@@ -214,6 +209,14 @@ router.post("/", async (req, res) => {
   // for the owner's live replies.
   if (conv?.adminJoined) {
     res.json({ reply: null, humanMode: true });
+    return;
+  }
+
+  // No AI configured — still persist the message and let the owner reply live.
+  if (!apiKey) {
+    const fallback = "Thanks for your message! The owner has been notified and will reply right here shortly.";
+    if (conv) await storeMessage(conv.id, "ai", fallback).catch(() => {});
+    res.json({ reply: fallback });
     return;
   }
 

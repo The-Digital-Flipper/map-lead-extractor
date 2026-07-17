@@ -302,149 +302,222 @@ export default function Home() {
         </section>
 
         {/* Section: Reviews */}
-        <section className="py-24 border-t border-border bg-background">
+        <section className="py-24 border-t border-border bg-[#f8f9fa]">
           <div className="container mx-auto px-6">
-            {/* Heading + platform aggregate badges */}
-            <div className="text-center mb-14">
-              <h2 className="text-4xl md:text-5xl font-display font-bold mb-6">What people are saying.</h2>
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                {/* Google aggregate */}
-                <div className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-xl px-5 py-3.5 shadow-sm">
-                  <svg width="24" height="24" viewBox="0 0 48 48" fill="none"><path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/><path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/></svg>
-                  <div>
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-[22px] font-semibold text-[#202124] leading-none">4.9</span>
-                      <div className="flex items-center gap-px">{[1,2,3,4,5].map(s=><svg key={s} className="w-3.5 h-3.5 fill-[#f59e0b]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
-                    </div>
-                    <p className="text-[11px] text-[#70757a] mt-0.5">386 Google reviews</p>
-                  </div>
+
+            {/* Platform score row */}
+            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn} className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-10">
+              {/* Google score */}
+              <div className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-2xl px-5 py-3 shadow-sm">
+                <svg width="22" height="22" viewBox="0 0 48 48" fill="none"><path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/><path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/></svg>
+                <div className="flex items-center gap-2">
+                  <span className="text-[20px] font-bold text-[#202124] leading-none">4.9</span>
+                  <div className="flex gap-px">{[1,2,3,4,5].map(s=><svg key={s} className="w-3.5 h-3.5 fill-[#f59e0b]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
+                  <span className="text-[12px] text-[#70757a]">386 reviews · Google</span>
                 </div>
-                {/* Trustpilot aggregate */}
-                <div className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-xl px-5 py-3.5 shadow-sm">
-                  <svg width="26" height="26" viewBox="0 0 126.3 125.5"><path d="M126.3 48.2H78L63.2 2.5 48.3 48.2H0l40.5 29.1-15.4 47 38.1-27.5 38.2 27.5-15.5-47z" fill="#00b67a"/><path d="M90.6 89.8l-3.3-10.2-24.1 17.4z" fill="#005128"/></svg>
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <div className="flex gap-0.5">{[1,2,3,4,5].map(s=><div key={s} className="w-5 h-5 bg-[#00b67a] flex items-center justify-center"><svg className="w-3.5 h-3.5 fill-white" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg></div>)}</div>
-                      <span className="text-[15px] font-bold text-[#191919] leading-none">4.8</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[11px] font-bold text-[#191919]">Excellent</span>
-                      <span className="text-[11px] text-[#555]">· 220 reviews on</span>
-                      <span className="text-[11px] font-bold text-[#191919]">Trustpilot</span>
-                    </div>
+              </div>
+              {/* Trustpilot score */}
+              <div className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-2xl px-5 py-3 shadow-sm">
+                <svg width="22" height="22" viewBox="0 0 126.3 125.5"><path d="M126.3 48.2H78L63.2 2.5 48.3 48.2H0l40.5 29.1-15.4 47 38.1-27.5 38.2 27.5-15.5-47z" fill="#00b67a"/><path d="M90.6 89.8l-3.3-10.2-24.1 17.4z" fill="#005128"/></svg>
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-px">{[1,2,3,4,5].map(s=><div key={s} className="w-[14px] h-[14px] bg-[#00b67a] flex items-center justify-center"><svg className="w-2.5 h-2.5 fill-white" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg></div>)}</div>
+                  <span className="text-[13px] font-bold text-[#191919]">Excellent</span>
+                  <span className="text-[12px] text-[#555]">· 220 reviews · Trustpilot</span>
+                </div>
+              </div>
+              {/* Chrome Web Store score */}
+              <div className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-2xl px-5 py-3 shadow-sm">
+                <svg width="22" height="22" viewBox="0 0 192 192" fill="none"><circle cx="96" cy="96" r="96" fill="#fff"/><path d="M96 48a48 48 0 1 0 41.6 72H96V96h80a80 80 0 1 1-80-80z" fill="#4285F4"/><path d="M96 48V0a96 96 0 0 1 83.1 48z" fill="#EA4335"/><path d="M179.1 144A96 96 0 0 1 12.9 144l41.6-24a48 48 0 0 0 83.1 0z" fill="#FBBC04"/><circle cx="96" cy="96" r="32" fill="#fff"/></svg>
+                <div className="flex items-center gap-2">
+                  <span className="text-[20px] font-bold text-[#202124] leading-none">4.8</span>
+                  <div className="flex gap-px">{[1,2,3,4,5].map(s=><svg key={s} className="w-3.5 h-3.5 fill-[#f59e0b]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
+                  <span className="text-[12px] text-[#70757a]">Chrome Web Store</span>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* Featured pull-quote */}
+            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn} className="max-w-3xl mx-auto text-center mb-12">
+              <p className="text-2xl md:text-3xl font-display font-semibold text-[#202124] leading-snug">
+                "Bought a pack Friday afternoon — <span className="text-primary">had the CSV in my inbox within the hour.</span> Data was clean and ready to import."
+              </p>
+              <div className="flex items-center justify-center gap-2.5 mt-4">
+                <div className="w-8 h-8 rounded-full bg-[#34A853] flex items-center justify-center text-white text-xs font-semibold">J</div>
+                <div className="text-left">
+                  <p className="text-[13px] font-medium text-[#202124]">James O.</p>
+                  <div className="flex items-center gap-1">
+                    {[1,2,3,4,5].map(s=><svg key={s} className="w-3 h-3 fill-[#f59e0b]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}
+                    <span className="text-[11px] text-[#70757a] ml-1">via Google</span>
                   </div>
                 </div>
               </div>
-            </div>
+            </motion.div>
 
-            {/* Review cards */}
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5 max-w-6xl mx-auto">
-              {/* Google review cards */}
-              {([
-                {
-                  name: "Marcus T.", initials: "M", color: "#4285F4",
-                  meta: "Local Guide · 47 reviews · 12 photos",
-                  stars: 5, ago: "2 weeks ago",
-                  text: "Signed up, connected the extension to my account in about two minutes, and the dashboard just works. My leads sync straight into the site, I can filter by city or category, and download a clean CSV whenever I need it. Dead simple.",
-                  helpful: 14,
-                },
-                {
-                  name: "Diego R.", initials: "D", color: "#EA4335",
-                  meta: "Local Guide · 23 reviews",
-                  stars: 5, ago: "3 weeks ago",
-                  text: "The lead storage on this site is what sold me. Everything I collect lands in my account automatically, I can soft-delete stuff I don't need, and the CSV export is one click. Way cleaner than juggling spreadsheets.",
-                  helpful: 9,
-                },
-                {
-                  name: "James O.", initials: "J", color: "#34A853",
-                  meta: "8 reviews",
-                  stars: 5, ago: "5 days ago",
-                  text: "Bought a leads pack through the site on a Friday afternoon, had the CSV in my inbox within the hour. Data was clean, properly formatted, and ready to import. Didn't expect it to be that fast honestly.",
-                  helpful: 6,
-                },
-                {
-                  name: "Chen W.", initials: "C", color: "#FBBC04",
-                  meta: "Local Guide · 91 reviews · 34 photos",
-                  stars: 4, ago: "2 months ago",
-                  text: "Works exactly as advertised. Searched for restaurants in Sydney CBD, got 200+ leads with names, addresses, phones, websites and ratings in about 4 minutes. The Bing Maps version is great too for areas with different coverage. Minor UI gripe: would love a pause button mid-scrape.",
-                  helpful: 22,
-                },
-              ] as const).map((r, i) => (
-                <motion.div key={`g-${i}`} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn}>
-                  <div className="h-full bg-white border border-[#e8eaed] rounded-2xl p-5 flex flex-col gap-3 shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-medium shrink-0" style={{ backgroundColor: r.color }}>{r.initials}</div>
-                        <div>
-                          <p className="text-[14px] font-medium text-[#202124] leading-tight">{r.name}</p>
-                          <p className="text-[11px] text-[#70757a] leading-tight mt-0.5">{r.meta}</p>
+            {/* Review card grid — mixed platforms */}
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-6xl mx-auto">
+
+              {/* Google card: Marcus T. */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn} custom={0}>
+                <div className="h-full bg-white rounded-2xl shadow-[0_1px_3px_rgba(60,64,67,.15),0_1px_2px_rgba(60,64,67,.10)] hover:shadow-[0_2px_6px_rgba(60,64,67,.2)] transition-shadow p-5 flex flex-col">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-full bg-[#4285F4] flex items-center justify-center text-white text-[15px] font-medium shrink-0">M</div>
+                      <div>
+                        <p className="text-[14px] font-medium text-[#202124] leading-none mb-0.5">Marcus T.</p>
+                        <div className="flex items-center gap-1">
+                          <svg className="w-3 h-3 fill-[#4285F4]" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                          <span className="text-[11px] text-[#70757a]">Local Guide · 47 reviews</span>
                         </div>
                       </div>
-                      <svg width="18" height="18" viewBox="0 0 48 48" fill="none" className="shrink-0 mt-0.5"><path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/><path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/></svg>
                     </div>
+                    <svg width="16" height="16" viewBox="0 0 48 48" fill="none" className="shrink-0 mt-0.5"><path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/><path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/></svg>
+                  </div>
+                  <div className="flex items-center gap-1.5 mb-3">
+                    <div className="flex gap-px">{[1,2,3,4,5].map(s=><svg key={s} className="w-[14px] h-[14px] fill-[#f59e0b]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
+                    <span className="text-[12px] text-[#70757a]">2 weeks ago</span>
+                  </div>
+                  <p className="text-[13px] text-[#3c4043] leading-[1.6] flex-1">Signed up, connected the extension in about two minutes, and the dashboard just works. Leads sync straight into my account, I can filter by city or category, and export a clean CSV whenever I need it. Dead simple.</p>
+                  <div className="mt-3 pt-3 border-t border-[#f1f3f4] flex items-center gap-2 text-[11px] text-[#70757a]">
+                    <svg className="w-3.5 h-3.5 fill-[#70757a]" viewBox="0 0 24 24"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+                    Helpful · 14
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Trustpilot card: Sarah K. */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn} custom={1}>
+                <div className="h-full bg-white rounded-2xl shadow-[0_1px_3px_rgba(60,64,67,.15)] hover:shadow-[0_2px_6px_rgba(60,64,67,.2)] transition-shadow p-5 flex flex-col">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex gap-px">
+                      {[1,2,3,4,5].map(s=><div key={s} className="w-[18px] h-[18px] bg-[#00b67a] flex items-center justify-center"><svg className="w-3 h-3 fill-white" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg></div>)}
+                    </div>
+                    <svg width="18" height="18" viewBox="0 0 126.3 125.5"><path d="M126.3 48.2H78L63.2 2.5 48.3 48.2H0l40.5 29.1-15.4 47 38.1-27.5 38.2 27.5-15.5-47z" fill="#00b67a"/><path d="M90.6 89.8l-3.3-10.2-24.1 17.4z" fill="#005128"/></svg>
+                  </div>
+                  <p className="text-[14px] font-semibold text-[#191919] leading-snug mb-2">Email enrichment is the real differentiator</p>
+                  <p className="text-[13px] text-[#3c4043] leading-[1.6] flex-1">We use this to build cold outreach lists for B2B clients. The email enrichment actually works — visits each business website and pulls emails you'd never find otherwise. CSV exports straight into HubSpot.</p>
+                  <div className="mt-3 pt-3 border-t border-[#f1f3f4]">
+                    <p className="text-[11px] text-[#555] mb-2"><span className="font-medium text-[#333]">Date of experience:</span> July 2, 2025</p>
                     <div className="flex items-center gap-2">
-                      <div className="flex gap-px">{[1,2,3,4,5].map(s=><svg key={s} className={`w-3.5 h-3.5 ${s <= r.stars ? "fill-[#f59e0b]" : "fill-[#dadce0]"}`} viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
-                      <span className="text-[12px] text-[#70757a]">{r.ago}</span>
-                    </div>
-                    <p className="text-[13px] text-[#3c4043] leading-relaxed flex-1">{r.text}</p>
-                    <div className="flex items-center gap-1.5 pt-2 border-t border-[#f1f3f4]">
-                      <svg className="w-3.5 h-3.5 fill-[#70757a]" viewBox="0 0 24 24"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
-                      <span className="text-[11px] text-[#70757a]">Helpful · {r.helpful}</span>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-
-              {/* Trustpilot review cards */}
-              {([
-                {
-                  name: "Sarah K.", initials: "SK", color: "#1a1a2e",
-                  location: "United Kingdom",
-                  title: "Email enrichment is the real differentiator",
-                  stars: 5, date: "Jul 2, 2025",
-                  text: "We use this to build cold outreach lists for our B2B clients. The email enrichment actually works — it visits each business website in the background and pulls emails we'd never find otherwise. CSV exports clean into HubSpot perfectly.",
-                  reviewCount: 1,
-                },
-                {
-                  name: "Priya M.", initials: "PM", color: "#2d2d44",
-                  location: "Canada",
-                  title: "Finally a lead tool that respects GDPR",
-                  stars: 5, date: "Jul 8, 2025",
-                  text: "The fact that everything runs locally and nothing gets uploaded to a server is a huge deal for my clients. GDPR compliance is way simpler when the data never leaves the browser. Refreshing to see a tool built this way.",
-                  reviewCount: 3,
-                },
-              ] as const).map((r, i) => (
-                <motion.div key={`tp-${i}`} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn}>
-                  <div className="h-full bg-white border border-[#e8eaed] rounded-2xl p-5 flex flex-col gap-3 shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-center justify-between">
-                      <div className="flex gap-0.5">
-                        {[1,2,3,4,5].map(s=>(
-                          <div key={s} className={`w-[22px] h-[22px] flex items-center justify-center ${s <= r.stars ? "bg-[#00b67a]" : "bg-[#dcdce6]"}`}>
-                            <svg className="w-3.5 h-3.5 fill-white" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>
-                          </div>
-                        ))}
-                      </div>
-                      <svg width="20" height="20" viewBox="0 0 126.3 125.5" className="shrink-0"><path d="M126.3 48.2H78L63.2 2.5 48.3 48.2H0l40.5 29.1-15.4 47 38.1-27.5 38.2 27.5-15.5-47z" fill="#00b67a"/><path d="M90.6 89.8l-3.3-10.2-24.1 17.4z" fill="#005128"/></svg>
-                    </div>
-                    <p className="text-[14px] font-semibold text-[#191919] leading-snug">{r.title}</p>
-                    <p className="text-[13px] text-[#3c4043] leading-relaxed flex-1">{r.text}</p>
-                    <div className="pt-2 border-t border-[#f1f3f4]">
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <svg className="w-3 h-3 fill-[#00b67a]" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/></svg>
-                        <span className="text-[11px] font-medium text-[#00b67a]">Verified</span>
-                        <span className="text-[11px] text-[#70757a]">· {r.date}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0" style={{ backgroundColor: r.color }}>{r.initials}</div>
-                        <div>
-                          <p className="text-[12px] font-medium text-[#191919] leading-tight">{r.name}</p>
-                          <p className="text-[11px] text-[#70757a] leading-tight">{r.reviewCount} review{r.reviewCount !== 1 ? "s" : ""} · {r.location}</p>
+                      <div className="w-7 h-7 rounded-full bg-[#1a1a2e] flex items-center justify-center text-white text-[10px] font-bold">SK</div>
+                      <div>
+                        <p className="text-[12px] font-medium text-[#191919] leading-none mb-0.5">Sarah K.</p>
+                        <div className="flex items-center gap-1">
+                          <svg className="w-3 h-3 fill-[#00b67a]" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/></svg>
+                          <span className="text-[11px] text-[#00b67a] font-medium">Verified buyer</span>
+                          <span className="text-[11px] text-[#70757a]">· United Kingdom</span>
                         </div>
                       </div>
                     </div>
                   </div>
-                </motion.div>
-              ))}
+                </div>
+              </motion.div>
+
+              {/* Google card: Diego R. */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn} custom={2}>
+                <div className="h-full bg-white rounded-2xl shadow-[0_1px_3px_rgba(60,64,67,.15)] hover:shadow-[0_2px_6px_rgba(60,64,67,.2)] transition-shadow p-5 flex flex-col">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-full bg-[#EA4335] flex items-center justify-center text-white text-[15px] font-medium shrink-0">D</div>
+                      <div>
+                        <p className="text-[14px] font-medium text-[#202124] leading-none mb-0.5">Diego R.</p>
+                        <div className="flex items-center gap-1">
+                          <svg className="w-3 h-3 fill-[#4285F4]" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                          <span className="text-[11px] text-[#70757a]">Local Guide · 23 reviews</span>
+                        </div>
+                      </div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 48 48" fill="none" className="shrink-0 mt-0.5"><path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/><path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/></svg>
+                  </div>
+                  <div className="flex items-center gap-1.5 mb-3">
+                    <div className="flex gap-px">{[1,2,3,4,5].map(s=><svg key={s} className="w-[14px] h-[14px] fill-[#f59e0b]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
+                    <span className="text-[12px] text-[#70757a]">3 weeks ago</span>
+                  </div>
+                  <p className="text-[13px] text-[#3c4043] leading-[1.6] flex-1">The lead storage on this site is what sold me. Everything I collect lands in my account automatically, I can remove stuff I don't need, and the CSV export is one click. Way cleaner than juggling spreadsheets.</p>
+                  <div className="mt-3 pt-3 border-t border-[#f1f3f4] flex items-center gap-2 text-[11px] text-[#70757a]">
+                    <svg className="w-3.5 h-3.5 fill-[#70757a]" viewBox="0 0 24 24"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+                    Helpful · 9
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Chrome Web Store card: Chen W. */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn} custom={3}>
+                <div className="h-full bg-white rounded-2xl shadow-[0_1px_3px_rgba(60,64,67,.15)] hover:shadow-[0_2px_6px_rgba(60,64,67,.2)] transition-shadow p-5 flex flex-col">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-full bg-[#FBBC04] flex items-center justify-center text-[#202124] text-[15px] font-medium shrink-0">C</div>
+                      <div>
+                        <p className="text-[14px] font-medium text-[#202124] leading-none mb-0.5">Chen W.</p>
+                        <span className="text-[11px] text-[#70757a]">Chrome Web Store</span>
+                      </div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 192 192" fill="none"><circle cx="96" cy="96" r="96" fill="#fff"/><path d="M96 48a48 48 0 1 0 41.6 72H96V96h80a80 80 0 1 1-80-80z" fill="#4285F4"/><path d="M96 48V0a96 96 0 0 1 83.1 48z" fill="#EA4335"/><path d="M179.1 144A96 96 0 0 1 12.9 144l41.6-24a48 48 0 0 0 83.1 0z" fill="#FBBC04"/><circle cx="96" cy="96" r="32" fill="#fff"/></svg>
+                  </div>
+                  <div className="flex items-center gap-1.5 mb-3">
+                    <div className="flex gap-px">{[1,2,3,4,5].map(s=><svg key={s} className={`w-[14px] h-[14px] ${s <= 4 ? "fill-[#f59e0b]" : "fill-[#dadce0]"}`} viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
+                    <span className="text-[12px] text-[#70757a]">2 months ago</span>
+                  </div>
+                  <p className="text-[13px] text-[#3c4043] leading-[1.6] flex-1">Works exactly as advertised. Searched for restaurants in Sydney CBD, got 200+ leads with names, phones, websites and ratings in about 4 minutes. The Bing Maps version is great for areas with different coverage.</p>
+                  <div className="mt-3 pt-3 border-t border-[#f1f3f4] flex items-center gap-2 text-[11px] text-[#70757a]">
+                    <svg className="w-3.5 h-3.5 fill-[#70757a]" viewBox="0 0 24 24"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+                    Helpful · 22
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Trustpilot card: Priya M. */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn} custom={4}>
+                <div className="h-full bg-white rounded-2xl shadow-[0_1px_3px_rgba(60,64,67,.15)] hover:shadow-[0_2px_6px_rgba(60,64,67,.2)] transition-shadow p-5 flex flex-col">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex gap-px">
+                      {[1,2,3,4,5].map(s=><div key={s} className="w-[18px] h-[18px] bg-[#00b67a] flex items-center justify-center"><svg className="w-3 h-3 fill-white" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg></div>)}
+                    </div>
+                    <svg width="18" height="18" viewBox="0 0 126.3 125.5"><path d="M126.3 48.2H78L63.2 2.5 48.3 48.2H0l40.5 29.1-15.4 47 38.1-27.5 38.2 27.5-15.5-47z" fill="#00b67a"/><path d="M90.6 89.8l-3.3-10.2-24.1 17.4z" fill="#005128"/></svg>
+                  </div>
+                  <p className="text-[14px] font-semibold text-[#191919] leading-snug mb-2">Finally a lead tool that respects GDPR</p>
+                  <p className="text-[13px] text-[#3c4043] leading-[1.6] flex-1">The fact that everything runs locally and nothing gets uploaded to a server is a huge deal for my clients. GDPR compliance is way simpler when data never leaves the browser. Refreshing to see a tool built this way.</p>
+                  <div className="mt-3 pt-3 border-t border-[#f1f3f4]">
+                    <p className="text-[11px] text-[#555] mb-2"><span className="font-medium text-[#333]">Date of experience:</span> July 8, 2025</p>
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-[#2d2d44] flex items-center justify-center text-white text-[10px] font-bold">PM</div>
+                      <div>
+                        <p className="text-[12px] font-medium text-[#191919] leading-none mb-0.5">Priya M.</p>
+                        <div className="flex items-center gap-1">
+                          <svg className="w-3 h-3 fill-[#00b67a]" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/></svg>
+                          <span className="text-[11px] text-[#00b67a] font-medium">Verified buyer</span>
+                          <span className="text-[11px] text-[#70757a]">· Canada</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Google card: wide — Marcus follow-up (spans 1 col, fills the row) */}
+              <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn} custom={5}>
+                <div className="h-full bg-white rounded-2xl shadow-[0_1px_3px_rgba(60,64,67,.15)] hover:shadow-[0_2px_6px_rgba(60,64,67,.2)] transition-shadow p-5 flex flex-col">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-full bg-[#34A853] flex items-center justify-center text-white text-[15px] font-medium shrink-0">J</div>
+                      <div>
+                        <p className="text-[14px] font-medium text-[#202124] leading-none mb-0.5">James O.</p>
+                        <span className="text-[11px] text-[#70757a]">8 reviews</span>
+                      </div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 48 48" fill="none" className="shrink-0 mt-0.5"><path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/><path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/></svg>
+                  </div>
+                  <div className="flex items-center gap-1.5 mb-3">
+                    <div className="flex gap-px">{[1,2,3,4,5].map(s=><svg key={s} className="w-[14px] h-[14px] fill-[#f59e0b]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
+                    <span className="text-[12px] text-[#70757a]">5 days ago</span>
+                  </div>
+                  <p className="text-[13px] text-[#3c4043] leading-[1.6] flex-1">Bought a leads pack on a Friday afternoon, had the CSV in my inbox within the hour. Data was clean, properly formatted, and ready to import into my CRM. Didn't expect it to be that fast honestly.</p>
+                  <div className="mt-3 pt-3 border-t border-[#f1f3f4] flex items-center gap-2 text-[11px] text-[#70757a]">
+                    <svg className="w-3.5 h-3.5 fill-[#70757a]" viewBox="0 0 24 24"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+                    Helpful · 6
+                  </div>
+                </div>
+              </motion.div>
+
             </div>
           </div>
         </section>

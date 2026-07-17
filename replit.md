@@ -47,6 +47,8 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 - **Buyer testimonials (real social proof)**: the pack-delivery email links to `/review?token=<order token>` — only delivered (`ready`/`partial`) orders can submit. Reviews land in the `testimonials` table as `pending`; the admin **Orders** tab has a "Buyer Reviews" card to approve/hide/delete. Only `approved` ones render on the home page ("What buyers say", hidden while empty) via public `GET /api/testimonials`. Never add fabricated reviews/ratings — the old fake Google/Trustpilot widgets and the fake `aggregateRating` JSON-LD were removed deliberately (FTC fake-review rule + Google structured-data penalties).
 
+- **Live site chat with human takeover**: every chat-widget conversation persists to `chat_conversations`/`chat_messages` (widget mints an unguessable `public_id`, kept in sessionStorage — it's also the visitor's polling credential at `GET /api/chat/:publicId/messages`). Admin **💬 Chats** tab (polls every 3–5s) lists conversations and threads; `POST /api/admin/chats/:id/reply` sets `admin_joined` → the AI goes silent and the widget switches to "You're talking to the owner" mode; `/release` hands back to the AI. Works with no OpenAI key (canned holding reply, owner replies live). Owner still gets the existing SMS/email alert on a visitor's first message.
+
 ## Gotchas
 
 - Building the site locally needs env vars: `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/lead-extractor-site run build` (vite.config.ts throws without them; CI sets them in `ops/ci.github-workflow.yml`).

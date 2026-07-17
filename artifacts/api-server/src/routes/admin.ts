@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "@clerk/express";
-import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, packOrders, testimonials, computeOpportunity, computeValue, type ScrapePlatform } from "@workspace/db";
-import { sql, count, gte, eq, and, desc, asc, isNull, isNotNull, inArray, getTableColumns } from "drizzle-orm";
+import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, packOrders, testimonials, chatConversations, chatMessages, computeOpportunity, computeValue, type ScrapePlatform } from "@workspace/db";
+import { sql, count, gte, gt, eq, and, desc, asc, isNull, isNotNull, inArray, getTableColumns } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 import { packWhere } from "../lib/packs";
 import { sendOrder } from "../lib/packWorker";
@@ -1536,6 +1536,76 @@ router.put("/social/settings", requireAuth, async (req, res) => {
   const settings = await updateSocialSettings(patch);
   const { fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p, ...safeSettings } = settings;
   res.json({ ok: true, settings: safeSettings });
+});
+
+// ---- Live site chat: watch conversations + take over from the AI -------------
+
+// GET /chats — conversation list, newest activity first, with unread counts.
+router.get("/chats", requireAuth, async (_req, res) => {
+  const convs = await db.select().from(chatConversations).orderBy(desc(chatConversations.updatedAt)).limit(50);
+  const out = [];
+  for (const c of convs) {
+    const [last] = await db
+      .select({ id: chatMessages.id, sender: chatMessages.sender, body: chatMessages.body, createdAt: chatMessages.createdAt })
+      .from(chatMessages)
+      .where(eq(chatMessages.conversationId, c.id))
+      .orderBy(desc(chatMessages.id))
+      .limit(1);
+    const [{ unread }] = await db
+      .select({ unread: sql<number>`count(*)::int` })
+      .from(chatMessages)
+      .where(and(eq(chatMessages.conversationId, c.id), sql`${chatMessages.id} > ${c.lastAdminReadId}`, eq(chatMessages.sender, "visitor")));
+    out.push({
+      id: c.id,
+      page: c.page,
+      adminJoined: c.adminJoined,
+      updatedAt: c.updatedAt,
+      lastVisitorAt: c.lastVisitorAt,
+      lastMessage: last ?? null,
+      unread,
+    });
+  }
+  res.json({ conversations: out });
+});
+
+// GET /chats/:id/messages?after= — full/incremental thread; marks it read.
+router.get("/chats/:id/messages", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const conv = (await db.select().from(chatConversations).where(eq(chatConversations.id, id)))[0];
+  if (!conv) { res.status(404).json({ error: "Not found" }); return; }
+  const after = Number(req.query.after) || 0;
+  const rows = await db
+    .select({ id: chatMessages.id, sender: chatMessages.sender, body: chatMessages.body, createdAt: chatMessages.createdAt })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.conversationId, id), gt(chatMessages.id, after)))
+    .orderBy(asc(chatMessages.id))
+    .limit(500);
+  const maxId = rows.length ? rows[rows.length - 1]!.id : conv.lastAdminReadId;
+  if (maxId > conv.lastAdminReadId) {
+    await db.update(chatConversations).set({ lastAdminReadId: maxId }).where(eq(chatConversations.id, id));
+  }
+  res.json({ messages: rows, adminJoined: conv.adminJoined });
+});
+
+// POST /chats/:id/reply — owner replies; AI goes silent for this conversation.
+router.post("/chats/:id/reply", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const text = typeof (req.body as { body?: unknown })?.body === "string" ? ((req.body as { body: string }).body).trim() : "";
+  if (!text) { res.status(400).json({ error: "Message is empty." }); return; }
+  const conv = (await db.select().from(chatConversations).where(eq(chatConversations.id, id)))[0];
+  if (!conv) { res.status(404).json({ error: "Not found" }); return; }
+  const [msg] = await db.insert(chatMessages).values({ conversationId: id, sender: "admin", body: text.slice(0, 4000) }).returning();
+  await db.update(chatConversations)
+    .set({ adminJoined: true, updatedAt: new Date(), lastAdminReadId: msg!.id })
+    .where(eq(chatConversations.id, id));
+  res.json({ ok: true, message: msg });
+});
+
+// POST /chats/:id/release — hand the conversation back to the AI assistant.
+router.post("/chats/:id/release", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  await db.update(chatConversations).set({ adminJoined: false, updatedAt: new Date() }).where(eq(chatConversations.id, id));
+  res.json({ ok: true });
 });
 
 // ---- Buyer testimonials: moderation queue ------------------------------------

@@ -262,7 +262,7 @@ export default function Admin() {
       return next;
     });
   };
-  const [activeTab, setActiveTab] = useState<"command" | "orders" | "scraper" | "traffic" | "social" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
+  const [activeTab, setActiveTab] = useState<"command" | "orders" | "chats" | "scraper" | "traffic" | "social" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
 
   // ── Site traffic analytics (Traffic tab) ──────────────────────────────────
   const [traffic, setTraffic] = useState<TrafficData | null>(null);
@@ -293,6 +293,69 @@ export default function Admin() {
   // Load on mount too so the tab badge shows waiting orders immediately.
   useEffect(() => { loadPackOrders(); }, [loadPackOrders]);
   useEffect(() => { if (activeTab === "orders") loadPackOrders(); }, [activeTab, loadPackOrders]);
+
+  // ── Live site chat (💬 Chats tab) ──────────────────────────────────────────
+  type ChatConvRow = { id: number; page: string | null; adminJoined: boolean; updatedAt: string; lastMessage: { sender: string; body: string; createdAt: string } | null; unread: number };
+  type ChatMsgRow = { id: number; sender: string; body: string; createdAt: string };
+  const [chatConvs, setChatConvs] = useState<ChatConvRow[]>([]);
+  const [activeChatId, setActiveChatId] = useState<number | null>(null);
+  const [chatThread, setChatThread] = useState<ChatMsgRow[]>([]);
+  const [chatReply, setChatReply] = useState("");
+  const [chatSending, setChatSending] = useState(false);
+  const chatThreadEndRef = useRef<HTMLDivElement | null>(null);
+  const chatUnreadTotal = chatConvs.reduce((s, c) => s + c.unread, 0);
+  const loadChatConvs = useCallback(async () => {
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/chats`);
+      if (r.ok) setChatConvs(((await r.json()) as { conversations: ChatConvRow[] }).conversations);
+    } catch { /* ignore */ }
+  }, []);
+  const loadChatThread = useCallback(async (id: number, after: number) => {
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/chats/${id}/messages?after=${after}`);
+      if (!r.ok) return;
+      const d = (await r.json()) as { messages: ChatMsgRow[] };
+      if (d.messages.length) setChatThread((t) => (after === 0 ? d.messages : [...t, ...d.messages.filter((m) => !t.some((x) => x.id === m.id))]));
+    } catch { /* ignore */ }
+  }, []);
+  // Conversation list refresh (5s) + live thread refresh (3s) while the tab is open.
+  useEffect(() => {
+    if (activeTab !== "chats") return;
+    loadChatConvs();
+    const iv = setInterval(loadChatConvs, 5000);
+    return () => clearInterval(iv);
+  }, [activeTab, loadChatConvs]);
+  useEffect(() => {
+    if (activeTab !== "chats" || activeChatId === null) return;
+    setChatThread([]);
+    loadChatThread(activeChatId, 0);
+    const iv = setInterval(() => {
+      setChatThread((t) => { loadChatThread(activeChatId, t.length ? t[t.length - 1]!.id : 0); return t; });
+    }, 3000);
+    return () => clearInterval(iv);
+  }, [activeTab, activeChatId, loadChatThread]);
+  useEffect(() => { chatThreadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [chatThread]);
+  const sendChatReply = async () => {
+    const text = chatReply.trim();
+    if (!text || activeChatId === null || chatSending) return;
+    setChatSending(true);
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/chats/${activeChatId}/reply`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: text }),
+      });
+      if (r.ok) {
+        setChatReply("");
+        const last = chatThread.length ? chatThread[chatThread.length - 1]!.id : 0;
+        await loadChatThread(activeChatId, last);
+        loadChatConvs();
+      }
+    } catch { /* ignore */ }
+    setChatSending(false);
+  };
+  const releaseChat = async (id: number) => {
+    try { await adminFetch(`${basePath}/api/admin/chats/${id}/release`, { method: "POST" }); } catch { /* ignore */ }
+    loadChatConvs();
+  };
 
   // ── Buyer testimonials moderation (Orders tab) ─────────────────────────────
   type TestimonialRow = { id: number; orderId: number; name: string; business: string | null; rating: number; quote: string; status: string; createdAt: string };
@@ -1172,10 +1235,10 @@ export default function Admin() {
           {/* ── TABS ──────────────────────────────────────────────────────── */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.09 }} className="mb-6">
             <div className="flex gap-1 bg-card border border-border rounded-xl p-1 w-fit flex-wrap">
-              {(["command", "orders", "scraper", "traffic", "social", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
+              {(["command", "orders", "chats", "scraper", "traffic", "social", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
                 <button key={tab} onClick={() => { setActiveTab(tab); if (tab === "leads" || tab === "money") setPage(1); if (tab === "deleted") setDeletedPage(1); }}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors capitalize ${activeTab === tab ? tab === "deleted" ? "bg-red-500/80 text-white" : "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                  {tab === "command" ? "⚡ Command" : tab === "orders" ? `📦 Orders${ordersNeedingReview > 0 ? ` (${ordersNeedingReview})` : ""}` : tab === "scraper" ? "🕷️ Scraper" : tab === "traffic" ? "📈 Traffic" : tab === "social" ? "📣 Social" : tab === "research" ? "🎯 AI Research" :tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
+                  {tab === "command" ? "⚡ Command" : tab === "orders" ? `📦 Orders${ordersNeedingReview > 0 ? ` (${ordersNeedingReview})` : ""}` : tab === "chats" ? `💬 Chats${chatUnreadTotal > 0 ? ` (${chatUnreadTotal})` : ""}` : tab === "scraper" ? "🕷️ Scraper" : tab === "traffic" ? "📈 Traffic" : tab === "social" ? "📣 Social" : tab === "research" ? "🎯 AI Research" :tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
                 </button>
               ))}
             </div>
@@ -1297,6 +1360,81 @@ export default function Admin() {
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── CHATS TAB (live visitor chat with human takeover) ─────────── */}
+          {activeTab === "chats" && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="grid md:grid-cols-[320px_1fr] gap-4">
+              {/* Conversation list */}
+              <div className="rounded-2xl border border-border bg-card p-4 md:max-h-[70vh] overflow-y-auto">
+                <h2 className="font-display font-bold text-lg flex items-center gap-2 mb-1">💬 Site Chats</h2>
+                <p className="text-xs text-muted-foreground mb-4">Live conversations from the site widget. Reply and the AI hands the visitor to you instantly.</p>
+                {chatConvs.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-6 text-center">No conversations yet — they appear the moment a visitor sends a message.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {chatConvs.map((c) => (
+                      <button key={c.id} onClick={() => setActiveChatId(c.id)}
+                        className={`w-full text-left rounded-xl border p-3 transition-colors ${activeChatId === c.id ? "border-primary/50 bg-primary/5" : "border-border bg-background/40 hover:border-primary/30"}`}>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                          <span className="font-mono">#{c.id}</span>
+                          {c.page && <span className="truncate">{c.page}</span>}
+                          {c.adminJoined && <span className="px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-semibold">you're live</span>}
+                          {c.unread > 0 && <span className="ml-auto px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 font-bold">{c.unread}</span>}
+                        </div>
+                        <p className="text-sm text-foreground truncate">
+                          {c.lastMessage ? `${c.lastMessage.sender === "visitor" ? "👤 " : c.lastMessage.sender === "admin" ? "🫵 " : "🤖 "}${c.lastMessage.body}` : "(empty)"}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-1">{new Date(c.updatedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Active thread */}
+              <div className="rounded-2xl border border-border bg-card p-4 flex flex-col md:max-h-[70vh]">
+                {activeChatId === null ? (
+                  <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground py-20">Pick a conversation to read it and jump in.</div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-2 mb-3 pb-3 border-b border-border">
+                      <div className="text-sm font-semibold">Conversation #{activeChatId}</div>
+                      {chatConvs.find((c) => c.id === activeChatId)?.adminJoined ? (
+                        <button onClick={() => releaseChat(activeChatId)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80">Hand back to AI</button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">AI is answering — send a reply to take over</span>
+                      )}
+                    </div>
+                    <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 min-h-[300px]">
+                      {chatThread.map((m) => (
+                        <div key={m.id} className={`flex ${m.sender === "visitor" ? "justify-start" : "justify-end"}`}>
+                          <div className={`max-w-[80%] rounded-xl px-3.5 py-2 text-sm whitespace-pre-wrap ${
+                            m.sender === "visitor" ? "bg-background border border-border text-foreground"
+                            : m.sender === "admin" ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground"}`}>
+                            <div className="text-[10px] font-bold opacity-70 mb-0.5">{m.sender === "visitor" ? "Visitor" : m.sender === "admin" ? "You" : "AI"}</div>
+                            {m.body}
+                          </div>
+                        </div>
+                      ))}
+                      <div ref={chatThreadEndRef} />
+                    </div>
+                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border">
+                      <input value={chatReply} onChange={(e) => setChatReply(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); sendChatReply(); } }}
+                        placeholder="Type your reply — sending takes over from the AI"
+                        className="flex-1 bg-background border border-border rounded-lg px-4 py-2.5 text-sm text-foreground" />
+                      <button onClick={sendChatReply} disabled={chatSending || !chatReply.trim()}
+                        className="px-4 py-2.5 rounded-lg text-sm font-semibold bg-primary text-primary-foreground disabled:opacity-50 hover:opacity-90">
+                        {chatSending ? "…" : "Reply live"}
+                      </button>
+                    </div>
+                  </>
                 )}
               </div>
             </motion.div>
