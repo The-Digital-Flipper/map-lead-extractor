@@ -6,6 +6,10 @@ import { pgTable, serial, text, integer, boolean, timestamp, index } from "drizz
 export const socialPosts = pgTable("social_posts", {
   id: serial("id").primaryKey(),
   platform: text("platform").notNull().default("facebook"),
+  // Which ad this post is: "leads" sells the paid done-for-you lists (default),
+  // "freetool" promotes the free Chrome extension with its Web Store install
+  // link. The daily scheduler rotates ~1 freetool post for every 2 leads posts.
+  campaign: text("campaign").notNull().default("leads"), // leads | freetool
   body: text("body").notNull(),
   // One short line on why this post works — shown in the admin queue.
   note: text("note"),

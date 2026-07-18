@@ -164,6 +164,29 @@ const PRODUCT = {
 // admin Traffic tab (site_visits.utm_source) instead of blending into Direct.
 const AD_URL = `${PRODUCT.url}?utm_source=facebook&utm_medium=social`;
 
+// The free-extension campaign: a separate ad stream that drives Chrome
+// installs instead of a sale. The link is the Chrome Web Store listing — one
+// click there and Facebook users hit "Add to Chrome" (as close to a direct
+// download as an extension gets). Runs ~1 post for every 2 leads posts.
+const FREE_TOOL = {
+  name: "Map Lead Extractor (free Chrome extension)",
+  // Chrome Web Store listing for the Google/Bing Maps extractor (the primary
+  // free tool). UTM'd so its installs show up by name in the Traffic tab.
+  storeUrl: "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg",
+  oneLiner:
+    "A free Chrome extension that scrapes local-business leads straight off Google & Bing Maps — name, phone, website, and rating — and exports them to CSV. No signup, no credit card; everything stays in your own browser.",
+  audience:
+    "sales reps, lead-gen and marketing agencies, SaaS founders doing outbound, and small-business owners who prospect other local businesses",
+  keyBenefits: [
+    "100% free — add it to Chrome and start pulling leads off Google/Bing Maps in seconds, no account or card needed",
+    "Exports name, phone, website, and rating straight to a CSV in your Downloads folder",
+    "Runs entirely in your browser — your data never touches our servers",
+    "Perfect for building your own cold-outreach list by hand",
+    "When you'd rather skip the manual work, the same folks sell done-for-you human-reviewed lead packs",
+  ],
+};
+const FREE_TOOL_URL = `${FREE_TOOL.storeUrl}?utm_source=facebook&utm_medium=social`;
+
 // ── Settings (singleton row, id = 1) ─────────────────────────────────────────
 
 export async function getSocialSettings(): Promise<SocialSettings> {
@@ -216,10 +239,13 @@ export async function generateSocialPosts(n: number): Promise<SocialPost[]> {
   if (!key) throw new Error("No OpenAI key set — add OPENAI_API_KEY (or CHAT_GPT_API) in the Replit Secrets panel.");
   const howMany = Math.min(10, Math.max(1, n));
 
-  // Recent bodies (queued or already posted) so the model doesn't repeat itself.
+  // Recent bodies (queued or already posted) so the model doesn't repeat
+  // itself — scoped to the leads campaign so it doesn't dedupe against the
+  // free-tool ad stream.
   const recent = await db
     .select({ body: socialPosts.body })
     .from(socialPosts)
+    .where(eq(socialPosts.campaign, "leads"))
     .orderBy(desc(socialPosts.id))
     .limit(20);
 
@@ -278,7 +304,71 @@ export async function generateSocialPosts(n: number): Promise<SocialPost[]> {
 
   return db
     .insert(socialPosts)
-    .values(posts.map((p) => ({ platform: "facebook", body: p.body, note: p.note || null })))
+    .values(posts.map((p) => ({ platform: "facebook", campaign: "leads", body: p.body, note: p.note || null })))
+    .returning();
+}
+
+// ── Free-extension campaign (drives Chrome installs, not sales) ───────────────
+// Same shape as generateSocialPosts, but every post promotes the FREE Chrome
+// extension and carries its Web Store install link in the body so a Facebook
+// tap goes straight to "Add to Chrome". Stored with campaign="freetool" so the
+// scheduler can rotate them in ~1-in-3 alongside the paid-leads ads.
+
+export async function generateFreeToolPosts(n: number): Promise<SocialPost[]> {
+  const key = openAiKey();
+  if (!key) throw new Error("No OpenAI key set — add OPENAI_API_KEY (or CHAT_GPT_API) in the Replit Secrets panel.");
+  const howMany = Math.min(10, Math.max(1, n));
+
+  const recent = await db
+    .select({ body: socialPosts.body })
+    .from(socialPosts)
+    .where(eq(socialPosts.campaign, "freetool"))
+    .orderBy(desc(socialPosts.id))
+    .limit(20);
+
+  const user = [
+    `You write Facebook Page posts that get people to install a FREE Chrome extension.`,
+    ``,
+    `THE FREE TOOL: ${FREE_TOOL.oneLiner}`,
+    `INSTALL IT AT (Chrome Web Store — one click, then "Add to Chrome"): ${FREE_TOOL_URL}`,
+    `AUDIENCE: ${FREE_TOOL.audience}`,
+    `KEY SELLING POINTS:`,
+    ...FREE_TOOL.keyBenefits.map((b) => `  - ${b}`),
+    ``,
+    `Write ${howMany} distinct Facebook Page posts. Rules:`,
+    `- The whole point is to get a FREE install. Lead with the value of doing it yourself for free; the call to action is "add the free extension to Chrome".`,
+    `- It's genuinely free — no signup, no card. Say so. Never imply it costs money.`,
+    `- You MAY mention that done-for-you lead packs are also available for people who'd rather not scrape by hand, but keep the post about the free tool.`,
+    `- Value-first: open with a concrete tip, mini-story, relatable prospecting pain, or question — then land on the free extension as the fix.`,
+    `- Sound like a real person, not an ad agency. 60–130 words each. At most 1-2 emojis. 2-4 relevant hashtags at the very end.`,
+    `- Vary the format across posts (tip / story / before-after / question / myth-bust).`,
+    `- These go out as image ads, so the link shows no preview card — put ${FREE_TOOL_URL} in the body of EVERY post as a clear call to action (e.g. "Add it free → ${FREE_TOOL_URL}").`,
+    recent.length
+      ? `- Do NOT repeat the angle or wording of these recent posts:\n${recent.map((r) => `  • ${r.body.slice(0, 100).replace(/\n/g, " ")}`).join("\n")}`
+      : ``,
+    ``,
+    `Return ONLY JSON: {"posts": [{"body": "<ready-to-publish post text>", "note": "<one short line: the angle and why it works>"}]}`,
+  ].filter(Boolean).join("\n");
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: "gpt-4o",
+      temperature: 0.9,
+      max_tokens: 4000,
+      response_format: { type: "json_object" },
+      messages: [{ role: "user", content: user }],
+    }),
+  });
+  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  const posts = parsePosts(data.choices?.[0]?.message?.content ?? "");
+  if (posts.length === 0) throw new Error("AI returned no usable posts — try again.");
+
+  return db
+    .insert(socialPosts)
+    .values(posts.map((p) => ({ platform: "facebook", campaign: "freetool", body: p.body, note: p.note || null })))
     .returning();
 }
 
@@ -534,15 +624,18 @@ export async function syncEngagementStats(limit: number): Promise<number> {
 export async function generatePostImage(postId: number): Promise<void> {
   const key = openAiKey();
   if (!key) throw new Error("No OpenAI key set — add OPENAI_API_KEY (or CHAT_GPT_API) in the Replit Secrets panel.");
-  const rows = await db.select({ id: socialPosts.id, body: socialPosts.body, status: socialPosts.status }).from(socialPosts).where(eq(socialPosts.id, postId));
+  const rows = await db.select({ id: socialPosts.id, body: socialPosts.body, status: socialPosts.status, campaign: socialPosts.campaign }).from(socialPosts).where(eq(socialPosts.id, postId));
   const post = rows[0];
   if (!post) throw new Error(`Post ${postId} not found`);
   if (post.status === "posted") throw new Error("Already posted — images can only be added before publishing.");
 
+  const subject = post.campaign === "freetool"
+    ? `a free browser extension that scrapes local-business leads off online maps (browser window / puzzle-piece extension motif, "Add to Chrome" energy, map pins, a downloaded contact list)`
+    : `a service that sells ready-made local-business lead lists (map pins, location markers, charts, contact lists, magnifying glass over a city map)`;
   const prompt = [
-    `Clean, modern flat-vector illustration for a B2B social media ad by a service that sells ready-made local-business lead lists.`,
+    `Clean, modern flat-vector illustration for a B2B social media ad by ${subject}.`,
     `Post topic: ${post.body.slice(0, 300).replace(/\n/g, " ")}`,
-    `Style: dark navy background, vivid green (#00E676) and soft blue accents, business motifs (map pins, location markers, charts, contact lists, magnifying glass over a city map).`,
+    `Style: dark navy background, vivid green (#00E676) and soft blue accents.`,
     `Composition: bold, simple, readable as a small thumbnail. Absolutely NO text, no words, no letters, no numbers, no logos, no watermarks.`,
   ].join(" ");
 
@@ -608,7 +701,10 @@ export async function publishPost(postId: number): Promise<SocialPost> {
     form.append("source", new Blob([Buffer.from(post.imageB64, "base64")], { type: "image/png" }), "post.png");
     res = await fetch(`https://graph.facebook.com/v23.0/${fb.pageId}/photos`, { method: "POST", body: form });
   } else {
-    const params = new URLSearchParams({ message: post.body, link: PRODUCT.url, access_token: fb.token });
+    // Link-post fallback (no image): free-tool ads point at the Chrome Web
+    // Store listing, leads ads at the sales page.
+    const link = post.campaign === "freetool" ? FREE_TOOL.storeUrl : PRODUCT.url;
+    const params = new URLSearchParams({ message: post.body, link, access_token: fb.token });
     res = await fetch(`https://graph.facebook.com/v23.0/${fb.pageId}/feed`, { method: "POST", body: params });
   }
   const data = (await res.json().catch(() => ({}))) as { id?: string; post_id?: string; error?: { message?: string } };
@@ -647,8 +743,10 @@ export async function publishPost(postId: number): Promise<SocialPost> {
 
 const TICK_MS = 5 * 60 * 1000;      // check every 5 minutes
 const RETRY_BACKOFF_MS = 2 * 60 * 60 * 1000; // after a failure, wait 2h before trying the next post
-const REFILL_BELOW = 3;             // top the queue up when fewer than this are queued
+const REFILL_BELOW = 3;             // top the leads queue up when fewer than this are queued
 const REFILL_COUNT = 5;
+const FREETOOL_REFILL_BELOW = 2;   // free-tool posts go out ~1-in-3, so keep a shallower buffer
+const FREETOOL_REFILL_COUNT = 3;
 
 let tickInFlight = false;
 
@@ -659,18 +757,32 @@ export async function socialTick(): Promise<void> {
     const settings = await getSocialSettings();
     if (!settings.enabled) return;
 
-    // Keep the queue stocked even before Facebook is connected, so there is
-    // something to review/approve the moment the keys go in.
-    const [{ queued }] = await db
-      .select({ queued: sql<number>`count(*)::int` })
-      .from(socialPosts)
-      .where(and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook")));
-    if (settings.autoRefill && openAiKey() && queued < REFILL_BELOW) {
-      try {
-        const added = await generateSocialPosts(REFILL_COUNT);
-        logger.info({ added: added.length }, "Social queue auto-refilled");
-      } catch (err) {
-        logger.error({ err }, "Social queue auto-refill failed");
+    // Keep both ad queues stocked even before Facebook is connected, so there
+    // is something to review/approve the moment the keys go in. The free-tool
+    // queue is topped up shallower since it only goes out ~1-in-3.
+    if (settings.autoRefill && openAiKey()) {
+      const queuedCount = async (campaign: string) => {
+        const [{ n }] = await db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(socialPosts)
+          .where(and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook"), eq(socialPosts.campaign, campaign)));
+        return n;
+      };
+      if ((await queuedCount("leads")) < REFILL_BELOW) {
+        try {
+          const added = await generateSocialPosts(REFILL_COUNT);
+          logger.info({ added: added.length }, "Leads queue auto-refilled");
+        } catch (err) {
+          logger.error({ err }, "Leads queue auto-refill failed");
+        }
+      }
+      if ((await queuedCount("freetool")) < FREETOOL_REFILL_BELOW) {
+        try {
+          const added = await generateFreeToolPosts(FREETOOL_REFILL_COUNT);
+          logger.info({ added: added.length }, "Free-tool queue auto-refilled");
+        } catch (err) {
+          logger.error({ err }, "Free-tool queue auto-refill failed");
+        }
       }
     }
 
@@ -702,12 +814,25 @@ export async function socialTick(): Promise<void> {
       .limit(1);
     if (recentFailure.length > 0) return;
 
-    const next = await db
-      .select()
+    // Campaign rotation: ~1 free-extension ad for every 2 paid-leads ads.
+    // Keyed off how many Page posts have gone out so far, so every 3rd post
+    // (indexes 2, 5, 8, …) prefers the free-tool queue. Falls back to the
+    // other campaign when the preferred queue happens to be empty.
+    const [{ postedCount }] = await db
+      .select({ postedCount: sql<number>`count(*)::int` })
       .from(socialPosts)
-      .where(and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook")))
-      .orderBy(asc(socialPosts.id))
-      .limit(1);
+      .where(and(eq(socialPosts.status, "posted"), eq(socialPosts.platform, "facebook")));
+    const wantFreetool = postedCount % 3 === 2;
+    const pickQueued = (campaign: string) =>
+      db
+        .select()
+        .from(socialPosts)
+        .where(and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook"), eq(socialPosts.campaign, campaign)))
+        .orderBy(asc(socialPosts.id))
+        .limit(1);
+
+    let next = await pickQueued(wantFreetool ? "freetool" : "leads");
+    if (!next[0]) next = await pickQueued(wantFreetool ? "leads" : "freetool");
     if (!next[0]) return;
 
     // Every ad goes out with a picture (photo posts get ~2-3x the reach).

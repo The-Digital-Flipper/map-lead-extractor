@@ -15,7 +15,7 @@ import { scrapeInFlight, acquireScrapeLock, releaseScrapeLock } from "../lib/scr
 import { reconSellAngle, composeBrief, type ReconBrief } from "../lib/recon";
 import { parseProxyLines, testProxy } from "../lib/proxyPool";
 import {
-  getSocialSettings, updateSocialSettings, generateSocialPosts, publishPost,
+  getSocialSettings, updateSocialSettings, generateSocialPosts, generateFreeToolPosts, publishPost,
   facebookCreds, fbAppConfigured, fbConnectUrl, fbHandleCallback, fbSelectPage, fbDisconnect, FB_REDIRECT_URI,
   generateGroupPosts, listGroups, addGroup, deleteGroup, markGroupPosted, discoverGroups,
   syncEngagementStats, generatePostImage, getPostImage, removePostImage,
@@ -1426,6 +1426,17 @@ router.post("/social/generate", requireAuth, async (req, res) => {
   try {
     const count = Math.min(10, Math.max(1, Number((req.body as { count?: number })?.count) || 5));
     const posts = await generateSocialPosts(count);
+    res.json({ ok: true, posts });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ---- POST /social/generate-freetool — free-extension ads (Chrome install) ----
+router.post("/social/generate-freetool", requireAuth, async (req, res) => {
+  try {
+    const count = Math.min(10, Math.max(1, Number((req.body as { count?: number })?.count) || 3));
+    const posts = await generateFreeToolPosts(count);
     res.json({ ok: true, posts });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

@@ -98,7 +98,7 @@ interface TrafficData {
 }
 
 interface SocialPostRow {
-  id: number; platform: string; body: string; note: string | null;
+  id: number; platform: string; campaign: string; body: string; note: string | null;
   status: string; error: string | null; externalUrl: string | null;
   postedAt: string | null; createdAt: string | null;
   hasImage: boolean;
@@ -404,6 +404,7 @@ export default function Admin() {
   const [social, setSocial] = useState<SocialData | null>(null);
   const [loadingSocial, setLoadingSocial] = useState(false);
   const [generatingSocial, setGeneratingSocial] = useState(false);
+  const [generatingFreeTool, setGeneratingFreeTool] = useState(false);
   const [socialBusyId, setSocialBusyId] = useState<number | null>(null);
   const [socialEditId, setSocialEditId] = useState<number | null>(null);
   const [socialDraft, setSocialDraft] = useState("");
@@ -428,6 +429,19 @@ export default function Admin() {
       else setSocialMsg(`✓ ${d.posts.length} new posts added to the queue`);
     } catch (e) { setSocialMsg(e instanceof Error ? e.message : "Generation failed"); }
     setGeneratingSocial(false);
+    loadSocial();
+  };
+  const socialGenerateFreeTool = async () => {
+    setGeneratingFreeTool(true); setSocialMsg(null);
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/social/generate-freetool`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ count: 3 }),
+      });
+      const d = await r.json();
+      if (!r.ok) setSocialMsg(d.error || "Generation failed");
+      else setSocialMsg(`✓ ${d.posts.length} free-extension posts added to the queue`);
+    } catch (e) { setSocialMsg(e instanceof Error ? e.message : "Generation failed"); }
+    setGeneratingFreeTool(false);
     loadSocial();
   };
   const socialPostNow = async (id: number) => {
@@ -1850,6 +1864,12 @@ export default function Admin() {
                     {generatingSocial ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                     {generatingSocial ? "Writing posts…" : "Generate 5 posts"}
                   </button>
+                  <button onClick={socialGenerateFreeTool} disabled={generatingFreeTool || !social?.aiConfigured}
+                    title="Write ads for the FREE Chrome extension — they carry the Web Store install link and auto-rotate in ~1 of every 3 daily posts"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-muted text-foreground disabled:opacity-50 hover:opacity-80 transition-opacity">
+                    {generatingFreeTool ? <RefreshCw className="w-4 h-4 animate-spin" /> : <>🧩</>}
+                    {generatingFreeTool ? "Writing posts…" : "Free-tool posts"}
+                  </button>
                 </div>
               </div>
 
@@ -1981,6 +2001,7 @@ export default function Admin() {
                       <div key={p.id} className={`rounded-xl border p-4 ${i === 0 ? "border-primary/30 bg-primary/5" : "border-border bg-background/40"}`}>
                         <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
                           {i === 0 && <span className="px-2 py-0.5 rounded-full bg-primary/15 text-primary font-semibold">next up</span>}
+                          {p.campaign === "freetool" && <span className="px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-semibold">🧩 Free extension</span>}
                           {p.note && <span className="truncate">💡 {p.note}</span>}
                         </div>
                         {socialEditId === p.id ? (
@@ -2191,6 +2212,9 @@ export default function Admin() {
                           )}
                           {p.platform === "facebook_group" && (
                             <span className="px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-semibold">group</span>
+                          )}
+                          {p.campaign === "freetool" && (
+                            <span className="px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-semibold">🧩 free ext</span>
                           )}
                           {p.postedAt && <span className="text-muted-foreground">{new Date(p.postedAt).toLocaleString()}</span>}
                           {p.externalUrl && (
