@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
-import { Download, Lock, Shield, Mail } from "lucide-react";
+import { Download, Lock, Shield, Mail, Eye, Phone, Star, Sparkles } from "lucide-react";
+
+type SampleLead = { name: string; city: string; category: string; rating: number | null; reviewCount: number | null; website: string | null; phoneMasked: string | null; hasEmail: boolean };
+type UnlockedLead = { name: string; city: string; category: string; rating: number | null; reviewCount: number | null; website: string | null; phone: string | null; email: string | null };
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -152,6 +155,66 @@ export default function LeadPackWidget() {
     }
     setPackLoading(false);
   };
+  // ── Free sample leads (proof-first email capture) ──────────────────────────
+  const [sampleLoading, setSampleLoading] = useState(false);
+  const [sampleError, setSampleError] = useState<string | null>(null);
+  const [sample, setSample] = useState<
+    { sampleId: number; totalAvailable: number; label: string; location: string; leads: SampleLead[] } | null
+  >(null);
+  const [unlockEmail, setUnlockEmail] = useState("");
+  const [unlockLoading, setUnlockLoading] = useState(false);
+  const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [unlocked, setUnlocked] = useState<UnlockedLead[] | null>(null);
+
+  const handleSeeSamples = async () => {
+    setSampleLoading(true);
+    setSampleError(null);
+    setUnlocked(null);
+    setUnlockError(null);
+    const req = packRequest.trim();
+    const payload = req.length >= 3 ? { request: req } : { category: packCategory, state: packState };
+    try {
+      const res = await fetch(`${basePath}/api/stripe/pack-sample`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setSample({ sampleId: data.sampleId, totalAvailable: data.totalAvailable, label: data.label, location: data.location, leads: data.leads });
+      } else {
+        setSampleError(data.message ?? "No samples for that combination yet — try another type or state.");
+      }
+    } catch {
+      setSampleError("Couldn't load samples right now — please try again.");
+    }
+    setSampleLoading(false);
+  };
+
+  const handleUnlock = async () => {
+    if (!sample) return;
+    const email = unlockEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setUnlockError("Enter a valid email address.");
+      return;
+    }
+    setUnlockLoading(true);
+    setUnlockError(null);
+    try {
+      const res = await fetch(`${basePath}/api/stripe/pack-sample-unlock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sampleId: sample.sampleId, email }),
+      });
+      const data = await res.json();
+      if (data.ok) setUnlocked(data.leads);
+      else setUnlockError(data.error ?? "Couldn't unlock — please try again.");
+    } catch {
+      setUnlockError("Couldn't unlock right now — please try again.");
+    }
+    setUnlockLoading(false);
+  };
+
   // null = not yet known (endpoint unreachable or still loading)
   const [packAvail, setPackAvail] = useState<{ available: number; ok: boolean } | null>(null);
   const [packAvailLoading, setPackAvailLoading] = useState(false);
@@ -233,6 +296,128 @@ export default function LeadPackWidget() {
           <span className="px-2.5 py-1 rounded-full bg-primary/15 border border-primary/30 text-primary text-xs font-bold">71% OFF</span>
         </div>
         <p className="text-muted-foreground">100 targeted local business leads — phone, email, website, ratings & more</p>
+      </div>
+
+      {/* Free sample leads — proof-first. See 5 real leads before paying;
+          entering an email unlocks the full phone/email for those same 5. */}
+      <div className="bg-card/60 border border-primary/25 rounded-2xl p-5 mb-4">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
+            <Eye className="w-4.5 h-4.5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-foreground">See 5 real leads free — before you pay</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Pick a type/state above or type a request, then preview real matching businesses. No card, no signup.</p>
+          </div>
+        </div>
+
+        {!sample && (
+          <button
+            onClick={handleSeeSamples}
+            disabled={sampleLoading}
+            data-testid="btn-see-samples"
+            className="mt-4 w-full flex items-center justify-center gap-2 h-11 rounded-xl border border-primary/50 text-primary font-bold text-sm hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+            {sampleLoading ? (
+              <><span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" /> Finding samples…</>
+            ) : (
+              <><Eye className="w-4 h-4" /> Show me 5 free sample leads</>
+            )}
+          </button>
+        )}
+        {sampleError && <p className="text-sm text-amber-400 mt-3" data-testid="text-sample-error">{sampleError}</p>}
+
+        {sample && (
+          <div className="mt-4" data-testid="box-samples">
+            <p className="text-xs text-muted-foreground mb-2">
+              {sample.leads.length} of <strong className="text-foreground">{sample.totalAvailable.toLocaleString()}</strong> {sample.label || "leads"}{sample.location ? ` in ${sample.location}` : ""} — a real preview{unlocked ? "" : " (contact details hidden)"}:
+            </p>
+            <div className="space-y-2">
+              {sample.leads.map((lead, i) => {
+                const u = unlocked?.[i];
+                return (
+                  <div key={i} className="rounded-xl border border-border bg-background/40 p-3" data-testid={`row-sample-${i}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-foreground text-sm truncate">{lead.name}</div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {lead.city}{lead.website ? <> · <span className="text-foreground/70">{lead.website}</span></> : null}
+                        </div>
+                      </div>
+                      {lead.rating != null && (
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+                          <Star className="w-3.5 h-3.5 fill-[#f59e0b] text-[#f59e0b]" />
+                          <span className="font-semibold text-foreground">{lead.rating.toFixed(1)}</span>
+                          {lead.reviewCount != null && <span>({lead.reviewCount})</span>}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <Phone className="w-3.5 h-3.5 text-primary shrink-0" />
+                        {u ? (
+                          <span className="font-semibold text-foreground" data-testid={`text-phone-${i}`}>{u.phone}</span>
+                        ) : (
+                          <span className="text-muted-foreground font-mono">{lead.phoneMasked}</span>
+                        )}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <Mail className="w-3.5 h-3.5 text-primary shrink-0" />
+                        {u ? (
+                          <span className="font-semibold text-foreground truncate max-w-[180px]" data-testid={`text-email-${i}`}>{u.email ?? "—"}</span>
+                        ) : lead.hasEmail ? (
+                          <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> email included</span>
+                        ) : (
+                          <span className="text-muted-foreground/60">no email</span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {!unlocked ? (
+              <div className="mt-4 rounded-xl bg-primary/5 border border-primary/25 p-4">
+                <p className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
+                  <Lock className="w-4 h-4 text-primary" /> Unlock the full phone &amp; email for all 5 — free
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="email"
+                    value={unlockEmail}
+                    onChange={e => { setUnlockEmail(e.target.value); setUnlockError(null); }}
+                    onKeyDown={e => { if (e.key === "Enter") handleUnlock(); }}
+                    placeholder="you@email.com"
+                    data-testid="input-unlock-email"
+                    className="flex-1 h-11 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm placeholder:text-[#9aa0a6] focus:outline-none focus:border-primary transition-colors"
+                  />
+                  <button
+                    onClick={handleUnlock}
+                    disabled={unlockLoading}
+                    data-testid="btn-unlock-samples"
+                    className="h-11 px-5 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap">
+                    {unlockLoading ? "Unlocking…" : "Unlock all 5 →"}
+                  </button>
+                </div>
+                {unlockError && <p className="text-sm text-red-400 mt-2" data-testid="text-unlock-error">{unlockError}</p>}
+                <p className="text-[11px] text-muted-foreground mt-2">We'll email you these 5 and occasional lead deals. No spam — unsubscribe anytime.</p>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl bg-primary/10 border border-primary/40 p-4 text-center">
+                <p className="text-sm font-bold text-foreground flex items-center justify-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-primary" /> That's 5 of {sample.totalAvailable.toLocaleString()}. Get the full pack of 100 for $29.
+                </p>
+                <a
+                  href="#pack-buy"
+                  onClick={() => { document.querySelector('[data-testid="btn-buy-lead-pack"]')?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+                  data-testid="link-sample-to-buy"
+                  className="mt-3 inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 transition-opacity">
+                  <Download className="w-4 h-4" /> Get 100 Leads — $29
+                </a>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Main conversion card */}

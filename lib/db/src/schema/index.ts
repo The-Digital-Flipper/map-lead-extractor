@@ -7,6 +7,7 @@ export * from "./collections";
 export * from "./scrapeTargets";
 export * from "./scrapeRuns";
 export * from "./packOrders";
+export * from "./sampleRequests";
 export * from "./testimonials";
 export * from "./chats";
 export * from "./proxies";

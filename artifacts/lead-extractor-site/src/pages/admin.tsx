@@ -262,7 +262,7 @@ export default function Admin() {
       return next;
     });
   };
-  const [activeTab, setActiveTab] = useState<"command" | "orders" | "chats" | "scraper" | "traffic" | "social" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
+  const [activeTab, setActiveTab] = useState<"command" | "orders" | "captured" | "chats" | "scraper" | "traffic" | "social" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
 
   // ── Site traffic analytics (Traffic tab) ──────────────────────────────────
   const [traffic, setTraffic] = useState<TrafficData | null>(null);
@@ -277,6 +277,54 @@ export default function Admin() {
     setLoadingTraffic(false);
   }, []);
   useEffect(() => { if (activeTab === "traffic") loadTraffic(trafficDays); }, [activeTab, trafficDays, loadTraffic]);
+
+  // ── Captured leads (email capture from the free-sample flow) ───────────────
+  type CapturedLead = {
+    id: number; email: string; label: string; location: string; rawRequest: string | null;
+    sampleCount: number; createdAt: string; unlockedAt: string | null;
+    followedUpAt: string | null; unsubscribedAt: string | null; purchased: boolean;
+  };
+  type CapturedData = {
+    leads: CapturedLead[];
+    stats: { totalViews: number; captures: number; followedUp: number; unsubscribed: number; purchased: number };
+    followupReady: boolean;
+  };
+  const [captured, setCaptured] = useState<CapturedData | null>(null);
+  const [loadingCaptured, setLoadingCaptured] = useState(false);
+  const [followingUpId, setFollowingUpId] = useState<number | null>(null);
+  const [capturedMsg, setCapturedMsg] = useState<string | null>(null);
+  const loadCaptured = useCallback(async () => {
+    setLoadingCaptured(true);
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/captured-leads`);
+      if (r.ok) setCaptured(await r.json());
+    } catch { /* ignore */ }
+    setLoadingCaptured(false);
+  }, []);
+  useEffect(() => { if (activeTab === "captured") loadCaptured(); }, [activeTab, loadCaptured]);
+  const sendFollowup = useCallback(async (id: number) => {
+    setFollowingUpId(id);
+    setCapturedMsg(null);
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/captured-leads/${id}/follow-up`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { setCapturedMsg("Follow-up sent."); await loadCaptured(); }
+      else setCapturedMsg(d.error ?? "Couldn't send follow-up.");
+    } catch { setCapturedMsg("Couldn't send follow-up."); }
+    setFollowingUpId(null);
+  }, [loadCaptured]);
+  const exportCaptured = useCallback(async () => {
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/captured-leads/export.csv`);
+      if (!r.ok) { setCapturedMsg("Export failed."); return; }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "captured-leads.csv";
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch { setCapturedMsg("Export failed."); }
+  }, []);
 
   // ── Pack orders (Orders tab): the review-and-send queue ───────────────────
   const [packOrdersList, setPackOrdersList] = useState<PackOrderRow[]>([]);
@@ -1249,14 +1297,99 @@ export default function Admin() {
           {/* ── TABS ──────────────────────────────────────────────────────── */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.09 }} className="mb-6">
             <div className="flex gap-1 bg-card border border-border rounded-xl p-1 w-fit flex-wrap">
-              {(["command", "orders", "chats", "scraper", "traffic", "social", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
+              {(["command", "orders", "captured", "chats", "scraper", "traffic", "social", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
                 <button key={tab} onClick={() => { setActiveTab(tab); if (tab === "leads" || tab === "money") setPage(1); if (tab === "deleted") setDeletedPage(1); }}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors capitalize ${activeTab === tab ? tab === "deleted" ? "bg-red-500/80 text-white" : "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                  {tab === "command" ? "⚡ Command" : tab === "orders" ? `📦 Orders${ordersNeedingReview > 0 ? ` (${ordersNeedingReview})` : ""}` : tab === "chats" ? `💬 Chats${chatUnreadTotal > 0 ? ` (${chatUnreadTotal})` : ""}` : tab === "scraper" ? "🕷️ Scraper" : tab === "traffic" ? "📈 Traffic" : tab === "social" ? "📣 Social" : tab === "research" ? "🎯 AI Research" :tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
+                  {tab === "command" ? "⚡ Command" : tab === "orders" ? `📦 Orders${ordersNeedingReview > 0 ? ` (${ordersNeedingReview})` : ""}` : tab === "captured" ? "✉️ Captured Leads" : tab === "chats" ? `💬 Chats${chatUnreadTotal > 0 ? ` (${chatUnreadTotal})` : ""}` : tab === "scraper" ? "🕷️ Scraper" : tab === "traffic" ? "📈 Traffic" : tab === "social" ? "📣 Social" : tab === "research" ? "🎯 AI Research" :tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
                 </button>
               ))}
             </div>
           </motion.div>
+
+          {/* ── CAPTURED LEADS TAB (free-sample email capture) ───────────── */}
+          {activeTab === "captured" && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                  <div>
+                    <h2 className="font-display font-bold text-lg flex items-center gap-2"><Users className="w-5 h-5 text-primary" /> Captured Leads</h2>
+                    <p className="text-sm text-muted-foreground max-w-2xl">People who unlocked free sample leads with their email. They get an automatic "grab the other 95" follow-up ~1 hour after unlocking — or send it now with the ✉ button.</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={exportCaptured} disabled={!captured?.leads?.length}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-colors disabled:opacity-50">
+                      <Download className="w-4 h-4" /> Export CSV
+                    </button>
+                    <button onClick={loadCaptured} disabled={loadingCaptured}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-colors disabled:opacity-50">
+                      <RefreshCw className={`w-4 h-4 ${loadingCaptured ? "animate-spin" : ""}`} /> Refresh
+                    </button>
+                  </div>
+                </div>
+
+                {captured?.stats && (
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
+                    {[
+                      { label: "Sample views", value: captured.stats.totalViews },
+                      { label: "Emails captured", value: captured.stats.captures },
+                      { label: "Followed up", value: captured.stats.followedUp },
+                      { label: "Purchased", value: captured.stats.purchased },
+                      { label: "Unsubscribed", value: captured.stats.unsubscribed },
+                    ].map(s => (
+                      <div key={s.label} className="rounded-xl border border-border bg-background/40 p-3">
+                        <div className="text-xl font-display font-bold text-foreground">{s.value.toLocaleString()}</div>
+                        <div className="text-[11px] text-muted-foreground">{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {captured && !captured.followupReady && (
+                  <p className="text-xs text-amber-400 mb-3">⚠ No email provider configured — set up Gmail or Resend in the ⚡ Automate settings to send follow-ups.</p>
+                )}
+                {capturedMsg && <p className="text-xs text-primary mb-3">{capturedMsg}</p>}
+
+                {!captured?.leads?.length ? (
+                  <p className="text-sm text-muted-foreground py-8 text-center">{loadingCaptured ? "Loading…" : "No captured emails yet. They'll appear here when a visitor unlocks free sample leads."}</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-muted-foreground border-b border-border">
+                          <th className="py-2 pr-3">Email</th><th className="py-2 pr-3">Wanted</th>
+                          <th className="py-2 pr-3">Captured</th><th className="py-2 pr-3">Status</th><th className="py-2">Follow-up</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {captured.leads.map(l => (
+                          <tr key={l.id} className="border-b border-border/50">
+                            <td className="py-2 pr-3 font-medium text-foreground">{l.email}</td>
+                            <td className="py-2 pr-3 text-muted-foreground">{[l.label, l.location].filter(Boolean).join(" · ") || l.rawRequest || "—"}</td>
+                            <td className="py-2 pr-3 text-muted-foreground whitespace-nowrap">{l.unlockedAt ? new Date(l.unlockedAt).toLocaleDateString() : "—"}</td>
+                            <td className="py-2 pr-3">
+                              {l.purchased ? <span className="text-primary font-semibold">✓ Purchased</span>
+                                : l.unsubscribedAt ? <span className="text-muted-foreground">Unsubscribed</span>
+                                : l.followedUpAt ? <span className="text-muted-foreground">Followed up</span>
+                                : <span className="text-amber-400">New</span>}
+                            </td>
+                            <td className="py-2">
+                              <button
+                                onClick={() => sendFollowup(l.id)}
+                                disabled={followingUpId === l.id || !!l.followedUpAt || !!l.unsubscribedAt || l.purchased || !captured.followupReady}
+                                title={l.purchased ? "Already bought" : l.unsubscribedAt ? "Unsubscribed" : l.followedUpAt ? "Already sent" : "Send follow-up now"}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-primary/50 text-primary text-xs font-semibold hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-primary">
+                                <Send className={`w-3.5 h-3.5 ${followingUpId === l.id ? "animate-pulse" : ""}`} /> {followingUpId === l.id ? "Sending…" : "Send"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
 
           {/* ── ORDERS TAB (lead-pack review & send queue) ───────────────── */}
           {activeTab === "orders" && (

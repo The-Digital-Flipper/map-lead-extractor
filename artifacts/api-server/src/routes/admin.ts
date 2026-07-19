@@ -1,6 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "@clerk/express";
-import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, packOrders, testimonials, chatConversations, chatMessages, computeOpportunity, computeValue, type ScrapePlatform } from "@workspace/db";
+import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, packOrders, testimonials, chatConversations, chatMessages, sampleRequests, computeOpportunity, computeValue, type ScrapePlatform } from "@workspace/db";
 import { sql, count, gte, gt, eq, and, desc, asc, isNull, isNotNull, inArray, getTableColumns } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 import { packWhere } from "../lib/packs";
@@ -21,6 +21,8 @@ import {
   syncEngagementStats, generatePostImage, getPostImage, removePostImage,
   socialChat, type SocialChatMessage,
 } from "../lib/social";
+import { sendBuyerFollowup } from "../lib/buyer-followup";
+import { anyProviderConfigured, providerReady, getOutreachSettings } from "../lib/outreach-auto";
 
 const router = Router();
 
@@ -1692,6 +1694,90 @@ router.post("/pack-orders/:id/send", requireAuth, async (req, res) => {
   } catch (err) {
     res.status(409).json({ error: err instanceof Error ? err.message : "Send failed." });
   }
+});
+
+// ── Captured leads (free-sample email capture) ────────────────────────────────
+// The people who unlocked free sample leads with an email. `sample_requests`
+// WHERE email IS NOT NULL is the list; the whole table is the sample funnel.
+
+/** GET /api/admin/captured-leads — the captured email list + funnel stats. */
+router.get("/captured-leads", requireAuth, async (_req, res) => {
+  const rows = await db.select().from(sampleRequests)
+    .where(isNotNull(sampleRequests.email))
+    .orderBy(desc(sampleRequests.id))
+    .limit(500);
+
+  const [[views], [captures]] = await Promise.all([
+    db.select({ n: count() }).from(sampleRequests),
+    db.select({ n: count() }).from(sampleRequests).where(isNotNull(sampleRequests.email)),
+  ]);
+  const followedUp = rows.filter(r => r.followedUpAt).length;
+  const unsubscribed = rows.filter(r => r.unsubscribedAt).length;
+
+  // Which captured emails have actually bought a pack (matched on Stripe email).
+  const emails = Array.from(new Set(rows.map(r => (r.email ?? "").toLowerCase()).filter(Boolean)));
+  const buyers = emails.length
+    ? await db.select({ email: packOrders.email }).from(packOrders)
+        .where(and(isNotNull(packOrders.paidAt), inArray(sql`lower(${packOrders.email})`, emails)))
+    : [];
+  const bought = new Set(buyers.map(b => (b.email ?? "").toLowerCase()));
+
+  const s = await getOutreachSettings();
+  res.json({
+    leads: rows.map(r => ({
+      id: r.id,
+      email: r.email,
+      label: r.label,
+      location: [r.city, r.state].filter(Boolean).join(", "),
+      rawRequest: r.rawRequest,
+      sampleCount: (r.leadIds ?? []).length,
+      createdAt: r.createdAt,
+      unlockedAt: r.unlockedAt,
+      followedUpAt: r.followedUpAt,
+      unsubscribedAt: r.unsubscribedAt,
+      purchased: bought.has((r.email ?? "").toLowerCase()),
+    })),
+    stats: {
+      totalViews: views?.n ?? 0,
+      captures: captures?.n ?? 0,
+      followedUp,
+      unsubscribed,
+      purchased: bought.size,
+    },
+    followupReady: anyProviderConfigured() && providerReady(s),
+  });
+});
+
+/** GET /api/admin/captured-leads/export.csv — download the captured emails. */
+router.get("/captured-leads/export.csv", requireAuth, async (_req, res) => {
+  const rows = await db.select().from(sampleRequests)
+    .where(isNotNull(sampleRequests.email))
+    .orderBy(desc(sampleRequests.id));
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="captured-leads.csv"`);
+  const headers = ["Email", "Requested", "City", "State", "Sample Size", "Captured At", "Unlocked At", "Followed Up At", "Unsubscribed At"];
+  let csv = headers.join(",") + "\n";
+  for (const r of rows) {
+    csv += [r.email, r.label, r.city, r.state, (r.leadIds ?? []).length, r.createdAt?.toISOString(), r.unlockedAt?.toISOString(), r.followedUpAt?.toISOString(), r.unsubscribedAt?.toISOString()].map(packCsvCell).join(",") + "\n";
+  }
+  res.send(csv);
+});
+
+/** POST /api/admin/captured-leads/:id/follow-up — send the buyer nudge now. */
+router.post("/captured-leads/:id/follow-up", requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id." }); return; }
+  const r = await sendBuyerFollowup(id);
+  if (r.ok) { res.json({ ok: true }); return; }
+  const status = r.reason === "no_provider" ? 409 : r.reason === "not_found" ? 404 : 400;
+  const msg = r.reason === "no_provider"
+    ? "No email provider configured — set up Gmail or Resend in the Automate settings first."
+    : r.reason === "already_sent" ? "Already followed up."
+    : r.reason === "unsubscribed" ? "This person unsubscribed."
+    : r.reason === "no_email" ? "No email on this capture."
+    : `Send failed: ${r.reason}`;
+  res.status(status).json({ error: msg });
 });
 
 export default router;

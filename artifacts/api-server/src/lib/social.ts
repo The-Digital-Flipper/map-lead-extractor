@@ -635,23 +635,42 @@ export async function generatePostImage(postId: number): Promise<void> {
   if (!post) throw new Error(`Post ${postId} not found`);
   if (post.status === "posted") throw new Error("Already posted — images can only be added before publishing.");
 
-  // Two creative recipes. The leads ad sells the paid done-for-you list and
-  // shows the money hook; the free-tool ad sells the "FREE / Add to Chrome"
-  // install. Both must READ as buying/using a business-lead list at a glance.
+  // Two campaigns, but instead of ONE fixed recipe each we rotate through a set
+  // of distinct art-directed concepts so the feed never shows the same creative
+  // twice. The concept is chosen deterministically from the post id (stable on
+  // regenerate, varied across the queue). Every concept still has to READ as
+  // "ready-made / DIY business-lead list" at a glance and carry the one hook.
   const isFreeTool = post.campaign === "freetool";
-  const scene = isFreeTool
-    ? `A crisp laptop or phone screen showing a Google/Bing Maps view with glowing location pins, and a browser extension puzzle-piece icon pulling those local businesses into a tidy contact list (business names, phone numbers, websites). "Add to Chrome" energy — the free DIY lead-scraping tool.`
-    : `A crisp laptop or phone screen showing a clean spreadsheet/CSV of local-business leads — columns of business names, phone numbers, emails and star ratings — with map location pins and a subtle checkout/"purchase complete" cue (a card or a green checkmark). It should read instantly as buying a ready-made, done-for-you list of business leads.`;
+
+  // Each concept = a complete scene + composition direction. Keep the on-image
+  // TEXT to the single headline line below; concepts describe the picture only.
+  const leadsConcepts = [
+    `HERO PRODUCT SHOT: a single glossy floating UI card — a clean CRM/spreadsheet of local-business leads (columns of business names, phone numbers, emails, gold star ratings) — hovering in 3/4 perspective above a dark stylized city map studded with softly glowing green location pins. A crisp green checkmark "delivered" seal in one corner. Dramatic studio product lighting, shallow depth of field, subtle reflections.`,
+    `BEFORE / AFTER SPLIT: left half a chaotic tangle of scattered map pins and messy sticky notes in cool desaturated tones; right half the same data resolved into one immaculate, brightly lit contact list. A bold vertical divider with a forward arrow. Instantly communicates "we do the messy part for you."`,
+    `PHONE-IN-HAND: a modern smartphone held at a natural angle, screen showing a "Your leads are ready" notification over a tidy list of businesses with phone numbers, a green download button glowing. Soft bokeh office background, warm rim light, premium lifestyle-product feel. No visible human face.`,
+    `TOP-DOWN FLATLAY: an overhead desk scene — a laptop displaying a clean CSV of local-business leads, a coffee cup, a phone showing map pins, a small stack of "delivered" cards — arranged with generous negative space and even soft lighting, like a polished SaaS brand photo. No people.`,
+    `BOLD TYPOGRAPHIC POSTER: a striking minimalist poster where oversized numerals dominate, with map-pin and spreadsheet-row motifs woven behind the type as texture. Big, confident, high-contrast, gallery-grade graphic design.`,
+  ];
+  const freeToolConcepts = [
+    `HERO PRODUCT SHOT: a floating browser window in 3/4 perspective showing a Google/Bing Maps view full of glowing green pins, with a Chrome extension puzzle-piece icon visibly pulling those businesses into a tidy contact list beside it (names, phones, websites). Dramatic studio lighting, glossy reflections, shallow depth of field.`,
+    `FUNNEL COMPOSITION: a map full of scattered location pins at the top visually funneling down through the extension icon into one clean, organized spreadsheet of leads at the bottom. Clear top-to-bottom flow, bright and energetic, "one click and it's sorted."`,
+    `PHONE / LAPTOP MOCKUP: a laptop screen showing the extension mid-scrape — a maps search on one side, a filling contact table on the other, an "Add to Chrome" pill glowing. Clean modern desk, soft rim light, premium tech-product look. No human face.`,
+    `BOLD TYPOGRAPHIC POSTER: a striking minimalist poster led by big confident type, with a puzzle-piece extension icon and map-pin motifs as supporting graphic texture. High-contrast, thumb-stopping, gallery-grade design.`,
+  ];
+  const concepts = isFreeTool ? freeToolConcepts : leadsConcepts;
+  const scene = concepts[postId % concepts.length];
+
   const headline = isFreeTool
-    ? `Put a short, correctly-spelled headline in the image: a bold "FREE LEAD SCRAPER" as the main line, with a smaller "Add to Chrome" pill/button. No other text.`
-    : `Put a short, correctly-spelled headline in the image: a bold "100 LOCAL LEADS" as the main line, a large "$29" price badge, and a small "DONE-FOR-YOU • DELIVERED IN HOURS" strip. No other text.`;
+    ? `On-image text (the ONLY text allowed): a bold "FREE LEAD SCRAPER" main line and a smaller "Add to Chrome" pill/button. Perfectly spelled. Nothing else.`
+    : `On-image text (the ONLY text allowed): a bold "100 LOCAL LEADS" main line, a large "$29" price badge, and a small "DONE-FOR-YOU · DELIVERED IN HOURS" strip. Perfectly spelled. Nothing else.`;
+
   const prompt = [
-    `Design a scroll-stopping, professional B2B Facebook feed ad — polished modern SaaS/marketing creative, not a plain illustration.`,
-    `Subject: ${scene}`,
-    `Match the angle of this caption (for tone only, do not transcribe it): ${post.body.slice(0, 200).replace(/\n/g, " ")}`,
+    `Design a scroll-stopping, professional B2B Facebook feed ad — the caliber of a top SaaS brand's paid creative, shot like a real advertising photograph/render, not a flat clip-art illustration.`,
+    `Concept: ${scene}`,
+    `Match the angle of this caption (for tone only — do NOT transcribe it): ${post.body.slice(0, 200).replace(/\n/g, " ")}`,
     headline,
-    `Style: premium and high-contrast. Deep navy background, vivid green (#00E676) as the accent/CTA color, soft blue highlights, clean sans-serif type. Sharp, uncluttered, and still legible as a small thumbnail in the feed.`,
-    `Text must be minimal, perfectly spelled and legible — only the headline/price described above. No paragraphs, no gibberish text, no fake company logos, no watermarks, no stock-photo faces.`,
+    `Art direction: premium, high-contrast, cinematic. Deep navy background (#0B1220), vivid green (#00E676) as the single accent/CTA color, soft electric-blue highlights and glow, generous negative space, crisp clean sans-serif type, believable lighting and shadows. Composition must stay legible and punchy even as a small thumbnail in a busy mobile feed.`,
+    `Hard rules: minimal text — only the exact headline described above, perfectly spelled and sharply legible. No paragraphs, no gibberish or lorem-ipsum text, no fake company logos or brand marks, no watermarks, no stock-photo human faces, no cluttered UI. Photorealistic-to-3D-render quality, never amateur or cartoonish.`,
   ].join(" ");
 
   // gpt-image-1 first (current API, returns b64 by default); dall-e-3 as a
