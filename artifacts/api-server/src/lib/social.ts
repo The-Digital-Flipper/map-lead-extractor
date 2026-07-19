@@ -620,6 +620,12 @@ export async function syncEngagementStats(limit: number): Promise<number> {
 // Image posts get ~2-3x the reach of plain text on Facebook. The image is
 // generated from the post's own topic and stored as base64 on the row;
 // publishing then goes through /photos instead of /feed.
+//
+// These are conversion ads, not decoration: the picture itself has to say
+// "buy ready-made business leads" and carry the price hook, because most of the
+// feed sees the image long before it reads the caption. gpt-image-1 renders
+// short headline text cleanly now, so the creative leads with a punchy headline
+// + the offer instead of the old text-free abstract illustration.
 
 export async function generatePostImage(postId: number): Promise<void> {
   const key = openAiKey();
@@ -629,14 +635,23 @@ export async function generatePostImage(postId: number): Promise<void> {
   if (!post) throw new Error(`Post ${postId} not found`);
   if (post.status === "posted") throw new Error("Already posted — images can only be added before publishing.");
 
-  const subject = post.campaign === "freetool"
-    ? `a free browser extension that scrapes local-business leads off online maps (browser window / puzzle-piece extension motif, "Add to Chrome" energy, map pins, a downloaded contact list)`
-    : `a service that sells ready-made local-business lead lists (map pins, location markers, charts, contact lists, magnifying glass over a city map)`;
+  // Two creative recipes. The leads ad sells the paid done-for-you list and
+  // shows the money hook; the free-tool ad sells the "FREE / Add to Chrome"
+  // install. Both must READ as buying/using a business-lead list at a glance.
+  const isFreeTool = post.campaign === "freetool";
+  const scene = isFreeTool
+    ? `A crisp laptop or phone screen showing a Google/Bing Maps view with glowing location pins, and a browser extension puzzle-piece icon pulling those local businesses into a tidy contact list (business names, phone numbers, websites). "Add to Chrome" energy — the free DIY lead-scraping tool.`
+    : `A crisp laptop or phone screen showing a clean spreadsheet/CSV of local-business leads — columns of business names, phone numbers, emails and star ratings — with map location pins and a subtle checkout/"purchase complete" cue (a card or a green checkmark). It should read instantly as buying a ready-made, done-for-you list of business leads.`;
+  const headline = isFreeTool
+    ? `Put a short, correctly-spelled headline in the image: a bold "FREE LEAD SCRAPER" as the main line, with a smaller "Add to Chrome" pill/button. No other text.`
+    : `Put a short, correctly-spelled headline in the image: a bold "100 LOCAL LEADS" as the main line, a large "$29" price badge, and a small "DONE-FOR-YOU • DELIVERED IN HOURS" strip. No other text.`;
   const prompt = [
-    `Clean, modern flat-vector illustration for a B2B social media ad by ${subject}.`,
-    `Post topic: ${post.body.slice(0, 300).replace(/\n/g, " ")}`,
-    `Style: dark navy background, vivid green (#00E676) and soft blue accents.`,
-    `Composition: bold, simple, readable as a small thumbnail. Absolutely NO text, no words, no letters, no numbers, no logos, no watermarks.`,
+    `Design a scroll-stopping, professional B2B Facebook feed ad — polished modern SaaS/marketing creative, not a plain illustration.`,
+    `Subject: ${scene}`,
+    `Match the angle of this caption (for tone only, do not transcribe it): ${post.body.slice(0, 200).replace(/\n/g, " ")}`,
+    headline,
+    `Style: premium and high-contrast. Deep navy background, vivid green (#00E676) as the accent/CTA color, soft blue highlights, clean sans-serif type. Sharp, uncluttered, and still legible as a small thumbnail in the feed.`,
+    `Text must be minimal, perfectly spelled and legible — only the headline/price described above. No paragraphs, no gibberish text, no fake company logos, no watermarks, no stock-photo faces.`,
   ].join(" ");
 
   // gpt-image-1 first (current API, returns b64 by default); dall-e-3 as a
@@ -655,7 +670,7 @@ export async function generatePostImage(postId: number): Promise<void> {
 
   let img: { b64_json?: string; url?: string };
   try {
-    img = await tryModel({ model: "gpt-image-1", prompt, n: 1, size: "1024x1024", quality: "medium" });
+    img = await tryModel({ model: "gpt-image-1", prompt, n: 1, size: "1024x1024", quality: "high" });
   } catch {
     img = await tryModel({ model: "dall-e-3", prompt, n: 1, size: "1024x1024" });
   }
