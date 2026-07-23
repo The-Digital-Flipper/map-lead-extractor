@@ -15,6 +15,7 @@ import {
   WhatYouGet,
   BuySection,
   BuyerReviews,
+  PlatformReviews,
   HowItWorks,
   FaqSection,
   FinalCta,
@@ -162,6 +163,7 @@ export default function SocialLanding({ params }: { params: { variant: string } 
         {/* Buy — the conversion widget (already shown up top on sample-first pages) */}
         {!lp.sampleFirst && buySection}
 
+        <PlatformReviews />
         <BuyerReviews />
 
         <HowItWorks />
