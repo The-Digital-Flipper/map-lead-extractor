@@ -24,7 +24,7 @@ import { getUncachableStripeClient } from "../stripeClient";
 import { acquireScrapeLock, releaseScrapeLock } from "./scrapeLock";
 import { scrapeAndSave } from "./scrape";
 import { discoverBusinesses } from "./discover";
-import { resendConfigured, gmailConfigured, getGmailTransport, gmailAddress } from "./outreach-auto";
+import { resendConfigured, gmailSendReady, sendGmailMail } from "./outreach-auto";
 import { countPackLeads, packWhere, locationString, LEAD_PACK, type PackFilters } from "./packs";
 
 const TICK_MS = 120_000;
@@ -212,10 +212,8 @@ async function deliverEmail(to: string, subject: string, html: string, orderId: 
     }
     return true;
   }
-  if (gmailConfigured()) {
-    await getGmailTransport().sendMail({
-      from: `MapLeadExtractor <${gmailAddress()!}>`, to, subject, html,
-    });
+  if (gmailSendReady()) {
+    await sendGmailMail({ fromName: "MapLeadExtractor", to, subject, html });
     return true;
   }
   logger.warn({ orderId }, "no email provider configured (RESEND_API_KEY or GMAIL_USER+GMAIL_APP_PASSWORD) — email NOT sent");

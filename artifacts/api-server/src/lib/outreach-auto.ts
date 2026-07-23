@@ -26,6 +26,7 @@ import { db, leads, outreachSettings, outreachEmails, type Lead, type OutreachSe
 import { and, asc, eq, gte, inArray, isNull, isNotNull, lte, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateOutreach } from "./outreach";
+import { connectorGmailAvailable, connectorGmailAddress, sendViaGmailConnector } from "./gmailConnector";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN || "https://mapleadextractor.net";
@@ -43,13 +44,58 @@ export function gmailAddress(): string | null {
   return process.env.GMAIL_USER || null;
 }
 
+// Gmail can SEND via either the SMTP app-password secrets or the Replit
+// "Google Mail" connector (owner clicks Connect — no secrets). IMAP
+// reply-watching still requires the app password, so gmailConfigured()
+// keeps meaning "full SMTP+IMAP creds" and these cover the send path.
+export function gmailSendReady(): boolean {
+  return gmailConfigured() || connectorGmailAvailable();
+}
+export function gmailSendAddress(): string | null {
+  return process.env.GMAIL_USER || connectorGmailAddress();
+}
+
 // Is the provider the owner selected actually ready to send?
 export function providerReady(s: OutreachSettings): boolean {
-  return s.provider === "gmail" ? gmailConfigured() : resendConfigured();
+  return s.provider === "gmail" ? gmailSendReady() : resendConfigured();
 }
 // Either provider configured at all → the feature is available in the UI.
 export function anyProviderConfigured(): boolean {
-  return gmailConfigured() || resendConfigured();
+  return gmailSendReady() || resendConfigured();
+}
+
+/** Send one Gmail message via whichever credential exists — SMTP app password
+ * first (personal + threads perfectly), Replit connector otherwise. Shared by
+ * the outreach engine, pack worker and buyer follow-ups. Returns providerId. */
+export async function sendGmailMail(opts: {
+  fromName: string;
+  to: string;
+  replyTo?: string;
+  subject: string;
+  text?: string;
+  html: string;
+  messageId?: string;
+  headers?: Record<string, string>;
+  inReplyTo?: string;
+}): Promise<string | null> {
+  if (gmailConfigured()) {
+    const from = opts.fromName ? `${opts.fromName} <${gmailAddress()!}>` : gmailAddress()!;
+    const info = await getGmailTransport().sendMail({
+      from, to: opts.to, replyTo: opts.replyTo, subject: opts.subject,
+      text: opts.text, html: opts.html, messageId: opts.messageId, headers: opts.headers,
+      ...(opts.inReplyTo ? { inReplyTo: opts.inReplyTo, references: opts.inReplyTo } : {}),
+    });
+    return info.messageId ?? null;
+  }
+  const r = await sendViaGmailConnector({
+    fromName: opts.fromName, to: opts.to, replyTo: opts.replyTo, subject: opts.subject,
+    text: opts.text, html: opts.html, messageId: opts.messageId,
+    headers: {
+      ...(opts.headers ?? {}),
+      ...(opts.inReplyTo ? { "In-Reply-To": opts.inReplyTo, References: opts.inReplyTo } : {}),
+    },
+  });
+  return r.providerId;
 }
 
 // Lazily-built reusable Gmail SMTP transport.
@@ -84,7 +130,7 @@ export async function getOutreachSettings(): Promise<OutreachSettings> {
 type SettingsPatch = Partial<Pick<OutreachSettings,
   "enabled" | "provider" | "fromName" | "fromEmail" | "replyTo" | "signature" | "businessAddress" |
   "dailyCap" | "windowStartHour" | "windowEndHour" | "tzOffsetMinutes" | "sendOnWeekends" |
-  "minGapMinutes" | "maxGapMinutes" | "autoEnrollOnContact" | "autoReply">>;
+  "minGapMinutes" | "maxGapMinutes" | "autoEnrollOnContact" | "autoReply" | "autopilot">>;
 
 export async function updateOutreachSettings(patch: SettingsPatch): Promise<OutreachSettings> {
   await getOutreachSettings();
@@ -220,7 +266,7 @@ export function renderEmail(rawBody: string, s: OutreachSettings): { text: strin
 // The From address for the active provider. Gmail must send as the
 // authenticated account; Resend uses the configured verified address.
 function fromEmailFor(s: OutreachSettings): string {
-  if (s.provider === "gmail") return gmailAddress() || "";
+  if (s.provider === "gmail") return gmailSendAddress() || "";
   return s.fromEmail || "onboarding@resend.dev";
 }
 
@@ -254,12 +300,11 @@ async function sendStep(lead: Lead, s: OutreachSettings, step: number): Promise<
   try {
     let providerId: string | null = null;
     if (s.provider === "gmail") {
-      const info = await getGmailTransport().sendMail({
-        from, to, replyTo, subject: content.subject, text, html,
+      providerId = await sendGmailMail({
+        fromName: s.fromName, to, replyTo, subject: content.subject, text, html,
         messageId, headers,
-        ...(step > 1 && lead.threadMessageId ? { inReplyTo: lead.threadMessageId, references: lead.threadMessageId } : {}),
+        inReplyTo: step > 1 && lead.threadMessageId ? lead.threadMessageId : undefined,
       });
-      providerId = info.messageId ?? null;
     } else {
       const res = await fetch(RESEND_ENDPOINT, {
         method: "POST",
@@ -390,12 +435,42 @@ export async function sentToday(s: OutreachSettings): Promise<number> {
   return n;
 }
 
+// Autopilot: keep the send pipeline stocked without the owner picking anyone —
+// whenever fewer than a day's worth of sends are queued, enroll the next
+// top-value never-contacted companies that have an email address. A few per
+// tick keeps AI draft generation spread out instead of bursty.
+const AUTOPILOT_BATCH = 5;
+async function autopilotTopUp(s: OutreachSettings): Promise<void> {
+  const [{ pending }] = await db.select({ pending: sql<number>`count(*)::int` }).from(leads)
+    .where(and(eq(leads.autoOutreach, true), isNull(leads.deletedAt), isNotNull(leads.nextEmailAt)));
+  if (pending >= s.dailyCap) return;
+
+  const rows = await db.select({ id: leads.id }).from(leads).where(and(
+    isNull(leads.deletedAt),
+    eq(leads.autoOutreach, false),
+    isNull(leads.unsubscribedAt),
+    isNull(leads.emailHealth),
+    isNull(leads.repliedAt),
+    sql`COALESCE(${leads.outreachStep}, 0) = 0`,
+    sql`${leads.emails} LIKE '%@%'`,
+  )).orderBy(sql`value_score DESC NULLS LAST, opportunity_score DESC NULLS LAST`)
+    .limit(Math.min(AUTOPILOT_BATCH, s.dailyCap - pending));
+  if (rows.length === 0) return;
+
+  const r = await enrollLeads(rows.map((x) => x.id));
+  if (r.enrolled > 0) logger.info({ enrolled: r.enrolled, skipped: r.skipped, pending }, "autopilot enrolled new companies");
+}
+
 export async function outreachTick(): Promise<void> {
   if (tickInFlight) return;
   tickInFlight = true;
   try {
     const s = await getOutreachSettings();
     if (!s.enabled || !providerReady(s)) return;
+
+    // Top up enrollment even outside the send window, so drafts are written
+    // off-hours and ready to go the moment the window opens.
+    if (s.autopilot) await autopilotTopUp(s).catch((err) => logger.warn({ err }, "autopilot top-up failed"));
 
     const now = new Date();
     if (!withinWindow(now, s)) return;            // outside office hours / weekend

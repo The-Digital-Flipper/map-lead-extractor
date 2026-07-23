@@ -949,7 +949,7 @@ export default function Admin() {
 
   // ── Email tab: the AI outreach engine selling packs to scraped companies ───
   interface OutreachSettingsRow {
-    enabled: boolean; provider: string; fromName: string; fromEmail: string | null;
+    enabled: boolean; autopilot: boolean; provider: string; fromName: string; fromEmail: string | null;
     offer: string | null; dailyCap: number; windowStartHour: number; windowEndHour: number;
   }
   interface OutreachInfo {
@@ -1021,7 +1021,9 @@ export default function Admin() {
       });
       const d = await r.json();
       if (!r.ok) setEmailErr(d.error ?? "Save failed");
-      else setEmailMsg(busy === "toggle" ? (patch.enabled ? "Engine ON — AI emails will send automatically" : "Engine paused") : "Settings saved");
+      else if (busy === "save") setEmailMsg("Settings saved");
+      else if ("enabled" in patch) setEmailMsg(patch.enabled ? "Engine ON — AI emails will send automatically" : "Engine paused");
+      else setEmailMsg(patch.autopilot ? "Autopilot ON — new companies get pitched automatically" : "Autopilot off — pick companies manually below");
     } catch { setEmailErr("Could not reach the server"); }
     setEmailBusy("");
     loadEmailTab();
@@ -1833,17 +1835,24 @@ export default function Admin() {
                     )}
                   </div>
                   {emailInfo && (
-                    <button onClick={() => patchEmailSettings({ enabled: !emailInfo.settings.enabled }, "toggle")} disabled={!!emailBusy || (!emailInfo.settings.enabled && !emailProviderReady)}
-                      className={`px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50 ${emailInfo.settings.enabled ? "bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20" : "bg-primary text-primary-foreground hover:opacity-90"}`}>
-                      {emailBusy === "toggle" ? "…" : emailInfo.settings.enabled ? "Pause engine" : "▶ Turn on"}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => patchEmailSettings({ autopilot: !emailInfo.settings.autopilot }, "toggle")} disabled={!!emailBusy}
+                        title="Autopilot enrolls the best new scraped companies automatically — no manual picking"
+                        className={`px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50 border ${emailInfo.settings.autopilot ? "bg-primary/15 text-primary border-primary/40" : "bg-muted text-muted-foreground border-border hover:text-foreground"}`}>
+                        🤖 Autopilot {emailInfo.settings.autopilot ? "on" : "off"}
+                      </button>
+                      <button onClick={() => patchEmailSettings({ enabled: !emailInfo.settings.enabled }, "toggle")} disabled={!!emailBusy || (!emailInfo.settings.enabled && !emailProviderReady)}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50 ${emailInfo.settings.enabled ? "bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20" : "bg-primary text-primary-foreground hover:opacity-90"}`}>
+                        {emailBusy === "toggle" ? "…" : emailInfo.settings.enabled ? "Pause engine" : "▶ Turn on"}
+                      </button>
+                    </div>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground mb-3">
-                  Enroll companies below and the engine writes each one a personalized pitch with AI, sends it from your address, follows up on a schedule, stops the moment they reply or unsubscribe, and stays under your daily cap.
+                  The engine writes each company a personalized pitch with AI, sends it from your address, follows up on a schedule, stops the moment they reply or unsubscribe, and stays under your daily cap. With <strong>Autopilot on</strong> it also picks who to pitch by itself — the best newly scraped companies are enrolled automatically, so scraping + selling runs hands-free.
                 </p>
                 {emailInfo && !emailProviderReady && (
-                  <p className="text-xs text-amber-400 mb-3">⚠ No email provider configured — add GMAIL_USER + GMAIL_APP_PASSWORD (or RESEND_API_KEY) in Secrets to enable sending.</p>
+                  <p className="text-xs text-amber-400 mb-3">⚠ No email provider connected — open Replit's <strong>Integrations</strong> panel and connect <strong>Google Mail</strong> (one click, uses your signed-in Gmail), or add GMAIL_USER + GMAIL_APP_PASSWORD / RESEND_API_KEY in Secrets.</p>
                 )}
                 {emailMsg && <p className="text-xs text-primary mb-2">✓ {emailMsg}</p>}
                 {emailErr && <p className="text-xs text-red-400 mb-2">⚠ {emailErr}</p>}

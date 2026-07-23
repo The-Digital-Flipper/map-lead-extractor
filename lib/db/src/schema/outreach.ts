@@ -51,6 +51,10 @@ export const outreachSettings = pgTable("outreach_settings", {
   // grounded response on its own (Gmail inbox watched over IMAP). Capped per
   // lead so a human always takes over a real conversation.
   autoReply: boolean("auto_reply").notNull().default(false),
+  // Full hands-off mode: the engine keeps enrolling the best never-contacted
+  // leads with emails on its own, so freshly scraped companies get pitched
+  // without the owner picking anyone.
+  autopilot: boolean("autopilot").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

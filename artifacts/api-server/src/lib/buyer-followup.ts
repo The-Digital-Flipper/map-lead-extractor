@@ -23,7 +23,7 @@ import { db, sampleRequests, leads, packOrders, type OutreachSettings } from "@w
 import { and, eq, inArray, isNull, isNotNull, lte, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import {
-  getOutreachSettings, getGmailTransport, gmailAddress,
+  getOutreachSettings, sendGmailMail, gmailSendAddress,
   anyProviderConfigured, providerReady,
 } from "./outreach-auto";
 
@@ -38,7 +38,7 @@ const TICK_MS = 10 * 60 * 1000;           // 10 min
 const FIRST_TICK_DELAY_MS = 90_000;
 
 function fromEmailFor(s: OutreachSettings): string {
-  if (s.provider === "gmail") return gmailAddress() || "";
+  if (s.provider === "gmail") return gmailSendAddress() || "";
   return s.fromEmail || "onboarding@resend.dev";
 }
 
@@ -152,7 +152,7 @@ export async function sendBuyerFollowup(sampleId: number): Promise<FollowupResul
 
   try {
     if (s.provider === "gmail") {
-      await getGmailTransport().sendMail({ from, to: row.email, replyTo, subject, text, html, headers });
+      await sendGmailMail({ fromName: s.fromName, to: row.email, replyTo, subject, text, html, headers });
     } else {
       const res = await fetch(RESEND_ENDPOINT, {
         method: "POST",

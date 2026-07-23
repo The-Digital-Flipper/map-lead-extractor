@@ -11,7 +11,7 @@ import { db, leads, outreachEmails, outreachReplies } from "@workspace/db";
 import { and, desc, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import {
   getOutreachSettings, updateOutreachSettings, resendConfigured,
-  gmailConfigured, gmailAddress, anyProviderConfigured, providerReady,
+  gmailConfigured, gmailAddress, gmailSendReady, gmailSendAddress, anyProviderConfigured, providerReady,
   enrollLeads, pauseLeads, markReplied, unsubscribeByToken, sentToday,
 } from "../lib/outreach-auto";
 
@@ -39,7 +39,7 @@ router.get("/config", async (_req, res) => {
     available: anyProviderConfigured(),
     enabled: s.enabled && providerReady(s),
     fromName: s.fromName,
-    fromEmail: s.provider === "gmail" ? gmailAddress() : s.fromEmail,
+    fromEmail: s.provider === "gmail" ? gmailSendAddress() : s.fromEmail,
   });
 });
 
@@ -55,8 +55,11 @@ router.get("/settings", requireAuth, async (_req, res) => {
   res.json({
     settings: s,
     resendConfigured: resendConfigured(),
-    gmailConfigured: gmailConfigured(),
-    gmailAddress: gmailAddress(),
+    // "Configured" here means ready to SEND — app-password secrets or the
+    // Replit Google Mail connector both count. (IMAP auto-reply still needs
+    // the secrets; that check below stays on gmailConfigured().)
+    gmailConfigured: gmailSendReady(),
+    gmailAddress: gmailSendAddress(),
     enrolled, pending, replied,
     sentToday: await sentToday(s),
   });
@@ -68,7 +71,7 @@ router.patch("/settings", requireAuth, async (req, res) => {
   const patch: Record<string, unknown> = {};
   const strFields = ["fromName", "fromEmail", "replyTo", "signature", "businessAddress", "offer"];
   const numFields = ["dailyCap", "windowStartHour", "windowEndHour", "tzOffsetMinutes", "minGapMinutes", "maxGapMinutes"];
-  const boolFields = ["enabled", "sendOnWeekends", "autoEnrollOnContact", "autoReply"];
+  const boolFields = ["enabled", "sendOnWeekends", "autoEnrollOnContact", "autoReply", "autopilot"];
   for (const f of strFields) if (f in b) patch[f] = b[f] == null ? null : String(b[f]).slice(0, 2000);
   for (const f of numFields) if (f in b) patch[f] = Math.trunc(Number(b[f])) || 0;
   for (const f of boolFields) if (f in b) patch[f] = !!b[f];
@@ -92,8 +95,8 @@ router.patch("/settings", requireAuth, async (req, res) => {
   if (patch.enabled) {
     const current = await getOutreachSettings();
     const provider = (patch.provider ?? current.provider) as string;
-    if (provider === "gmail" && !gmailConfigured()) {
-      res.status(400).json({ error: "Add your GMAIL_USER and GMAIL_APP_PASSWORD secrets before turning Gmail sending on." });
+    if (provider === "gmail" && !gmailSendReady()) {
+      res.status(400).json({ error: "Connect Google Mail in Replit's integrations panel (or add GMAIL_USER + GMAIL_APP_PASSWORD secrets) before turning Gmail sending on." });
       return;
     }
     if (provider === "resend" && !(resendConfigured() && (patch.fromEmail ?? current.fromEmail))) {
