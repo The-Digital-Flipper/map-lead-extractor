@@ -77,18 +77,21 @@ export default function FbLeads() {
                   variants={fadeIn}
                   className="text-4xl md:text-5xl xl:text-6xl font-display font-bold leading-[1.08] tracking-tight mb-6"
                 >
-                  100 Local Business Leads,{" "}
-                  <span className="text-primary">Ready to Call Today</span>
+                  Done Chasing Dead Leads?{" "}
+                  <span className="text-primary">Get 100 Ready to Call Today</span>
                 </motion.h1>
 
                 <motion.p
                   variants={fadeIn}
                   className="text-lg md:text-xl text-muted-foreground mb-8 leading-relaxed"
                 >
-                  Pick your industry and city — we email you{" "}
-                  <strong className="text-foreground">100 scored, human-reviewed leads</strong>,
-                  each with phone, email, address &amp; social links, as a clean CSV. Usually
-                  within hours.
+                  No more all-night scraping, disconnected numbers, bounced emails, or $99/mo
+                  tools. Pick your industry and city —{" "}
+                  <strong className="text-foreground">
+                    100 verified local businesses with direct phone, email &amp; socials
+                  </strong>{" "}
+                  land in your inbox within hours, so you can spend today closing instead of
+                  searching.
                 </motion.p>
 
                 <motion.div
@@ -153,7 +156,7 @@ export default function FbLeads() {
 
         <FinalCta
           headline="Your next customers are one click away"
-          subhead="100 targeted, human-reviewed local leads for $29. Refund if we come up short."
+          subhead="Stop paying monthly for scrapers and stale lists. 100 targeted, human-reviewed local leads for a one-time $29 — in your inbox within hours. Refund if we come up short."
           ctaLabel="Get My Lead Pack — $29"
         />
       </main>
