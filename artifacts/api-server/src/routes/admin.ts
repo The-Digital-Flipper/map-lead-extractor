@@ -17,6 +17,7 @@ import { parseProxyLines, testProxy } from "../lib/proxyPool";
 import {
   getSocialSettings, updateSocialSettings, generateSocialPosts, generateFreeToolPosts, publishPost,
   facebookCreds, fbAppConfigured, fbConnectUrl, fbHandleCallback, fbSelectPage, fbDisconnect, FB_REDIRECT_URI,
+  fbPickerToken, fbPickerTokenValid,
   generateGroupPosts, listGroups, addGroup, deleteGroup, markGroupPosted, discoverGroups,
   syncEngagementStats, generatePostImage, getPostImage, removePostImage,
   socialChat, type SocialChatMessage,
@@ -1368,6 +1369,16 @@ router.get("/social/fb/connect", requireAuth, async (_req, res) => {
   }
 });
 
+// The dashboard button can't attach its auth header to a plain navigation, so
+// it fetches the dialog URL here (authorized) and redirects the browser itself.
+router.get("/social/fb/connect-url", requireAuth, async (_req, res) => {
+  try {
+    res.json({ url: await fbConnectUrl() });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 // Tiny standalone result page — the callback lands as a top-level navigation,
 // so respond with plain HTML that sends the admin back to the dashboard.
 function fbResultPage(title: string, body: string): string {
@@ -1380,7 +1391,11 @@ p{color:#8b949e}</style></head><body><div class="card">${body}</div></body></htm
 }
 
 // ---- GET /social/fb/callback — Facebook redirects here after Approve ---------
-router.get("/social/fb/callback", requireAuth, async (req, res) => {
+// No requireAuth: Facebook's redirect is a bare top-level navigation with no
+// admin session attached. The HMAC-signed, 15-minute `state` param (created by
+// fbConnectUrl, verified inside fbHandleCallback) is what proves this callback
+// belongs to a connect flow an authenticated admin started.
+router.get("/social/fb/callback", async (req, res) => {
   const { code, state, error_description: fbError } = req.query as Record<string, string | undefined>;
   if (fbError || !code || !state) {
     res.status(400).send(fbResultPage("Facebook connection failed",
@@ -1389,6 +1404,7 @@ router.get("/social/fb/callback", requireAuth, async (req, res) => {
   }
   try {
     const { connected, pages } = await fbHandleCallback(code, state);
+    const sig = await fbPickerToken();
     if (connected) {
       res.send(fbResultPage("Facebook connected",
         `<h2>✅ Connected to ${connected.name}</h2><p>The auto-poster can now publish to your Page. You can close this and head back.</p><a class="btn" href="/admin">Back to admin</a>`));
@@ -1396,7 +1412,7 @@ router.get("/social/fb/callback", requireAuth, async (req, res) => {
     }
     res.send(fbResultPage("Pick a Page",
       `<h2>Almost done — which Page?</h2><p>Your account manages more than one Page. Pick the one to auto-post to:</p>` +
-      pages.map((p) => `<a class="pick" href="/api/admin/social/fb/select?pageId=${encodeURIComponent(p.id)}">${p.name}</a>`).join("")));
+      pages.map((p) => `<a class="pick" href="/api/admin/social/fb/select?pageId=${encodeURIComponent(p.id)}&sig=${encodeURIComponent(sig)}">${p.name}</a>`).join("")));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).send(fbResultPage("Facebook connection failed",
@@ -1405,8 +1421,15 @@ router.get("/social/fb/callback", requireAuth, async (req, res) => {
 });
 
 // ---- GET /social/fb/select?pageId= — finish connect when multiple Pages ------
-router.get("/social/fb/select", requireAuth, async (req, res) => {
+// Also a top-level navigation (clicked on the callback result page), so it is
+// guarded by the signed `sig` token minted by the callback, not requireAuth.
+router.get("/social/fb/select", async (req, res) => {
   try {
+    if (!(await fbPickerTokenValid(String(req.query.sig ?? "")))) {
+      res.status(401).send(fbResultPage("Link expired",
+        `<h2>😕 That link expired</h2><p>Page-picker links are only valid for 15 minutes. Head back and click Connect Facebook again.</p><a class="btn" href="/admin">Back to admin</a>`));
+      return;
+    }
     const page = await fbSelectPage(String(req.query.pageId ?? ""));
     res.send(fbResultPage("Facebook connected",
       `<h2>✅ Connected to ${page.name}</h2><p>The auto-poster can now publish to your Page.</p><a class="btn" href="/admin">Back to admin</a>`));

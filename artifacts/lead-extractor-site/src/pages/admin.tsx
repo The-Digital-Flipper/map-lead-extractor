@@ -2034,10 +2034,23 @@ export default function Admin() {
                     </>
                   ) : (
                     <>
-                      <a href={`${basePath}/api/admin/social/fb/connect`} target="_blank" rel="noopener"
+                      {/* A plain <a> can't carry the admin auth header, so fetch
+                          the dialog URL (authorized) and navigate the browser. */}
+                      <button
+                        onClick={async () => {
+                          setSocialMsg(null);
+                          try {
+                            const r = await adminFetch(`${basePath}/api/admin/social/fb/connect-url`);
+                            const d = await r.json().catch(() => ({}));
+                            if (r.ok && d.url) window.location.href = d.url;
+                            else setSocialMsg(d.error || "Couldn't start Facebook connect — check the app ID/secret.");
+                          } catch {
+                            setSocialMsg("Couldn't start Facebook connect — please try again.");
+                          }
+                        }}
                         className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold bg-blue-500 text-white hover:opacity-90 transition-opacity">
                         <Globe className="w-4 h-4" /> Connect Facebook
-                      </a>
+                      </button>
                       <div className="text-xs text-muted-foreground mt-2">One click + Approve on Facebook — that's it</div>
                     </>
                   )}

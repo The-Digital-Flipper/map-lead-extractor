@@ -57,6 +57,20 @@ function stateIsValid(state: string, secret: string): boolean {
   return ok && Date.now() - Number(ts) < FB_STATE_MAX_AGE_MS;
 }
 
+// Signed tokens for the page-picker links on the callback result page. The
+// picker is a top-level navigation with no admin session attached, so the link
+// itself must carry proof it came from a fresh, legitimate OAuth callback.
+export async function fbPickerToken(): Promise<string> {
+  const app = await fbApp();
+  if (!app) throw new Error("Facebook app credentials missing.");
+  return signState(app.secret);
+}
+
+export async function fbPickerTokenValid(token: string): Promise<boolean> {
+  const app = await fbApp();
+  return !!app && stateIsValid(token, app.secret);
+}
+
 export async function fbConnectUrl(): Promise<string> {
   const app = await fbApp();
   if (!app) throw new Error("Facebook app credentials missing — set fb_app_id/fb_app_secret in social_settings (or FACEBOOK_APP_ID/FACEBOOK_APP_SECRET secrets).");
