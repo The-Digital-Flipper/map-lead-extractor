@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import LeadPackWidget from "@/components/site/lead-pack-widget";
+import TrustBadges from "@/components/site/trust-badges";
 import { useSeo } from "@/lib/seo";
 
 const fadeIn = {
@@ -240,6 +241,7 @@ export default function FbLeads() {
               </p>
             </div>
             <LeadPackWidget />
+            <TrustBadges className="max-w-4xl mx-auto mt-12" />
           </div>
         </section>
 

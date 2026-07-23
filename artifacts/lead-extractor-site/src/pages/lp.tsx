@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import LeadPackWidget from "@/components/site/lead-pack-widget";
+import TrustBadges, { PaymentMethods } from "@/components/site/trust-badges";
 import NotFound from "@/pages/not-found";
 import { useSeo } from "@/lib/seo";
 import { SOCIAL_LANDING_PAGES } from "@/data/social-landing-pages";
@@ -69,6 +70,7 @@ export default function SocialLanding({ params }: { params: { variant: string } 
           </p>
         </div>
         <LeadPackWidget />
+        <TrustBadges className="max-w-4xl mx-auto mt-12" />
       </div>
     </section>
   );
@@ -334,6 +336,7 @@ export default function SocialLanding({ params }: { params: { variant: string } 
             >
               {lp.ctaLabel} <ArrowRight className="w-5 h-5" />
             </a>
+            <PaymentMethods className="mt-8" />
           </div>
         </section>
       </main>
