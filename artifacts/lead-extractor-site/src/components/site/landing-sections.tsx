@@ -195,6 +195,79 @@ export function StatsBar() {
   );
 }
 
+const INSIGHTS = [
+  {
+    n: "01",
+    title: "Speed wins the client",
+    desc: "The first person to call a business usually gets the job. Most of your competitors never make that call — they're still stuck building their list. Skip the list-building and you're first by default.",
+  },
+  {
+    n: "02",
+    title: "Verified beats volume",
+    desc: "100 leads with working phones and real emails out-perform 1,000 scraped rows full of dead numbers. Every bounce burns your sender reputation; every dead dial burns your morning.",
+  },
+  {
+    n: "03",
+    title: "The data tells you who's ready",
+    desc: "Ratings, review counts, and web presence show who's booming and who's struggling — so you open every call knowing exactly why they need you. That's why every lead comes scored.",
+  },
+];
+
+/** The "aha" narrative: why lead-gen feels hard, and the reframe that sells. */
+export function BigReveal() {
+  return (
+    <section className="py-20 bg-card/20 border-y border-border">
+      <div className="container mx-auto px-6 max-w-5xl">
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          variants={fadeIn}
+          className="text-center max-w-3xl mx-auto mb-14"
+        >
+          <Eyebrow>The big reveal</Eyebrow>
+          <h2 className="text-3xl md:text-5xl font-display font-bold tracking-tight mb-6">
+            Your next clients aren't hiding.{" "}
+            <span className="text-primary">They're just buried.</span>
+          </h2>
+          <p className="text-lg md:text-xl text-muted-foreground leading-relaxed">
+            Every business you want to reach is already sitting on the map — the hard part was
+            never finding them. It's the hours of digging, verifying numbers, chasing emails,
+            and cleaning spreadsheets before you can make a single call.{" "}
+            <strong className="text-foreground">That's the part we deleted.</strong> You start
+            at the finish line: a clean, scored list, ready to work.
+          </p>
+        </motion.div>
+
+        <div className="grid md:grid-cols-3 gap-4">
+          {INSIGHTS.map((it) => (
+            <motion.div
+              key={it.n}
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={fadeIn}
+              className="relative p-7 rounded-2xl border border-border bg-gradient-to-b from-card to-card/30 hover:border-primary/40 transition-colors overflow-hidden"
+            >
+              <span
+                aria-hidden
+                className="absolute -top-3 right-2 font-display font-bold text-[88px] leading-none text-primary/10 select-none"
+              >
+                {it.n}
+              </span>
+              <span className="inline-flex px-2.5 py-1 rounded-full bg-primary/12 border border-primary/25 text-primary font-display font-bold text-xs tracking-widest mb-4">
+                INSIGHT {it.n}
+              </span>
+              <h3 className="text-lg font-bold mb-2.5">{it.title}</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">{it.desc}</p>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 const FEATURES = [
   { icon: Phone, title: "Verified phone numbers", desc: "Spot-checked to be active and matched to the listed business." },
   { icon: Mail, title: "Real email addresses", desc: "Format-validated against a live mail server — no obvious bounces." },

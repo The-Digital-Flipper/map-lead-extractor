@@ -12,6 +12,7 @@ import {
   HeroBackdrop,
   LeadPreviewPanel,
   StatsBar,
+  BigReveal,
   WhatYouGet,
   BuySection,
   BuyerReviews,
@@ -140,6 +141,8 @@ export default function FbLeads() {
         </section>
 
         <StatsBar />
+
+        <BigReveal />
 
         <WhatYouGet />
 
