@@ -302,10 +302,27 @@ export async function generateSocialPosts(n: number): Promise<SocialPost[]> {
   const posts = parsePosts(data.choices?.[0]?.message?.content ?? "");
   if (posts.length === 0) throw new Error("AI returned no usable posts — try again.");
 
-  return db
+  const rows = await db
     .insert(socialPosts)
     .values(posts.map((p) => ({ platform: "facebook", campaign: "leads", body: p.body, note: p.note || null })))
     .returning();
+  generateImagesInBackground(rows.map((r) => r.id));
+  return rows;
+}
+
+// Fire-and-forget: draw the ad picture as soon as a post is queued so the
+// admin sees the creative immediately (publish-time generation stays as the
+// safety net). Sequential to stay clear of image-API rate limits.
+function generateImagesInBackground(ids: number[]): void {
+  void (async () => {
+    for (const id of ids) {
+      try {
+        await generatePostImage(id);
+      } catch (err) {
+        logger.warn({ postId: id, err }, "Queued-post image generation failed — will retry at publish time");
+      }
+    }
+  })();
 }
 
 // ── Free-extension campaign (drives Chrome installs, not sales) ───────────────
@@ -366,10 +383,12 @@ export async function generateFreeToolPosts(n: number): Promise<SocialPost[]> {
   const posts = parsePosts(data.choices?.[0]?.message?.content ?? "");
   if (posts.length === 0) throw new Error("AI returned no usable posts — try again.");
 
-  return db
+  const rows = await db
     .insert(socialPosts)
     .values(posts.map((p) => ({ platform: "facebook", campaign: "freetool", body: p.body, note: p.note || null })))
     .returning();
+  generateImagesInBackground(rows.map((r) => r.id));
+  return rows;
 }
 
 // ── Facebook Groups (assisted posting) ───────────────────────────────────────
@@ -918,6 +937,7 @@ async function runChatTool(name: string, args: Record<string, unknown>): Promise
       if (!body) return { result: { error: "body is required" }, mutated: false };
       const note = typeof args.note === "string" && args.note.trim() ? args.note.trim() : null;
       const rows = await db.insert(socialPosts).values({ platform: "facebook", body, note }).returning({ id: socialPosts.id });
+      generateImagesInBackground([rows[0]!.id]);
       return { result: { ok: true, id: rows[0]!.id }, mutated: true };
     }
     case "update_post": {
