@@ -646,32 +646,28 @@ export function PlatformReviews() {
               <p className="text-[11px] text-[#70757a] mt-0.5">850+ Chrome ratings</p>
             </div>
           </div>
-          {/* BBB A+ */}
-          {/* Faithful recreation of the BBB blue horizontal accredited-business seal */}
-          <svg width="180" height="52" viewBox="0 0 360 104" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="360" height="104" rx="6" fill="#003f87"/>
-            {/* ── Torch mark ── */}
-            {/* Outer flame */}
-            <path d="M38 58 C28 46 26 30 38 18 C42 26 44 34 40 42 C46 36 48 24 44 14 C52 22 56 34 52 46 C56 40 56 30 54 22 C62 32 64 46 56 58 C54 64 46 68 44 68 L32 68 C30 68 22 64 20 58 C14 46 16 32 24 22 C22 30 22 40 26 46 C22 34 26 22 34 14 C30 24 32 36 38 42 C34 34 36 26 38 18 Z" fill="white"/>
-            {/* Inner flame highlight */}
-            <path d="M38 52 C32 44 32 34 38 26 C40 32 40 38 38 44 C42 38 42 30 40 24 C46 32 46 42 42 50 C44 44 44 36 42 30 C48 38 48 48 44 56 C42 60 40 62 38 62 L34 62 C32 60 30 56 30 52 C28 44 30 36 34 28 C32 34 32 42 36 48 C32 40 34 32 38 26 Z" fill="#c8d8f0"/>
-            {/* Handle */}
-            <rect x="29" y="68" width="22" height="20" rx="2" fill="white"/>
-            <rect x="31" y="72" width="18" height="2" rx="1" fill="#003f87"/>
-            <rect x="31" y="76" width="18" height="2" rx="1" fill="#003f87"/>
-            <rect x="31" y="80" width="18" height="2" rx="1" fill="#003f87"/>
-            {/* ── BBB wordmark ── */}
-            <text x="72" y="44" fontFamily="Arial Black,Arial" fontWeight="900" fontSize="30" fill="white">BBB</text>
-            {/* ── "ACCREDITED" ── */}
-            <text x="72" y="62" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="13" fill="white" letterSpacing="2">ACCREDITED</text>
-            {/* ── "BUSINESS" ── */}
-            <text x="72" y="77" fontFamily="Arial,sans-serif" fontWeight="400" fontSize="12" fill="#a8c0e8" letterSpacing="2">BUSINESS</text>
-            {/* ── Divider ── */}
-            <rect x="228" y="20" width="1.5" height="64" fill="#1a5bb5"/>
-            {/* ── Rating ── */}
-            <text x="244" y="36" fontFamily="Arial,sans-serif" fontWeight="400" fontSize="11" fill="#a8c0e8" letterSpacing="1">RATING</text>
-            <text x="244" y="78" fontFamily="Arial Black,Arial" fontWeight="900" fontSize="46" fill="white">A+</text>
-          </svg>
+          {/* BBB A+ — compact badge matching the height of the other trust badges */}
+          <div className="flex items-center gap-3 bg-[#003f87] border border-[#003f87] rounded-xl px-4 py-3 shadow-sm">
+            {/* Torch + BBB wordmark */}
+            <svg width="32" height="40" viewBox="0 0 32 40" fill="none">
+              {/* Flame */}
+              <path d="M16 22 C10 16 9 8 16 2 C17 6 18 10 16 14 C19 10 20 6 18 2 C23 6 24 12 21 18 C22 14 22 9 20 5 C25 10 25 18 21 24 C20 27 18 28 16 28 L12 28 C10 27 8 25 8 22 C5 16 6 8 10 4 C9 8 9 13 11 17 C9 12 10 6 13 2 C13 6 14 10 12 14 C14 10 15 6 16 2Z" fill="white" opacity="0.95"/>
+              {/* Handle */}
+              <rect x="11" y="28" width="10" height="10" rx="1.5" fill="white" opacity="0.9"/>
+              <rect x="12" y="30" width="8" height="1.5" rx="0.75" fill="#003f87"/>
+              <rect x="12" y="33" width="8" height="1.5" rx="0.75" fill="#003f87"/>
+              <rect x="12" y="36" width="8" height="1.5" rx="0.75" fill="#003f87"/>
+            </svg>
+            <div className="text-left">
+              <div className="text-[15px] font-black text-white leading-none tracking-wide">BBB</div>
+              <div className="text-[9px] text-blue-200 font-semibold uppercase tracking-widest leading-tight">Accredited</div>
+              <div className="text-[9px] text-blue-200 uppercase tracking-widest leading-tight">Business</div>
+            </div>
+            <div className="border-l border-blue-400 pl-3 ml-1">
+              <div className="text-[9px] text-blue-300 uppercase tracking-widest leading-none">Rating</div>
+              <div className="text-[26px] font-black text-white leading-tight">A+</div>
+            </div>
+          </div>
         </div>
 
         {/* Review cards */}

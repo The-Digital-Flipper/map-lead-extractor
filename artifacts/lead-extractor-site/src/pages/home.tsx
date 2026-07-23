@@ -250,7 +250,7 @@ export default function Home() {
 
             {/* Conversion box */}
             <div className="mt-14">
-              <LeadPackWidget />
+              <LeadPackWidget showReviews />
             </div>
           </div>
         </section>
@@ -387,7 +387,6 @@ export default function Home() {
           </div>
         </section>
 
-        <PlatformReviews />
         <BuyerReviews />
 
         {/* Section 8: Final CTA */}
