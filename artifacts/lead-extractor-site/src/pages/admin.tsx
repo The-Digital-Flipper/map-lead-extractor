@@ -264,7 +264,7 @@ export default function Admin() {
       return next;
     });
   };
-  const [activeTab, setActiveTab] = useState<"command" | "orders" | "captured" | "chats" | "scraper" | "traffic" | "social" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
+  const [activeTab, setActiveTab] = useState<"command" | "orders" | "captured" | "chats" | "email" | "scraper" | "traffic" | "social" | "research" | "proxies" | "overview" | "users" | "leads" | "money" | "deleted">("command");
 
   // ── Site traffic analytics (Traffic tab) ──────────────────────────────────
   const [traffic, setTraffic] = useState<TrafficData | null>(null);
@@ -947,6 +947,106 @@ export default function Admin() {
     loadRuns();
   };
 
+  // ── Email tab: the AI outreach engine selling packs to scraped companies ───
+  interface OutreachSettingsRow {
+    enabled: boolean; provider: string; fromName: string; fromEmail: string | null;
+    offer: string | null; dailyCap: number; windowStartHour: number; windowEndHour: number;
+  }
+  interface OutreachInfo {
+    settings: OutreachSettingsRow; resendConfigured: boolean; gmailConfigured: boolean; gmailAddress: string | null;
+    enrolled: number; pending: number; replied: number; sentToday: number;
+  }
+  interface OutreachActivityRow { id: number; leadId: number; step: number; toEmail: string; subject: string; status: string; error: string | null; createdAt: string; leadName: string | null }
+  interface OutreachReplyRow { id: number; leadId: number; direction: string; fromEmail: string | null; subject: string | null; body: string | null; aiGenerated: boolean; createdAt: string; leadName: string | null }
+  interface EmailLeadRow {
+    id: number; name: string; category: string | null; address: string | null; emails: string | null;
+    autoOutreach: boolean; outreachStep: number | null; unsubscribedAt: string | null; emailHealth: string | null;
+    repliedAt: string | null; nextEmailAt: string | null;
+  }
+  const [emailInfo, setEmailInfo] = useState<OutreachInfo | null>(null);
+  const [emailDraft, setEmailDraft] = useState<{ fromName: string; fromEmail: string; offer: string; dailyCap: number; windowStartHour: number; windowEndHour: number } | null>(null);
+  const [emailMsg, setEmailMsg] = useState("");
+  const [emailErr, setEmailErr] = useState("");
+  const [emailBusy, setEmailBusy] = useState<"" | "toggle" | "save" | "enroll" | "pause">("");
+  const [emailActivity, setEmailActivity] = useState<OutreachActivityRow[]>([]);
+  const [emailReplies, setEmailReplies] = useState<OutreachReplyRow[]>([]);
+  const [emailCandidates, setEmailCandidates] = useState<EmailLeadRow[]>([]);
+  const [emailCandidatesLoading, setEmailCandidatesLoading] = useState(false);
+  const [emailCategoryFilter, setEmailCategoryFilter] = useState("");
+  const [emailSelected, setEmailSelected] = useState<Set<number>>(new Set());
+
+  const loadEmailTab = useCallback(async () => {
+    try {
+      const [sR, aR, rR] = await Promise.all([
+        adminFetch(`${basePath}/api/outreach/settings`),
+        adminFetch(`${basePath}/api/outreach/activity?limit=25`),
+        adminFetch(`${basePath}/api/outreach/replies?limit=25`),
+      ]);
+      if (sR.ok) {
+        const d: OutreachInfo = await sR.json();
+        setEmailInfo(d);
+        setEmailDraft(prev => prev ?? {
+          fromName: d.settings.fromName ?? "", fromEmail: d.settings.fromEmail ?? "", offer: d.settings.offer ?? "",
+          dailyCap: d.settings.dailyCap, windowStartHour: d.settings.windowStartHour, windowEndHour: d.settings.windowEndHour,
+        });
+      }
+      if (aR.ok) setEmailActivity((await aR.json()).activity ?? []);
+      if (rR.ok) setEmailReplies((await rR.json()).replies ?? []);
+    } catch { /* keep whatever was already loaded */ }
+  }, []);
+
+  // Candidate companies to pitch: top-value leads matching the category filter;
+  // rows without an email address or opted out are filtered client-side.
+  const loadEmailCandidates = useCallback(async (category: string) => {
+    setEmailCandidatesLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: "200", sort: "value" });
+      if (category.trim()) params.set("category", category.trim());
+      const r = await adminFetch(`${basePath}/api/leads?${params}`);
+      const d = await r.json();
+      if (r.ok) {
+        setEmailCandidates((d.leads as EmailLeadRow[]).filter(l => (l.emails ?? "").includes("@") && !l.unsubscribedAt && !l.emailHealth));
+        setEmailSelected(new Set());
+      }
+    } catch { /* keep whatever was already loaded */ }
+    setEmailCandidatesLoading(false);
+  }, []);
+  useEffect(() => { if (activeTab === "email") { loadEmailTab(); loadEmailCandidates(""); } }, [activeTab, loadEmailTab, loadEmailCandidates]);
+
+  const patchEmailSettings = async (patch: Record<string, unknown>, busy: "toggle" | "save") => {
+    setEmailBusy(busy); setEmailMsg(""); setEmailErr("");
+    try {
+      const r = await adminFetch(`${basePath}/api/outreach/settings`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
+      });
+      const d = await r.json();
+      if (!r.ok) setEmailErr(d.error ?? "Save failed");
+      else setEmailMsg(busy === "toggle" ? (patch.enabled ? "Engine ON — AI emails will send automatically" : "Engine paused") : "Settings saved");
+    } catch { setEmailErr("Could not reach the server"); }
+    setEmailBusy("");
+    loadEmailTab();
+  };
+
+  const enrollEmailSelected = async (action: "enroll" | "pause") => {
+    const ids = [...emailSelected];
+    if (ids.length === 0 || emailBusy) return;
+    setEmailBusy(action); setEmailMsg(""); setEmailErr("");
+    try {
+      const r = await adminFetch(`${basePath}/api/outreach/${action}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }),
+      });
+      const d = await r.json();
+      if (!r.ok) setEmailErr(d.error ?? `${action} failed`);
+      else if (action === "enroll") setEmailMsg(`Enrolled ${d.enrolled} compan${d.enrolled === 1 ? "y" : "ies"}${d.skipped ? ` (${d.skipped} skipped — no usable email)` : ""} — AI writes and sends each pitch automatically`);
+      else setEmailMsg(`Paused ${d.paused} compan${d.paused === 1 ? "y" : "ies"}`);
+    } catch { setEmailErr("Could not reach the server"); }
+    setEmailBusy("");
+    loadEmailTab();
+    loadEmailCandidates(emailCategoryFilter);
+  };
+
+  const emailProviderReady = !!emailInfo && (emailInfo.settings.provider === "resend" ? emailInfo.resendConfigured : emailInfo.gmailConfigured);
+
   // ── AI Research: find where to scrape, plot on the map, scrape live ────────
   type ScrapeTarget = {
     id: number; category: string; location: string;
@@ -1426,10 +1526,10 @@ export default function Admin() {
           {/* ── TABS ──────────────────────────────────────────────────────── */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.09 }} className="mb-6">
             <div className="flex gap-1 bg-card border border-border rounded-xl p-1 w-fit flex-wrap">
-              {(["command", "orders", "captured", "chats", "scraper", "traffic", "social", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
+              {(["command", "orders", "captured", "chats", "email", "scraper", "traffic", "social", "research", "proxies", "overview", "users", "leads", "money", "deleted"] as const).map(tab => (
                 <button key={tab} onClick={() => { setActiveTab(tab); if (tab === "leads" || tab === "money") setPage(1); if (tab === "deleted") setDeletedPage(1); }}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors capitalize ${activeTab === tab ? tab === "deleted" ? "bg-red-500/80 text-white" : "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                  {tab === "command" ? "⚡ Command" : tab === "orders" ? `📦 Orders${ordersNeedingReview > 0 ? ` (${ordersNeedingReview})` : ""}` : tab === "captured" ? "✉️ Captured Leads" : tab === "chats" ? `💬 Chats${chatUnreadTotal > 0 ? ` (${chatUnreadTotal})` : ""}` : tab === "scraper" ? "🕷️ Scraper" : tab === "traffic" ? "📈 Traffic" : tab === "social" ? "📣 Social" : tab === "research" ? "🎯 AI Research" :tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
+                  {tab === "command" ? "⚡ Command" : tab === "orders" ? `📦 Orders${ordersNeedingReview > 0 ? ` (${ordersNeedingReview})` : ""}` : tab === "captured" ? "✉️ Captured Leads" : tab === "chats" ? `💬 Chats${chatUnreadTotal > 0 ? ` (${chatUnreadTotal})` : ""}` : tab === "email" ? "📧 Email" : tab === "scraper" ? "🕷️ Scraper" : tab === "traffic" ? "📈 Traffic" : tab === "social" ? "📣 Social" : tab === "research" ? "🎯 AI Research" :tab === "proxies" ? "🛡️ Proxies" : tab === "overview" ? "📍 Map" : tab === "users" ? "👥 Users" : tab === "leads" ? "📋 Leads" : tab === "money" ? "💰 Money Leads" : `🗑️ Deleted${deletedTotal > 0 ? ` (${deletedTotal})` : ""}`}
                 </button>
               ))}
             </div>
@@ -1717,6 +1817,208 @@ export default function Admin() {
           )}
 
           {/* ── SCRAPER TAB (Apify-style run console) ────────────────────── */}
+          {activeTab === "email" && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
+
+              {/* Engine status + master switch */}
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+                  <div className="flex items-center gap-2">
+                    <Send className="w-5 h-5 text-primary" />
+                    <h2 className="text-lg font-display font-bold">AI Email Outreach</h2>
+                    {emailInfo && (
+                      <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase ${emailInfo.settings.enabled ? "bg-primary/15 text-primary border-primary/40" : "bg-muted text-muted-foreground border-border"}`}>
+                        {emailInfo.settings.enabled ? "On" : "Paused"}
+                      </span>
+                    )}
+                  </div>
+                  {emailInfo && (
+                    <button onClick={() => patchEmailSettings({ enabled: !emailInfo.settings.enabled }, "toggle")} disabled={!!emailBusy || (!emailInfo.settings.enabled && !emailProviderReady)}
+                      className={`px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50 ${emailInfo.settings.enabled ? "bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20" : "bg-primary text-primary-foreground hover:opacity-90"}`}>
+                      {emailBusy === "toggle" ? "…" : emailInfo.settings.enabled ? "Pause engine" : "▶ Turn on"}
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Enroll companies below and the engine writes each one a personalized pitch with AI, sends it from your address, follows up on a schedule, stops the moment they reply or unsubscribe, and stays under your daily cap.
+                </p>
+                {emailInfo && !emailProviderReady && (
+                  <p className="text-xs text-amber-400 mb-3">⚠ No email provider configured — add GMAIL_USER + GMAIL_APP_PASSWORD (or RESEND_API_KEY) in Secrets to enable sending.</p>
+                )}
+                {emailMsg && <p className="text-xs text-primary mb-2">✓ {emailMsg}</p>}
+                {emailErr && <p className="text-xs text-red-400 mb-2">⚠ {emailErr}</p>}
+                {emailInfo && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { label: "Sent today", value: `${emailInfo.sentToday}/${emailInfo.settings.dailyCap}` },
+                      { label: "Enrolled", value: String(emailInfo.enrolled) },
+                      { label: "Awaiting send", value: String(emailInfo.pending) },
+                      { label: "Replies", value: String(emailInfo.replied) },
+                    ].map(s => (
+                      <div key={s.label} className="rounded-xl border border-border bg-background/40 px-3 py-2">
+                        <div className="text-lg font-display font-bold text-foreground">{s.value}</div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Pitch + sending settings */}
+              {emailDraft && (
+                <div className="rounded-2xl border border-border bg-card p-5">
+                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide mb-3">Your pitch &amp; sending rules</h3>
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-muted-foreground">What you're selling (the AI writes every email around this)</label>
+                      <textarea value={emailDraft.offer} onChange={e => setEmailDraft({ ...emailDraft, offer: e.target.value })} rows={3}
+                        placeholder="Fresh, verified local-business lead lists for your industry — 100 leads for $29, delivered as a clean CSV…"
+                        className="px-3 py-2 rounded-lg bg-background border border-border text-sm focus:border-primary/50 outline-none resize-y" />
+                    </div>
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-muted-foreground">From name</label>
+                        <input value={emailDraft.fromName} onChange={e => setEmailDraft({ ...emailDraft, fromName: e.target.value })}
+                          className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-44 focus:border-primary/50 outline-none" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-muted-foreground">From email</label>
+                        <input value={emailDraft.fromEmail} onChange={e => setEmailDraft({ ...emailDraft, fromEmail: e.target.value })} placeholder={emailInfo?.gmailAddress ?? ""}
+                          className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-56 focus:border-primary/50 outline-none" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-muted-foreground">Daily cap</label>
+                        <input type="number" min={1} max={500} value={emailDraft.dailyCap}
+                          onChange={e => setEmailDraft({ ...emailDraft, dailyCap: Math.min(500, Math.max(1, Number(e.target.value) || 1)) })}
+                          className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-24 focus:border-primary/50 outline-none" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-muted-foreground">Send window (hours)</label>
+                        <div className="flex items-center gap-1">
+                          <input type="number" min={0} max={23} value={emailDraft.windowStartHour}
+                            onChange={e => setEmailDraft({ ...emailDraft, windowStartHour: Math.min(23, Math.max(0, Number(e.target.value) || 0)) })}
+                            className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-20 focus:border-primary/50 outline-none" />
+                          <span className="text-xs text-muted-foreground">to</span>
+                          <input type="number" min={1} max={24} value={emailDraft.windowEndHour}
+                            onChange={e => setEmailDraft({ ...emailDraft, windowEndHour: Math.min(24, Math.max(1, Number(e.target.value) || 1)) })}
+                            className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-20 focus:border-primary/50 outline-none" />
+                        </div>
+                      </div>
+                      <button onClick={() => patchEmailSettings(emailDraft, "save")} disabled={!!emailBusy}
+                        className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 disabled:opacity-50">
+                        {emailBusy === "save" ? "Saving…" : "Save settings"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Company picker — who gets pitched */}
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide">Companies to pitch</h3>
+                  <div className="flex items-center gap-2">
+                    <input value={emailCategoryFilter} onChange={e => setEmailCategoryFilter(e.target.value)} placeholder="Filter by category (e.g. roof)"
+                      onKeyDown={e => { if (e.key === "Enter") loadEmailCandidates(emailCategoryFilter); }}
+                      className="px-3 py-1.5 rounded-lg bg-background border border-border text-xs w-56 focus:border-primary/50 outline-none" />
+                    <button onClick={() => loadEmailCandidates(emailCategoryFilter)} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80">
+                      {emailCandidatesLoading ? "Loading…" : "Search"}
+                    </button>
+                    <button onClick={() => enrollEmailSelected("enroll")} disabled={emailSelected.size === 0 || !!emailBusy}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
+                      {emailBusy === "enroll" ? "Enrolling…" : `Enroll ${emailSelected.size || ""}`}
+                    </button>
+                    <button onClick={() => enrollEmailSelected("pause")} disabled={emailSelected.size === 0 || !!emailBusy}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80 disabled:opacity-50">
+                      {emailBusy === "pause" ? "Pausing…" : "Pause"}
+                    </button>
+                  </div>
+                </div>
+                {emailCandidates.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{emailCandidatesLoading ? "Loading…" : "No companies with an email address match — scrape more leads or loosen the filter."}</p>
+                ) : (
+                  <div className="overflow-x-auto -mx-1 max-h-96 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-card">
+                        <tr className="text-left text-muted-foreground border-b border-border">
+                          <th className="px-2 py-1.5">
+                            <input type="checkbox" checked={emailSelected.size > 0 && emailSelected.size === emailCandidates.length}
+                              onChange={e => setEmailSelected(e.target.checked ? new Set(emailCandidates.map(l => l.id)) : new Set())} />
+                          </th>
+                          <th className="px-2 py-1.5 font-semibold">Company</th>
+                          <th className="px-2 py-1.5 font-semibold">Category</th>
+                          <th className="px-2 py-1.5 font-semibold">Email</th>
+                          <th className="px-2 py-1.5 font-semibold">Outreach</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {emailCandidates.map(l => (
+                          <tr key={l.id} className="border-b border-border/50">
+                            <td className="px-2 py-1.5">
+                              <input type="checkbox" checked={emailSelected.has(l.id)}
+                                onChange={e => setEmailSelected(prev => { const next = new Set(prev); if (e.target.checked) next.add(l.id); else next.delete(l.id); return next; })} />
+                            </td>
+                            <td className="px-2 py-1.5 text-foreground font-medium truncate max-w-[220px]">{l.name}</td>
+                            <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[140px]">{l.category ?? "—"}</td>
+                            <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[200px]">{(l.emails ?? "").split(/[,;\s]+/).find(s => s.includes("@")) ?? "—"}</td>
+                            <td className="px-2 py-1.5 whitespace-nowrap">
+                              {l.repliedAt ? <span className="text-primary font-semibold">replied</span>
+                                : l.autoOutreach ? <span className="text-blue-400">enrolled · step {l.outreachStep ?? 0}</span>
+                                : (l.outreachStep ?? 0) > 0 ? <span className="text-muted-foreground">emailed ×{l.outreachStep}</span>
+                                : <span className="text-muted-foreground">—</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Sent + replies feeds */}
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="rounded-2xl border border-border bg-card p-5">
+                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide mb-3">Recent sends</h3>
+                  {emailActivity.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">Nothing sent yet — enroll companies above and turn the engine on.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {emailActivity.map(a => (
+                        <div key={a.id} className="rounded-lg border border-border bg-background/40 px-3 py-2 text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-1.5 py-0.5 rounded-full border text-[9px] font-bold uppercase ${a.status === "sent" ? "bg-primary/15 text-primary border-primary/40" : "bg-red-500/15 text-red-400 border-red-500/40"}`}>{a.status}</span>
+                            <span className="font-semibold text-foreground truncate">{a.leadName ?? a.toEmail}</span>
+                            <span className="ml-auto text-muted-foreground whitespace-nowrap">step {a.step} · {new Date(a.createdAt).toLocaleString()}</span>
+                          </div>
+                          <div className="text-muted-foreground truncate mt-0.5">{a.status === "failed" ? (a.error ?? "failed") : a.subject}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-2xl border border-border bg-card p-5">
+                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide mb-3">Replies</h3>
+                  {emailReplies.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No replies yet.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {emailReplies.map(r => (
+                        <div key={r.id} className="rounded-lg border border-border bg-background/40 px-3 py-2 text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-1.5 py-0.5 rounded-full border text-[9px] font-bold uppercase ${r.direction === "in" ? "bg-blue-500/15 text-blue-400 border-blue-500/40" : "bg-primary/15 text-primary border-primary/40"}`}>{r.direction === "in" ? "in" : r.aiGenerated ? "AI out" : "out"}</span>
+                            <span className="font-semibold text-foreground truncate">{r.leadName ?? r.fromEmail ?? "—"}</span>
+                            <span className="ml-auto text-muted-foreground whitespace-nowrap">{new Date(r.createdAt).toLocaleString()}</span>
+                          </div>
+                          {r.body && <div className="text-muted-foreground mt-0.5 line-clamp-2">{r.body}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           {activeTab === "scraper" && (
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
 
