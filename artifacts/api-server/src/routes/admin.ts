@@ -3,6 +3,7 @@ import { getAuth } from "@clerk/express";
 import {
   saveLandingImage, deleteLandingImage, listLandingImageSlugs, validSlug, allowedImageMime, MAX_IMAGE_BYTES,
 } from "../lib/landingImages.js";
+import { generateLandingCreative } from "../lib/landingCreative.js";
 import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, packOrders, testimonials, chatConversations, chatMessages, sampleRequests, computeOpportunity, computeValue, type ScrapePlatform } from "@workspace/db";
 import { sql, count, gte, gt, eq, and, desc, asc, isNull, isNotNull, inArray, getTableColumns } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
@@ -1478,6 +1479,31 @@ router.post(
     }
   },
 );
+
+// One-click "Change picture": AI-generates a brand-new ad creative for the
+// page and stores it as the override — no file picking. The client sends the
+// page's name/angle/headline (single source of truth lives in the site data).
+router.post("/social/landing-image/:slug/generate", requireAuth, async (req, res) => {
+  const slug = String(req.params.slug ?? "");
+  if (!validSlug(slug)) { res.status(400).json({ error: "Bad slug." }); return; }
+  const body = (req.body ?? {}) as { name?: unknown; angle?: unknown; headline?: unknown };
+  const brief = {
+    name: String(body.name ?? slug).slice(0, 200),
+    angle: String(body.angle ?? "").slice(0, 500),
+    headline: String(body.headline ?? "").slice(0, 300),
+  };
+  try {
+    const { mime, bytes } = await generateLandingCreative(brief);
+    if (bytes.length > MAX_IMAGE_BYTES) {
+      res.status(500).json({ error: "Generated image was unexpectedly large — please try again." });
+      return;
+    }
+    await saveLandingImage(slug, mime, bytes);
+    res.json({ ok: true, slug, bytes: bytes.length });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Image generation failed." });
+  }
+});
 
 router.delete("/social/landing-image/:slug", requireAuth, async (req, res) => {
   const slug = String(req.params.slug ?? "");

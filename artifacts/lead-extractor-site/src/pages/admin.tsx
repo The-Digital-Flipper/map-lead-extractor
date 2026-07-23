@@ -471,12 +471,34 @@ export default function Admin() {
   // Landing-page picture uploads. imgBust forces the <img> to refetch after a
   // change (the URL is otherwise identical and would show the cached old one).
   const [lpImgBusy, setLpImgBusy] = useState<string | null>(null);
+  const [lpImgBusyText, setLpImgBusyText] = useState("Working…");
   const [imgBust, setImgBust] = useState<Record<string, number>>({});
   const bustImg = (slug: string) => setImgBust((b) => ({ ...b, [slug]: (b[slug] ?? 0) + 1 }));
+  // One click = a brand-new AI-made creative for this page (takes ~15-40s).
+  const lpImgGenerate = async (lp: (typeof SOCIAL_LANDING_PAGES)[number]) => {
+    setLpImgBusy(lp.slug); setLpImgBusyText("Creating a new picture… (~30s)"); setSocialMsg(null);
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/social/landing-image/${lp.slug}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: lp.name,
+          angle: lp.angle,
+          headline: `${lp.headline.pre}${lp.headline.highlight}${lp.headline.post}`,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { setSocialMsg(`✓ New picture created for ${lp.slug} — click again for a different one`); bustImg(lp.slug); loadSocial(); }
+      else setSocialMsg(d.error || `Couldn't create a picture (error ${r.status}) — please try again.`);
+    } catch {
+      setSocialMsg("Couldn't create a picture — please try again.");
+    }
+    setLpImgBusy(null);
+  };
   const lpImgUpload = async (slug: string, file: File) => {
     if (!file) return;
     if (file.size > 8 * 1024 * 1024) { setSocialMsg("That image is over 8 MB — pick a smaller one."); return; }
-    setLpImgBusy(slug); setSocialMsg(null);
+    setLpImgBusy(slug); setLpImgBusyText("Uploading…"); setSocialMsg(null);
     try {
       const r = await adminFetch(`${basePath}/api/admin/social/landing-image/${slug}`, {
         method: "POST", headers: { "Content-Type": file.type }, body: file,
@@ -490,7 +512,7 @@ export default function Admin() {
     setLpImgBusy(null);
   };
   const lpImgRevert = async (slug: string) => {
-    setLpImgBusy(slug); setSocialMsg(null);
+    setLpImgBusy(slug); setLpImgBusyText("Reverting…"); setSocialMsg(null);
     try {
       const r = await adminFetch(`${basePath}/api/admin/social/landing-image/${slug}`, { method: "DELETE" });
       if (r.ok) { setSocialMsg(`✓ Reverted ${slug} to the default picture`); bustImg(slug); loadSocial(); }
@@ -2156,13 +2178,19 @@ export default function Admin() {
                         )}
                         {lpImgBusy === lp.slug && (
                           <div className="absolute inset-0 flex items-center justify-center bg-background/70 rounded-lg text-xs font-semibold">
-                            Uploading…
+                            {lpImgBusyText}
                           </div>
                         )}
                       </div>
                       <div className="flex items-center gap-2 flex-wrap mb-2">
-                        <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer bg-primary/15 text-primary hover:bg-primary/25 transition-colors ${lpImgBusy === lp.slug ? "opacity-50 pointer-events-none" : ""}`}>
-                          🖼️ Change picture
+                        <button
+                          onClick={() => lpImgGenerate(lp)}
+                          disabled={lpImgBusy === lp.slug}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary/15 text-primary hover:bg-primary/25 transition-colors ${lpImgBusy === lp.slug ? "opacity-50 pointer-events-none" : ""}`}>
+                          🪄 Change picture
+                        </button>
+                        <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer bg-muted text-foreground hover:opacity-80 transition-opacity ${lpImgBusy === lp.slug ? "opacity-50 pointer-events-none" : ""}`}>
+                          ⬆️ Upload your own
                           <input
                             type="file"
                             accept="image/jpeg,image/png,image/webp,image/gif"

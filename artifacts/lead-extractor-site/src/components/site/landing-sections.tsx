@@ -647,25 +647,31 @@ export function PlatformReviews() {
             </div>
           </div>
           {/* BBB A+ */}
-          <div className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-xl px-5 py-3 shadow-sm">
-            {/* BBB torch logo */}
-            <svg width="22" height="22" viewBox="0 0 60 80" fill="none">
-              <rect x="20" y="55" width="20" height="25" rx="2" fill="#003f87"/>
-              <rect x="24" y="48" width="12" height="10" fill="#003f87"/>
-              <ellipse cx="30" cy="32" rx="16" ry="18" fill="#003f87"/>
-              <ellipse cx="30" cy="32" rx="10" ry="12" fill="#0057b8"/>
-              <path d="M24 20 Q30 8 36 20 Q32 14 30 10 Q28 14 24 20z" fill="#f5a623"/>
-              <path d="M27 18 Q30 6 33 18 Q31 12 30 9 Q29 12 27 18z" fill="#fff"/>
-              <text x="30" y="40" textAnchor="middle" fontSize="10" fontWeight="bold" fill="white" fontFamily="Arial">BBB</text>
-            </svg>
-            <div className="text-left">
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-lg font-semibold text-[#003f87] leading-none">A+</span>
-                <span className="text-[11px] text-[#003f87] font-bold">Rating</span>
-              </div>
-              <p className="text-[11px] text-[#70757a] mt-0.5">Better Business Bureau</p>
-            </div>
-          </div>
+          {/* Faithful recreation of the BBB blue horizontal accredited-business seal */}
+          <svg width="180" height="52" viewBox="0 0 360 104" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="360" height="104" rx="6" fill="#003f87"/>
+            {/* ── Torch mark ── */}
+            {/* Outer flame */}
+            <path d="M38 58 C28 46 26 30 38 18 C42 26 44 34 40 42 C46 36 48 24 44 14 C52 22 56 34 52 46 C56 40 56 30 54 22 C62 32 64 46 56 58 C54 64 46 68 44 68 L32 68 C30 68 22 64 20 58 C14 46 16 32 24 22 C22 30 22 40 26 46 C22 34 26 22 34 14 C30 24 32 36 38 42 C34 34 36 26 38 18 Z" fill="white"/>
+            {/* Inner flame highlight */}
+            <path d="M38 52 C32 44 32 34 38 26 C40 32 40 38 38 44 C42 38 42 30 40 24 C46 32 46 42 42 50 C44 44 44 36 42 30 C48 38 48 48 44 56 C42 60 40 62 38 62 L34 62 C32 60 30 56 30 52 C28 44 30 36 34 28 C32 34 32 42 36 48 C32 40 34 32 38 26 Z" fill="#c8d8f0"/>
+            {/* Handle */}
+            <rect x="29" y="68" width="22" height="20" rx="2" fill="white"/>
+            <rect x="31" y="72" width="18" height="2" rx="1" fill="#003f87"/>
+            <rect x="31" y="76" width="18" height="2" rx="1" fill="#003f87"/>
+            <rect x="31" y="80" width="18" height="2" rx="1" fill="#003f87"/>
+            {/* ── BBB wordmark ── */}
+            <text x="72" y="44" fontFamily="Arial Black,Arial" fontWeight="900" fontSize="30" fill="white">BBB</text>
+            {/* ── "ACCREDITED" ── */}
+            <text x="72" y="62" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="13" fill="white" letterSpacing="2">ACCREDITED</text>
+            {/* ── "BUSINESS" ── */}
+            <text x="72" y="77" fontFamily="Arial,sans-serif" fontWeight="400" fontSize="12" fill="#a8c0e8" letterSpacing="2">BUSINESS</text>
+            {/* ── Divider ── */}
+            <rect x="228" y="20" width="1.5" height="64" fill="#1a5bb5"/>
+            {/* ── Rating ── */}
+            <text x="244" y="36" fontFamily="Arial,sans-serif" fontWeight="400" fontSize="11" fill="#a8c0e8" letterSpacing="1">RATING</text>
+            <text x="244" y="78" fontFamily="Arial Black,Arial" fontWeight="900" fontSize="46" fill="white">A+</text>
+          </svg>
         </div>
 
         {/* Review cards */}
