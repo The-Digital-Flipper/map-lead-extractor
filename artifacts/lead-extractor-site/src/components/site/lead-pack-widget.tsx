@@ -181,6 +181,14 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [unlocked, setUnlocked] = useState<UnlockedLead[] | null>(null);
 
+  // Reset samples whenever the search changes so results always match
+  useEffect(() => {
+    setSample(null);
+    setSampleError(null);
+    setUnlocked(null);
+    setUnlockError(null);
+  }, [packCategory, packState, packRequest]);
+
   const handleSeeSamples = async () => {
     setSampleLoading(true);
     setSampleError(null);
