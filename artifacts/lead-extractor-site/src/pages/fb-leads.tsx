@@ -16,6 +16,7 @@ import {
   WhatYouGet,
   BuySection,
   BuyerReviews,
+  PlatformReviews,
   HowItWorks,
   FaqSection,
   FinalCta,
@@ -150,6 +151,8 @@ export default function FbLeads() {
           title="Build your lead pack"
           subtitle="Tell us the industry and location. Check availability instantly, then check out with secure Stripe. Your CSV is emailed after a quick quality review."
         />
+
+        <PlatformReviews />
 
         <BuyerReviews />
 
