@@ -13,6 +13,7 @@ import { useSeo } from "@/lib/seo";
 import { industryPages } from "@/data/landing-pages";
 import { MobileNav } from "@/components/site/mobile-nav";
 import LeadPackWidget from "@/components/site/lead-pack-widget";
+import { BuyerReviews } from "@/components/site/landing-sections";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
 
@@ -606,6 +607,8 @@ export default function Home() {
             </Accordion>
           </div>
         </section>
+
+        <BuyerReviews />
 
         {/* Section 8: Final CTA */}
         <section className="py-32 relative overflow-hidden bg-primary text-primary-foreground text-center">

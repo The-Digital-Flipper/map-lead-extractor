@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import NotFound from "@/pages/not-found";
 import { useSeo } from "@/lib/seo";
 import { MobileNav } from "@/components/site/mobile-nav";
+import { BuyerReviews } from "@/components/site/landing-sections";
 
 const STORE_URL =
   "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
@@ -229,6 +230,8 @@ export default function IndustryLanding() {
             </div>
           </div>
         </section>
+
+        <BuyerReviews />
 
         {/* CTA */}
         <section className="py-24 bg-primary text-primary-foreground text-center">

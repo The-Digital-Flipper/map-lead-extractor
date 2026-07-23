@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useSeo } from "@/lib/seo";
 import { MobileNav } from "@/components/site/mobile-nav";
+import { BuyerReviews } from "@/components/site/landing-sections";
 
 import googleExtractorLogo from "@assets/9CC30DDA-8CD4-4C11-8AD7-63951B1FA864_1782498861233.png";
 import mleIcon128 from "@assets/mle-icon-128.png";
@@ -362,6 +363,8 @@ export default function FreeTool() {
             </Accordion>
           </div>
         </section>
+
+        <BuyerReviews />
 
         {/* Done-for-you cross-sell */}
         <section className="py-32 relative overflow-hidden bg-primary text-primary-foreground text-center">
