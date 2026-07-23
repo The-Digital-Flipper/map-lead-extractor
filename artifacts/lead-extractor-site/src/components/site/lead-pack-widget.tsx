@@ -403,24 +403,30 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
                           <span className="text-muted-foreground/60">no email</span>
                         )}
                       </span>
-                      {/* Social pages: greyed icons pre-unlock (proof they exist),
-                          clickable links once the email unlock reveals the URLs. */}
-                      {(u ? (u.socials ?? []).length : (lead.socials ?? []).length) > 0 && (
-                        <span className="flex items-center gap-2" data-testid={`row-socials-${i}`}>
-                          {u
-                            ? (u.socials ?? []).map((s) => (
-                                <a key={s.url} href={s.url} target="_blank" rel="noopener nofollow" title={s.platform}
-                                  className="text-primary hover:opacity-70 transition-opacity">
-                                  <SocialIcon platform={s.platform} />
-                                </a>
-                              ))
-                            : (lead.socials ?? []).map((p) => (
-                                <span key={p} title={`${p} page included — unlock to open`} className="text-muted-foreground/50">
-                                  <SocialIcon platform={p} />
-                                </span>
-                              ))}
-                        </span>
-                      )}
+                      {/* Social pages — always shown as a row */}
+                      <span className="flex items-center gap-1.5" data-testid={`row-socials-${i}`}>
+                        <Globe className="w-3.5 h-3.5 text-primary shrink-0" />
+                        {u ? (
+                          (u.socials ?? []).length > 0 ? (
+                            (u.socials ?? []).map((s) => (
+                              <a key={s.url} href={s.url} target="_blank" rel="noopener nofollow" title={s.platform}
+                                className="text-primary hover:opacity-70 transition-opacity">
+                                <SocialIcon platform={s.platform} />
+                              </a>
+                            ))
+                          ) : (
+                            <span className="text-muted-foreground/60">no socials</span>
+                          )
+                        ) : (lead.socials ?? []).length > 0 ? (
+                          (lead.socials ?? []).map((p) => (
+                            <span key={p} title={`${p} — unlock to open`} className="text-muted-foreground/50">
+                              <SocialIcon platform={p} />
+                            </span>
+                          ))
+                        ) : (
+                          <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> socials included</span>
+                        )}
+                      </span>
                     </div>
                   </div>
                 );
