@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Download, Lock, Shield, Mail, Eye, Phone, Star, Sparkles, Facebook, Instagram, Twitter, Linkedin, Globe } from "lucide-react";
 
 import { PaymentMethods } from "@/components/site/trust-badges";
+import { PlatformReviews } from "@/components/site/landing-sections";
 
 type SocialLink = { platform: string; url: string };
 type SampleLead = { name: string; city: string; category: string; rating: number | null; reviewCount: number | null; website: string | null; phoneMasked: string | null; hasEmail: boolean; socials?: string[] };
@@ -111,7 +112,7 @@ const US_STATES: { value: string; label: string }[] = [
 // tiers, and the human-review quality section. Used on both the home page's
 // #leads-for-sale section and the pricing page. This is the single source of
 // truth for the pack-buying flow.
-export default function LeadPackWidget() {
+export default function LeadPackWidget({ showReviews = false }: { showReviews?: boolean }) {
   const [packLoading, setPackLoading] = useState(false);
   const [packError, setPackError] = useState<string | null>(null);
   const [packCategory, setPackCategory] = useState("");
@@ -695,6 +696,8 @@ export default function LeadPackWidget() {
           Want a custom volume? <a href="mailto:support@mapleadextractor.net?subject=Bulk%20Lead%20Order" className="text-primary hover:underline">Email us</a> — we handle orders of any size.
         </p>
       </div>
+
+      {showReviews && <PlatformReviews />}
 
       {/* Human review quality section */}
       <div className="mt-10 rounded-2xl border border-border bg-card/30 overflow-hidden">

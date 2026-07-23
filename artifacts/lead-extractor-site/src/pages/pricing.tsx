@@ -113,10 +113,8 @@ export default function Pricing() {
 
           {/* The buy-leads widget (shared with the home page) */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.12 }}>
-            <LeadPackWidget />
+            <LeadPackWidget showReviews />
           </motion.div>
-
-          <PlatformReviews />
 
           {/* FAQ */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.2 }} className="mt-20 max-w-2xl mx-auto">
