@@ -624,17 +624,37 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
       </div>
 
 
-      {/* Mini social proof */}
+      {/* Mini social proof — Google-style review cards */}
       <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex-1 bg-card/40 border border-border rounded-xl p-4">
-          <div className="flex gap-px mb-2">{[1,2,3,4,5].map(s=><svg key={s} className="w-3 h-3 fill-[#f59e0b]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
-          <p className="text-xs text-muted-foreground leading-relaxed">"Bought a pack Friday afternoon, had the CSV in my inbox within the hour. Data was clean and ready to import."</p>
-          <p className="text-xs font-semibold text-foreground mt-2">— James O.</p>
+        {/* Card 1 — Google */}
+        <div className="flex-1 bg-white rounded-2xl shadow-[0_1px_6px_rgba(32,33,36,0.18)] p-4 border border-[#e8eaed] flex flex-col">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ backgroundColor: "#4285F4" }}>J</div>
+              <div>
+                <div className="text-[12px] font-semibold text-[#202124] leading-tight">James O.</div>
+                <div className="text-[10px] text-[#70757a]">Local Guide · 2 weeks ago</div>
+              </div>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 48 48" fill="none"><path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/><path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/></svg>
+          </div>
+          <div className="flex gap-0.5 mb-2">{[1,2,3,4,5].map(s=><svg key={s} className="w-3.5 h-3.5 fill-[#fbbc04]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
+          <p className="text-[12px] text-[#3c4043] leading-relaxed flex-1">"Bought a pack Friday afternoon, had the CSV in my inbox within the hour. Data was clean and ready to import."</p>
         </div>
-        <div className="flex-1 bg-card/40 border border-border rounded-xl p-4">
-          <div className="flex gap-px mb-2">{[1,2,3,4,5].map(s=><svg key={s} className="w-3 h-3 fill-[#f59e0b]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
-          <p className="text-xs text-muted-foreground leading-relaxed">"Lead storage on this site is what sold me. Everything syncs to my account and CSV export is one click."</p>
-          <p className="text-xs font-semibold text-foreground mt-2">— Diego R.</p>
+        {/* Card 2 — Google */}
+        <div className="flex-1 bg-white rounded-2xl shadow-[0_1px_6px_rgba(32,33,36,0.18)] p-4 border border-[#e8eaed] flex flex-col">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ backgroundColor: "#EA4335" }}>D</div>
+              <div>
+                <div className="text-[12px] font-semibold text-[#202124] leading-tight">Diego R.</div>
+                <div className="text-[10px] text-[#70757a]">Local Guide · a month ago</div>
+              </div>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 48 48" fill="none"><path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/><path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/></svg>
+          </div>
+          <div className="flex gap-0.5 mb-2">{[1,2,3,4,5].map(s=><svg key={s} className="w-3.5 h-3.5 fill-[#fbbc04]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
+          <p className="text-[12px] text-[#3c4043] leading-relaxed flex-1">"Lead storage on this site is what sold me. Everything syncs to my account and CSV export is one click."</p>
         </div>
       </div>
 
