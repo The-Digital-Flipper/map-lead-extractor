@@ -883,6 +883,70 @@ export default function Admin() {
     : status === "succeeded" ? "bg-primary/15 text-primary border-primary/40"
     : "bg-red-500/15 text-red-400 border-red-500/40";
 
+  // ── Auto-scrape: the background scheduler that keeps inventory filled ──────
+  interface AutoScrapeQueueRow { id: number; category: string; location: string; priority: number | null; lastScrapedAt: string | null; inventory: number }
+  interface AutoScrapeStatus {
+    enabled: boolean; tickInFlight: boolean; inFlight: boolean;
+    lastResult: { at: string; ran: boolean; detail: string } | null;
+    config: { intervalMs: number; targetGoal: number; cooldownHours: number; coreLocations: string[] };
+    queue: AutoScrapeQueueRow[];
+  }
+  const [autoScrape, setAutoScrape] = useState<AutoScrapeStatus | null>(null);
+  const [autoScrapeBusy, setAutoScrapeBusy] = useState<"" | "toggle" | "seed" | "tick">("");
+  const [autoScrapeMsg, setAutoScrapeMsg] = useState("");
+
+  const loadAutoScrape = useCallback(async () => {
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/auto-scrape`);
+      const d = await r.json();
+      if (r.ok) setAutoScrape(d);
+    } catch { /* keep whatever was already loaded */ }
+  }, []);
+  useEffect(() => { if (activeTab === "scraper") loadAutoScrape(); }, [activeTab, loadAutoScrape]);
+
+  const toggleAutoScrape = async () => {
+    if (!autoScrape || autoScrapeBusy) return;
+    setAutoScrapeBusy("toggle"); setAutoScrapeMsg("");
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/auto-scrape`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !autoScrape.enabled }),
+      });
+      if (!r.ok) setAutoScrapeMsg((await r.json()).error ?? "Toggle failed");
+    } catch { setAutoScrapeMsg("Could not reach the server"); }
+    setAutoScrapeBusy("");
+    loadAutoScrape();
+  };
+
+  const seedAutoScrape = async () => {
+    if (autoScrapeBusy) return;
+    setAutoScrapeBusy("seed"); setAutoScrapeMsg("");
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/auto-scrape/seed`, { method: "POST" });
+      const d = await r.json();
+      setAutoScrapeMsg(r.ok ? `Seeded ${d.added} new target${d.added === 1 ? "" : "s"}` : (d.error ?? "Seed failed"));
+    } catch { setAutoScrapeMsg("Could not reach the server"); }
+    setAutoScrapeBusy("");
+    loadAutoScrape();
+  };
+
+  // One full scheduler pass right now — runs a real scrape, so it can take a
+  // minute or two; the button spins until the tick reports back.
+  const tickAutoScrape = async () => {
+    if (autoScrapeBusy) return;
+    setAutoScrapeBusy("tick"); setAutoScrapeMsg("");
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/auto-scrape/tick`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) setAutoScrapeMsg(d.error ?? "Tick failed");
+      else if (d.ran) setAutoScrapeMsg(`Scraped ${d.target.category} in ${d.target.location} — ${d.run.saved ?? 0} new leads`);
+      else setAutoScrapeMsg(`Nothing to do: ${d.reason}`);
+    } catch { setAutoScrapeMsg("Could not reach the server"); }
+    setAutoScrapeBusy("");
+    loadAutoScrape();
+    loadRuns();
+  };
+
   // ── AI Research: find where to scrape, plot on the map, scrape live ────────
   type ScrapeTarget = {
     id: number; category: string; location: string;
@@ -1695,6 +1759,64 @@ export default function Admin() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Auto-scrape scheduler — hands-off inventory filling */}
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-primary" />
+                    <h2 className="text-lg font-display font-bold">Auto-Scrape</h2>
+                    {autoScrape && (
+                      <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase ${autoScrape.enabled ? "bg-primary/15 text-primary border-primary/40" : "bg-muted text-muted-foreground border-border"}`}>
+                        {autoScrape.enabled ? (autoScrape.tickInFlight || autoScrape.inFlight ? "Scraping…" : "On") : "Paused"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={tickAutoScrape} disabled={!!autoScrapeBusy}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80 disabled:opacity-50">
+                      <RefreshCw className={`w-3.5 h-3.5 ${autoScrapeBusy === "tick" ? "animate-spin" : ""}`} />
+                      {autoScrapeBusy === "tick" ? "Running…" : "Run tick now"}
+                    </button>
+                    <button onClick={seedAutoScrape} disabled={!!autoScrapeBusy}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80 disabled:opacity-50">
+                      {autoScrapeBusy === "seed" ? "Seeding…" : "Seed plan"}
+                    </button>
+                    {autoScrape && (
+                      <button onClick={toggleAutoScrape} disabled={!!autoScrapeBusy}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50 ${autoScrape.enabled ? "bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20" : "bg-primary text-primary-foreground hover:opacity-90"}`}>
+                        {autoScrape.enabled ? "Pause" : "Resume"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mb-3">
+                  {autoScrape
+                    ? `Every ${Math.round(autoScrape.config.intervalMs / 60000)} min it scrapes the emptiest category × metro until each holds ${autoScrape.config.targetGoal} leads (re-checked after ${autoScrape.config.cooldownHours}h). Customer runs always take priority.`
+                    : "Loading scheduler status…"}
+                </p>
+                {autoScrapeMsg && <p className="text-xs text-primary mb-2">✓ {autoScrapeMsg}</p>}
+                {autoScrape?.lastResult && (
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Last pass ({new Date(autoScrape.lastResult.at).toLocaleString()}): {autoScrape.lastResult.detail}
+                  </p>
+                )}
+                {autoScrape && autoScrape.queue.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-display font-bold text-muted-foreground uppercase tracking-wide mb-1.5">Up next</h3>
+                    <div className="space-y-1">
+                      {autoScrape.queue.map(q => (
+                        <div key={q.id} className="flex items-center gap-3 rounded-lg border border-border bg-background/40 px-3 py-1.5 text-xs">
+                          <span className="font-semibold text-foreground truncate">{q.category} · {q.location}</span>
+                          <span className="ml-auto text-muted-foreground whitespace-nowrap">
+                            {q.inventory}/{autoScrape.config.targetGoal} leads · {q.lastScrapedAt ? `last ${new Date(q.lastScrapedAt).toLocaleDateString()}` : "never scraped"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Dataset viewer for whichever run is selected */}
