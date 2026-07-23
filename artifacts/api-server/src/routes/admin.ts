@@ -27,6 +27,7 @@ import {
   socialChat, type SocialChatMessage,
 } from "../lib/social";
 import { sendBuyerFollowup } from "../lib/buyer-followup";
+import { autoScrapeTick, autoScrapeStatus, setAutoScrapeEnabled, seedAutoTargets, listAutoCandidates } from "../lib/autoScrape";
 import { anyProviderConfigured, providerReady, getOutreachSettings } from "../lib/outreach-auto";
 
 const router = Router();
@@ -1084,6 +1085,42 @@ router.post("/scrape-targets/:id/scrape", requireAuth, async (req, res) => {
 router.delete("/scrape-targets", requireAdmin, async (_req, res) => {
   await db.delete(scrapeTargets);
   res.json({ ok: true });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Auto-scrape — the background scheduler that keeps inventory filled for the
+// categories × core metros we sell (lib/autoScrape.ts).
+// ════════════════════════════════════════════════════════════════════════════
+
+// ---- GET /auto-scrape — scheduler status + a preview of what's next ---------
+router.get("/auto-scrape", requireAuth, async (_req, res) => {
+  const queue = (await listAutoCandidates(5)).map(({ target, inventory }) => ({
+    id: target.id, category: target.category, location: target.location,
+    priority: target.priority, lastScrapedAt: target.lastScrapedAt, inventory,
+  }));
+  res.json({ ...autoScrapeStatus(), inFlight: scrapeInFlight(), queue });
+});
+
+// ---- POST /auto-scrape — toggle the scheduler at runtime --------------------
+router.post("/auto-scrape", requireAuth, async (req, res) => {
+  const on = (req.body as { enabled?: unknown } | undefined)?.enabled;
+  if (typeof on !== "boolean") { res.status(400).json({ error: "enabled (boolean) is required" }); return; }
+  setAutoScrapeEnabled(on);
+  res.json(autoScrapeStatus());
+});
+
+// ---- POST /auto-scrape/seed — fill the plan from what we offer --------------
+router.post("/auto-scrape/seed", requireAuth, async (req, res) => {
+  const added = await seedAutoTargets();
+  req.log.info({ added }, "auto-scrape targets seeded");
+  res.json({ added });
+});
+
+// ---- POST /auto-scrape/tick — run one scheduler pass right now --------------
+router.post("/auto-scrape/tick", requireAuth, async (req, res) => {
+  const result = await autoScrapeTick();
+  req.log.info(result, "manual auto-scrape tick");
+  res.json(result);
 });
 
 // ════════════════════════════════════════════════════════════════════════════
