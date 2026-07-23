@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import LeadPackWidget from "@/components/site/lead-pack-widget";
+import StickyCta from "@/components/site/sticky-cta";
 import TrustBadges from "@/components/site/trust-badges";
 import { useSeo } from "@/lib/seo";
 
@@ -334,6 +335,9 @@ export default function FbLeads() {
           </div>
         </section>
       </main>
+
+      {/* Mobile sticky CTA — most paid traffic is mobile */}
+      <StickyCta label="Get 100 for $29" />
 
       {/* Minimal footer — privacy/terms kept for ad-platform compliance */}
       <footer className="bg-card border-t border-border py-8">

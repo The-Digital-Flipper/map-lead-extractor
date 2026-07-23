@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import LeadPackWidget from "@/components/site/lead-pack-widget";
+import StickyCta from "@/components/site/sticky-cta";
 import TrustBadges, { PaymentMethods } from "@/components/site/trust-badges";
 import NotFound from "@/pages/not-found";
 import { useSeo } from "@/lib/seo";
@@ -145,6 +146,9 @@ export default function SocialLanding({ params }: { params: { variant: string } 
                     </span>
                   </div>
                 )}
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Lock className="w-3.5 h-3.5 text-primary" /> Money-back guarantee · Secure Stripe checkout
+                </p>
               </motion.div>
 
               {/* Trust chips */}
@@ -340,6 +344,12 @@ export default function SocialLanding({ params }: { params: { variant: string } 
           </div>
         </section>
       </main>
+
+      {/* Mobile sticky CTA — most social traffic is mobile */}
+      <StickyCta
+        label={lp.sampleFirst ? "See 5 Free Leads" : "Get 100 for $29"}
+        free={lp.sampleFirst}
+      />
 
       {/* Minimal footer — privacy/terms kept for ad-platform compliance */}
       <footer className="bg-card border-t border-border py-8">
