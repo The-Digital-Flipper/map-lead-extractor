@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, Search, Star, Share2, Check, Lock } from "lucide-react";
 import { useSeo } from "@/lib/seo";
+import { PlatformReviews } from "@/components/site/landing-sections";
 import { SCRAPER_ACTORS, type ScraperActor } from "@/lib/scraperActors";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -131,6 +132,9 @@ export default function ScraperStore() {
           </p>
         </motion.div>
       </div>
+
+      <PlatformReviews />
+
     </div>
   );
 }

@@ -1,5 +1,8 @@
-import { Router, type Request, type Response, type NextFunction } from "express";
+import express, { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "@clerk/express";
+import {
+  saveLandingImage, deleteLandingImage, listLandingImageSlugs, validSlug, allowedImageMime, MAX_IMAGE_BYTES,
+} from "../lib/landingImages.js";
 import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, packOrders, testimonials, chatConversations, chatMessages, sampleRequests, computeOpportunity, computeValue, type ScrapePlatform } from "@workspace/db";
 import { sql, count, gte, gt, eq, and, desc, asc, isNull, isNotNull, inArray, getTableColumns } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
@@ -1282,7 +1285,7 @@ router.get("/social", requireAuth, async (_req, res) => {
   // Never select image_b64 in lists — it's megabytes per row.
   const { imageB64: _imageB64, ...postCols } = getTableColumns(socialPosts);
   const listCols = { ...postCols, hasImage: sql<boolean>`${socialPosts.imageB64} IS NOT NULL` };
-  const [settings, fb, appConfigured, queue, groupQueue, history, groups] = await Promise.all([
+  const [settings, fb, appConfigured, queue, groupQueue, history, groups, customImages] = await Promise.all([
     getSocialSettings(),
     facebookCreds(),
     fbAppConfigured(),
@@ -1290,6 +1293,7 @@ router.get("/social", requireAuth, async (_req, res) => {
     db.select(listCols).from(socialPosts).where(and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook_group"))).orderBy(asc(socialPosts.id)),
     db.select(listCols).from(socialPosts).where(sql`${socialPosts.status} <> 'queued'`).orderBy(desc(socialPosts.id)).limit(30),
     listGroups(),
+    listLandingImageSlugs(),
   ]);
   // Never ship tokens/secrets to the browser.
   const { fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p, ...safeSettings } = settings;
@@ -1304,6 +1308,7 @@ router.get("/social", requireAuth, async (_req, res) => {
     groupQueue,
     history,
     groups,
+    customImages,
   });
 });
 
@@ -1438,6 +1443,47 @@ router.get("/social/fb/select", async (req, res) => {
     res.status(400).send(fbResultPage("Facebook connection failed",
       `<h2>😕 Something went wrong</h2><p>${msg}</p><a class="btn" href="/admin">Back to admin</a>`));
   }
+});
+
+// ---- Landing-page pictures: upload / revert the /go/<slug>.jpg creative -------
+// The image is sent as the raw request body (Content-Type = the file's type),
+// so a route-local raw parser with a generous limit reads it without touching
+// the global JSON body parser. Stored in the DB so it survives redeploys.
+router.post(
+  "/social/landing-image/:slug",
+  requireAuth,
+  express.raw({ type: () => true, limit: MAX_IMAGE_BYTES + 1024 }),
+  async (req, res) => {
+    const slug = String(req.params.slug ?? "");
+    if (!validSlug(slug)) { res.status(400).json({ error: "Bad slug." }); return; }
+    const mime = String(req.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
+    if (!allowedImageMime(mime)) {
+      res.status(400).json({ error: "Please upload a JPG, PNG, WebP or GIF image." });
+      return;
+    }
+    const bytes = req.body as Buffer;
+    if (!Buffer.isBuffer(bytes) || bytes.length === 0) {
+      res.status(400).json({ error: "No image received." });
+      return;
+    }
+    if (bytes.length > MAX_IMAGE_BYTES) {
+      res.status(400).json({ error: "Image is too large — keep it under 8 MB." });
+      return;
+    }
+    try {
+      await saveLandingImage(slug, mime, bytes);
+      res.json({ ok: true, slug, bytes: bytes.length });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "Save failed." });
+    }
+  },
+);
+
+router.delete("/social/landing-image/:slug", requireAuth, async (req, res) => {
+  const slug = String(req.params.slug ?? "");
+  if (!validSlug(slug)) { res.status(400).json({ error: "Bad slug." }); return; }
+  const removed = await deleteLandingImage(slug);
+  res.json({ ok: true, reverted: removed });
 });
 
 // ---- POST /social/fb/disconnect — forget the connected Page ------------------

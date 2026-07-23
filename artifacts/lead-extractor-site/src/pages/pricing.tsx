@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Zap, Star } from "lucide-react";
 import { useSeo } from "@/lib/seo";
 import LeadPackWidget from "@/components/site/lead-pack-widget";
+import { PlatformReviews } from "@/components/site/landing-sections";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -130,6 +131,9 @@ export default function Pricing() {
 
         </div>
       </main>
+
+      <PlatformReviews />
+
     </div>
   );
 }

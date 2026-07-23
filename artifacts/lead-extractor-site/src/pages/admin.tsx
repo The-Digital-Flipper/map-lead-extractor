@@ -121,6 +121,7 @@ interface SocialData {
   groupQueue: SocialPostRow[];
   history: SocialPostRow[];
   groups: SocialGroupRow[];
+  customImages: string[];
 }
 
 // Each weakness maps to a service you sell — drives the "What to sell" panel.
@@ -466,6 +467,38 @@ export default function Admin() {
     navigator.clipboard.writeText(text).catch(() => {});
     setLpCopied(key);
     setTimeout(() => setLpCopied((k) => (k === key ? null : k)), 1500);
+  };
+  // Landing-page picture uploads. imgBust forces the <img> to refetch after a
+  // change (the URL is otherwise identical and would show the cached old one).
+  const [lpImgBusy, setLpImgBusy] = useState<string | null>(null);
+  const [imgBust, setImgBust] = useState<Record<string, number>>({});
+  const bustImg = (slug: string) => setImgBust((b) => ({ ...b, [slug]: (b[slug] ?? 0) + 1 }));
+  const lpImgUpload = async (slug: string, file: File) => {
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { setSocialMsg("That image is over 8 MB — pick a smaller one."); return; }
+    setLpImgBusy(slug); setSocialMsg(null);
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/social/landing-image/${slug}`, {
+        method: "POST", headers: { "Content-Type": file.type }, body: file,
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { setSocialMsg(`✓ New picture set for ${slug}`); bustImg(slug); loadSocial(); }
+      else setSocialMsg(d.error || "Upload failed — try a JPG or PNG.");
+    } catch {
+      setSocialMsg("Upload failed — please try again.");
+    }
+    setLpImgBusy(null);
+  };
+  const lpImgRevert = async (slug: string) => {
+    setLpImgBusy(slug); setSocialMsg(null);
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/social/landing-image/${slug}`, { method: "DELETE" });
+      if (r.ok) { setSocialMsg(`✓ Reverted ${slug} to the default picture`); bustImg(slug); loadSocial(); }
+      else setSocialMsg("Couldn't revert — please try again.");
+    } catch {
+      setSocialMsg("Couldn't revert — please try again.");
+    }
+    setLpImgBusy(null);
   };
   const loadSocial = useCallback(async () => {
     setLoadingSocial(true);
@@ -2105,16 +2138,49 @@ export default function Admin() {
                         <span className="ml-auto font-mono text-[11px] text-muted-foreground">/go/{lp.slug}</span>
                       </div>
                       <p className="text-xs text-muted-foreground mb-3">{lp.angle}</p>
-                      {/* The variant's ad creative (public/go/<slug>.jpg). Same picture
-                          link crawlers use for the preview card; download it to attach
-                          to manual posts/ads. Hidden if the file isn't deployed yet. */}
-                      <img
-                        src={`${basePath}/go/${lp.slug}.jpg`}
-                        alt={`${lp.name} ad creative`}
-                        loading="lazy"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                        className="w-full aspect-[3/2] object-cover rounded-lg border border-border mb-3"
-                      />
+                      {/* The variant's ad creative (served from /go/<slug>.jpg —
+                          an owner upload if set, else the bundled default). This
+                          is the picture crawlers use for the share/preview card. */}
+                      <div className="relative mb-3">
+                        <img
+                          src={`${basePath}/go/${lp.slug}.jpg?v=${imgBust[lp.slug] ?? 0}`}
+                          alt={`${lp.name} ad creative`}
+                          loading="lazy"
+                          onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.15"; }}
+                          className="w-full aspect-[3/2] object-cover rounded-lg border border-border"
+                        />
+                        {social?.customImages?.includes(lp.slug) && (
+                          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-primary text-primary-foreground shadow">
+                            Your picture
+                          </span>
+                        )}
+                        {lpImgBusy === lp.slug && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-background/70 rounded-lg text-xs font-semibold">
+                            Uploading…
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap mb-2">
+                        <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer bg-primary/15 text-primary hover:bg-primary/25 transition-colors ${lpImgBusy === lp.slug ? "opacity-50 pointer-events-none" : ""}`}>
+                          🖼️ Change picture
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/gif"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) lpImgUpload(lp.slug, f);
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
+                        {social?.customImages?.includes(lp.slug) && (
+                          <button onClick={() => lpImgRevert(lp.slug)} disabled={lpImgBusy === lp.slug}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80 transition-opacity">
+                            ↺ Use default
+                          </button>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <button onClick={() => lpCopy(lp.slug, lpUrl(lp.slug))}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-opacity">
@@ -2124,9 +2190,9 @@ export default function Admin() {
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80 transition-opacity">
                           <ExternalLink className="w-3 h-3" /> Preview
                         </a>
-                        <a href={`${basePath}/go/${lp.slug}.jpg`} download={`${lp.slug}-ad.jpg`}
+                        <a href={`${basePath}/go/${lp.slug}.jpg?v=${imgBust[lp.slug] ?? 0}`} download={`${lp.slug}-ad.jpg`}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80 transition-opacity">
-                          🖼️ Ad picture
+                          ⬇️ Ad picture
                         </a>
                         {lp.captions.map((cap, ci) => (
                           <button key={ci} onClick={() => lpCopy(`${lp.slug}-cap-${ci}`, `${cap}\n\n${lpUrl(lp.slug)}`)}

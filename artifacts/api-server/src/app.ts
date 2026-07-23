@@ -7,6 +7,7 @@ import router from "./routes";
 import privacyRouter from "./routes/privacy.js";
 import { mountSite, resolveSiteDir } from "./serveSite.js";
 import { mountBlog } from "./blogSite.js";
+import { loadLandingImage, validSlug } from "./lib/landingImages.js";
 import { logger } from "./lib/logger";
 import {
   CLERK_PROXY_PATH,
@@ -83,6 +84,25 @@ app.use(
 
 app.use(privacyRouter);
 app.use("/api", router);
+
+// Owner-uploaded landing-page pictures win over the bundled static file at the
+// same URL. Registered before the static site so an override is served when one
+// exists; otherwise we fall through to the file in dist/public/go/<slug>.jpg.
+app.get(/^\/go\/([a-z0-9][a-z0-9-]{0,63})\.jpg$/, async (req, res, next) => {
+  const slug = req.params[0];
+  if (!validSlug(slug)) return next();
+  try {
+    const img = await loadLandingImage(slug);
+    if (!img) return next();
+    res.setHeader("Content-Type", img.mime);
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.setHeader("Last-Modified", img.updatedAt.toUTCString());
+    res.send(img.bytes);
+  } catch (err) {
+    logger.error({ err, slug }, "landing image serve failed");
+    next();
+  }
+});
 
 // Serve the prerendered marketing site so each public route returns its OWN
 // HTML (correct per-page title/meta/canonical/JSON-LD), with SPA fallback for
