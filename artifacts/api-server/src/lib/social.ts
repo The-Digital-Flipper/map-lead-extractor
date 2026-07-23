@@ -8,7 +8,10 @@
  * this module owns the actual generation, publishing, and the scheduler tick.
  */
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { db, socialPosts, socialSettings, socialGroups, type SocialPost, type SocialSettings, type SocialGroup } from "@workspace/db";
+import { resolveSiteDir } from "../serveSite";
 import { eq, desc, asc, and, gte, lt, or, isNull, isNotNull, sql } from "drizzle-orm";
 import { logger } from "./logger";
 
@@ -660,13 +663,45 @@ export async function syncEngagementStats(limit: number): Promise<number> {
 // short headline text cleanly now, so the creative leads with a punchy headline
 // + the offer instead of the old text-free abstract illustration.
 
+// Pre-rendered branded creatives (site public/creatives/<campaign>-<n>.jpg,
+// designed in scripts/src/creatives/). Pixel-perfect HTML renders — crisp
+// type, real tables, no AI-image gibberish — picked deterministically per
+// post so the queue rotates through the pool. Returns null when the pool
+// isn't on disk (then we fall back to the OpenAI generator).
+function pooledCreative(campaign: string, postId: number): Buffer | null {
+  const siteDir = resolveSiteDir();
+  if (!siteDir) return null;
+  const dir = path.join(siteDir, "creatives");
+  let files: string[];
+  try {
+    files = fs.readdirSync(dir).filter((f) => f.startsWith(`${campaign}-`) && f.endsWith(".jpg")).sort();
+  } catch {
+    return null;
+  }
+  if (files.length === 0) return null;
+  try {
+    return fs.readFileSync(path.join(dir, files[postId % files.length]));
+  } catch {
+    return null;
+  }
+}
+
 export async function generatePostImage(postId: number): Promise<void> {
-  const key = openAiKey();
-  if (!key) throw new Error("No OpenAI key set — add OPENAI_API_KEY (or CHAT_GPT_API) in the Replit Secrets panel.");
   const rows = await db.select({ id: socialPosts.id, body: socialPosts.body, status: socialPosts.status, campaign: socialPosts.campaign }).from(socialPosts).where(eq(socialPosts.id, postId));
   const post = rows[0];
   if (!post) throw new Error(`Post ${postId} not found`);
   if (post.status === "posted") throw new Error("Already posted — images can only be added before publishing.");
+
+  // Branded pool first — deterministic, always perfectly rendered.
+  const pooled = pooledCreative(post.campaign === "freetool" ? "freetool" : "leads", postId);
+  if (pooled) {
+    await db.update(socialPosts).set({ imageB64: pooled.toString("base64") }).where(eq(socialPosts.id, postId));
+    logger.info({ postId }, "Post image set from branded creative pool");
+    return;
+  }
+
+  const key = openAiKey();
+  if (!key) throw new Error("No OpenAI key set — add OPENAI_API_KEY (or CHAT_GPT_API) in the Replit Secrets panel.");
 
   // Two campaigns, but instead of ONE fixed recipe each we rotate through a set
   // of distinct art-directed concepts so the feed never shows the same creative

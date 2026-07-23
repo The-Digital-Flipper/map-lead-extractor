@@ -51,6 +51,8 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 - **Live site chat with human takeover**: every chat-widget conversation persists to `chat_conversations`/`chat_messages` (widget mints an unguessable `public_id`, kept in sessionStorage — it's also the visitor's polling credential at `GET /api/chat/:publicId/messages`). Admin **💬 Chats** tab (polls every 3–5s) lists conversations and threads; `POST /api/admin/chats/:id/reply` sets `admin_joined` → the AI goes silent and the widget switches to "You're talking to the owner" mode; `/release` hands back to the AI. Works with no OpenAI key (canned holding reply, owner replies live). Owner still gets the existing SMS/email alert on a visitor's first message.
 
+- **Ad creatives are rendered, not AI-generated**: every marketing picture (landing-page og images `public/go/*.jpg`, the social-poster pool `public/creatives/{leads,freetool}-*.jpg`, root `facebook-ad.png`) is rendered from `scripts/src/creatives/template.html` (self-contained HTML + local fonts) via `node scripts/src/creatives/render.mjs <outDir>` (headless chromium + ImageMagick; set `CHROMIUM=` if not on PATH), then copied into place. `generatePostImage` in `api-server/src/lib/social.ts` now prefers this pool (picked `postId % poolSize` from `<siteDir>/creatives/`) and only falls back to the OpenAI image API when the pool is missing. Edit the template, re-render, rebuild the site — don't hand-edit the JPGs.
+
 ## Gotchas
 
 - Building the site locally needs env vars: `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/lead-extractor-site run build` (vite.config.ts throws without them; CI sets them in `ops/ci.github-workflow.yml`).
