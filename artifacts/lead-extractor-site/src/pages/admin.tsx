@@ -13,6 +13,7 @@ import {
   ComposableMap, Geographies, Geography, ZoomableGroup, Marker,
 } from "react-simple-maps";
 import { Tooltip } from "react-tooltip";
+import { SOCIAL_LANDING_PAGES } from "@/data/social-landing-pages";
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Cell } from "recharts";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -457,6 +458,15 @@ export default function Admin() {
   const [socialEditId, setSocialEditId] = useState<number | null>(null);
   const [socialDraft, setSocialDraft] = useState("");
   const [socialMsg, setSocialMsg] = useState<string | null>(null);
+  // Landing-page link sharing: which copy button just fired ("slug", "slug-cap-0", …)
+  const [lpCopied, setLpCopied] = useState<string | null>(null);
+  const lpUrl = (slug: string, source = "social") =>
+    `${window.location.origin}${basePath}/go/${slug}?utm_source=${source}&utm_medium=social&utm_campaign=lp-${slug}`;
+  const lpCopy = (key: string, text: string) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setLpCopied(key);
+    setTimeout(() => setLpCopied((k) => (k === key ? null : k)), 1500);
+  };
   const loadSocial = useCallback(async () => {
     setLoadingSocial(true);
     try {
@@ -2058,6 +2068,49 @@ export default function Admin() {
                     {social ? (social.settings.autoRefill ? "AUTO-REFILL ON" : "AUTO-REFILL OFF") : "…"}
                   </button>
                   <div className="text-xs text-muted-foreground mt-2">AI writes 5 more whenever fewer than 3 are queued</div>
+                </div>
+              </div>
+
+              {/* High-converting landing pages — links to drop into posts, ads & DMs */}
+              <div className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-1">
+                  <Share2 className="w-4 h-4 text-primary" />
+                  <h3 className="text-lg font-display font-bold">Landing Pages</h3>
+                  <span className="text-xs text-muted-foreground">{SOCIAL_LANDING_PAGES.length} sales angles, ready to share</span>
+                </div>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Each link is a focused sales page with its own angle — no nav, straight to checkout. Copy a link
+                  into any post, ad, or DM (links carry UTM tags, so visits & sales show up in the Traffic tab), or
+                  copy a ready-made caption that already includes the link.
+                </p>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {SOCIAL_LANDING_PAGES.map((lp) => (
+                    <div key={lp.slug} className="rounded-xl border border-border bg-background/40 p-4">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-base">{lp.emoji}</span>
+                        <span className="font-semibold text-sm">{lp.name}</span>
+                        <span className="ml-auto font-mono text-[11px] text-muted-foreground">/go/{lp.slug}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-3">{lp.angle}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button onClick={() => lpCopy(lp.slug, lpUrl(lp.slug))}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-opacity">
+                          <Copy className="w-3 h-3" /> {lpCopied === lp.slug ? "Copied!" : "Copy link"}
+                        </button>
+                        <a href={`${basePath}/go/${lp.slug}`} target="_blank" rel="noopener"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80 transition-opacity">
+                          <ExternalLink className="w-3 h-3" /> Preview
+                        </a>
+                        {lp.captions.map((cap, ci) => (
+                          <button key={ci} onClick={() => lpCopy(`${lp.slug}-cap-${ci}`, `${cap}\n\n${lpUrl(lp.slug)}`)}
+                            title={cap}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80 transition-opacity">
+                            📋 {lpCopied === `${lp.slug}-cap-${ci}` ? "Copied!" : `Caption ${ci + 1}`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 

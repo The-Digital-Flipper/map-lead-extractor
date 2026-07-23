@@ -11,6 +11,7 @@ const Privacy = lazy(() => import("@/pages/privacy"));
 const Terms = lazy(() => import("@/pages/terms"));
 const IndustryLanding = lazy(() => import("@/pages/industry-landing"));
 const FbLeads = lazy(() => import("@/pages/fb-leads"));
+const SocialLanding = lazy(() => import("@/pages/lp"));
 const ToolsIndex = lazy(() => import("@/pages/tools"));
 const ToolPage = lazy(() => import("@/pages/tool"));
 const FreeTool = lazy(() => import("@/pages/free-tool"));
@@ -61,6 +62,7 @@ function Shell() {
         <Route path="/blog/:slug" component={BlogPost} />
         <Route path="/leads/:industry" component={IndustryLanding} />
         <Route path="/get-leads" component={FbLeads} />
+        <Route path="/go/:variant" component={SocialLanding} />
         <Route path="/tools" component={ToolsIndex} />
         <Route path="/tools/:tool" component={ToolPage} />
         <Route path="/free-tool" component={FreeTool} />
