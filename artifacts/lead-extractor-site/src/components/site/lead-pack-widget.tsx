@@ -1,10 +1,22 @@
 import { useState, useEffect } from "react";
-import { Download, Lock, Shield, Mail, Eye, Phone, Star, Sparkles } from "lucide-react";
+import { Download, Lock, Shield, Mail, Eye, Phone, Star, Sparkles, Facebook, Instagram, Twitter, Linkedin, Globe } from "lucide-react";
 
 import { PaymentMethods } from "@/components/site/trust-badges";
 
-type SampleLead = { name: string; city: string; category: string; rating: number | null; reviewCount: number | null; website: string | null; phoneMasked: string | null; hasEmail: boolean };
-type UnlockedLead = { name: string; city: string; category: string; rating: number | null; reviewCount: number | null; website: string | null; phone: string | null; email: string | null };
+type SocialLink = { platform: string; url: string };
+type SampleLead = { name: string; city: string; category: string; rating: number | null; reviewCount: number | null; website: string | null; phoneMasked: string | null; hasEmail: boolean; socials?: string[] };
+type UnlockedLead = { name: string; city: string; category: string; rating: number | null; reviewCount: number | null; website: string | null; websiteUrl: string | null; phone: string | null; email: string | null; socials?: SocialLink[] };
+
+function SocialIcon({ platform }: { platform: string }) {
+  const cls = "w-3.5 h-3.5";
+  switch (platform) {
+    case "facebook": return <Facebook className={cls} />;
+    case "instagram": return <Instagram className={cls} />;
+    case "twitter": return <Twitter className={cls} />;
+    case "linkedin": return <Linkedin className={cls} />;
+    default: return <Globe className={cls} />;
+  }
+}
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -342,7 +354,21 @@ export default function LeadPackWidget() {
                       <div className="min-w-0">
                         <div className="font-semibold text-foreground text-sm truncate">{lead.name}</div>
                         <div className="text-xs text-muted-foreground truncate">
-                          {lead.city}{lead.website ? <> · <span className="text-foreground/70">{lead.website}</span></> : null}
+                          {lead.city}
+                          {lead.website ? (
+                            <>
+                              {" · "}
+                              <a
+                                href={u?.websiteUrl ?? `https://${lead.website}`}
+                                target="_blank"
+                                rel="noopener nofollow"
+                                className="text-foreground/70 hover:text-primary hover:underline transition-colors"
+                                data-testid={`link-website-${i}`}
+                              >
+                                {lead.website}
+                              </a>
+                            </>
+                          ) : null}
                         </div>
                       </div>
                       {lead.rating != null && (
@@ -357,7 +383,7 @@ export default function LeadPackWidget() {
                       <span className="flex items-center gap-1.5">
                         <Phone className="w-3.5 h-3.5 text-primary shrink-0" />
                         {u ? (
-                          <span className="font-semibold text-foreground" data-testid={`text-phone-${i}`}>{u.phone}</span>
+                          <a href={`tel:${u.phone}`} className="font-semibold text-foreground hover:text-primary hover:underline transition-colors" data-testid={`text-phone-${i}`}>{u.phone}</a>
                         ) : (
                           <span className="text-muted-foreground font-mono">{lead.phoneMasked}</span>
                         )}
@@ -365,13 +391,35 @@ export default function LeadPackWidget() {
                       <span className="flex items-center gap-1.5">
                         <Mail className="w-3.5 h-3.5 text-primary shrink-0" />
                         {u ? (
-                          <span className="font-semibold text-foreground truncate max-w-[180px]" data-testid={`text-email-${i}`}>{u.email ?? "—"}</span>
+                          u.email ? (
+                            <a href={`mailto:${u.email}`} className="font-semibold text-foreground hover:text-primary hover:underline transition-colors truncate max-w-[180px]" data-testid={`text-email-${i}`}>{u.email}</a>
+                          ) : (
+                            <span className="font-semibold text-foreground" data-testid={`text-email-${i}`}>—</span>
+                          )
                         ) : lead.hasEmail ? (
                           <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> email included</span>
                         ) : (
                           <span className="text-muted-foreground/60">no email</span>
                         )}
                       </span>
+                      {/* Social pages: greyed icons pre-unlock (proof they exist),
+                          clickable links once the email unlock reveals the URLs. */}
+                      {(u ? (u.socials ?? []).length : (lead.socials ?? []).length) > 0 && (
+                        <span className="flex items-center gap-2" data-testid={`row-socials-${i}`}>
+                          {u
+                            ? (u.socials ?? []).map((s) => (
+                                <a key={s.url} href={s.url} target="_blank" rel="noopener nofollow" title={s.platform}
+                                  className="text-primary hover:opacity-70 transition-opacity">
+                                  <SocialIcon platform={s.platform} />
+                                </a>
+                              ))
+                            : (lead.socials ?? []).map((p) => (
+                                <span key={p} title={`${p} page included — unlock to open`} className="text-muted-foreground/50">
+                                  <SocialIcon platform={p} />
+                                </span>
+                              ))}
+                        </span>
+                      )}
                     </div>
                   </div>
                 );

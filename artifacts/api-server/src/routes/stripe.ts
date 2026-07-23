@@ -288,6 +288,40 @@ function firstEmail(raw: string | null): string | null {
 }
 
 /** Bare hostname for display, e.g. "gulfcoastroofing.com" (no scheme/path). */
+/** Collect a lead's social profiles as {platform, url} pairs, normalized to
+ *  https and de-duplicated. The generic `social` column is classified by host
+ *  so the UI can show the right icon. */
+type SocialLink = { platform: string; url: string };
+function socialLinks(r: {
+  facebook: string | null; instagram: string | null; twitter: string | null;
+  linkedin: string | null; social: string | null;
+}): SocialLink[] {
+  const out: SocialLink[] = [];
+  const add = (platform: string, raw: string | null) => {
+    const v = (raw ?? "").trim();
+    if (!v) return;
+    const url = /^https?:\/\//i.test(v) ? v : `https://${v}`;
+    const norm = url.toLowerCase().replace(/\/+$/, "");
+    // One icon per platform — the same page often appears in both a dedicated
+    // column and the generic `social` column with cosmetic URL differences.
+    if (out.some(s => s.platform === platform || s.url.toLowerCase().replace(/\/+$/, "") === norm)) return;
+    out.push({ platform, url });
+  };
+  add("facebook", r.facebook);
+  add("instagram", r.instagram);
+  add("twitter", r.twitter);
+  add("linkedin", r.linkedin);
+  const g = (r.social ?? "").trim().toLowerCase();
+  const platform =
+    g.includes("facebook.") || g.includes("fb.com") ? "facebook"
+    : g.includes("instagram.") ? "instagram"
+    : g.includes("twitter.") || g.includes("x.com") ? "twitter"
+    : g.includes("linkedin.") ? "linkedin"
+    : "social";
+  add(platform, r.social);
+  return out;
+}
+
 function siteHost(raw: string | null): string | null {
   if (!raw) return null;
   try {
@@ -329,6 +363,8 @@ router.post("/pack-sample", async (req, res) => {
       id: leads.id, name: leads.name, address: leads.address, category: leads.category,
       rating: leads.rating, reviewCount: leads.reviewCount, website: leads.website,
       phone: leads.phone, emails: leads.emails, valueScore: leads.valueScore,
+      facebook: leads.facebook, instagram: leads.instagram, twitter: leads.twitter,
+      linkedin: leads.linkedin, social: leads.social,
     })
     .from(leads)
     .where(and(packWhere(filters), isNotNull(leads.name), isNotNull(leads.phone)))
@@ -360,6 +396,8 @@ router.post("/pack-sample", async (req, res) => {
     website: siteHost(r.website),
     phoneMasked: maskPhone(r.phone),
     hasEmail: !!firstEmail(r.emails),
+    // Platform names only pre-unlock — the URLs come with the email unlock.
+    socials: socialLinks(r).map(s => s.platform),
   }));
 
   const [inserted] = await db.insert(sampleRequests).values({
@@ -419,6 +457,8 @@ router.post("/pack-sample-unlock", async (req, res) => {
         id: leads.id, name: leads.name, address: leads.address, category: leads.category,
         rating: leads.rating, reviewCount: leads.reviewCount, website: leads.website,
         phone: leads.phone, emails: leads.emails,
+        facebook: leads.facebook, instagram: leads.instagram, twitter: leads.twitter,
+        linkedin: leads.linkedin, social: leads.social,
       }).from(leads).where(inArray(leads.id, ids))
     : [];
   // Preserve the original display order.
@@ -432,8 +472,10 @@ router.post("/pack-sample-unlock", async (req, res) => {
     rating: r.rating != null ? Number(r.rating) : null,
     reviewCount: r.reviewCount ?? null,
     website: siteHost(r.website),
+    websiteUrl: r.website ? (/^https?:\/\//i.test(r.website) ? r.website : `https://${r.website}`) : null,
     phone: r.phone,
     email: firstEmail(r.emails),
+    socials: socialLinks(r),
   }));
 
   res.json({ ok: true, leads: unlocked });

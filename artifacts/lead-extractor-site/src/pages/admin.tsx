@@ -2105,6 +2105,16 @@ export default function Admin() {
                         <span className="ml-auto font-mono text-[11px] text-muted-foreground">/go/{lp.slug}</span>
                       </div>
                       <p className="text-xs text-muted-foreground mb-3">{lp.angle}</p>
+                      {/* The variant's ad creative (public/go/<slug>.jpg). Same picture
+                          link crawlers use for the preview card; download it to attach
+                          to manual posts/ads. Hidden if the file isn't deployed yet. */}
+                      <img
+                        src={`${basePath}/go/${lp.slug}.jpg`}
+                        alt={`${lp.name} ad creative`}
+                        loading="lazy"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                        className="w-full aspect-[3/2] object-cover rounded-lg border border-border mb-3"
+                      />
                       <div className="flex items-center gap-2 flex-wrap">
                         <button onClick={() => lpCopy(lp.slug, lpUrl(lp.slug))}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-opacity">
@@ -2113,6 +2123,10 @@ export default function Admin() {
                         <a href={`${basePath}/go/${lp.slug}`} target="_blank" rel="noopener"
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80 transition-opacity">
                           <ExternalLink className="w-3 h-3" /> Preview
+                        </a>
+                        <a href={`${basePath}/go/${lp.slug}.jpg`} download={`${lp.slug}-ad.jpg`}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80 transition-opacity">
+                          🖼️ Ad picture
                         </a>
                         {lp.captions.map((cap, ci) => (
                           <button key={ci} onClick={() => lpCopy(`${lp.slug}-cap-${ci}`, `${cap}\n\n${lpUrl(lp.slug)}`)}

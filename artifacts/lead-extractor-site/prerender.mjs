@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { posts } from "./src/data/posts.ts";
 import { industryPages } from "./src/data/landing-pages.ts";
 import { tools } from "./src/data/tools.ts";
+import { SOCIAL_LANDING_PAGES as socialLandingPages } from "./src/data/social-landing-pages.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "dist/public");
@@ -106,7 +107,19 @@ const toolRoutes = tools.map((t) => ({
   description: t.metaDescription,
 }));
 
-const allRoutes = [...staticRoutes, ...blogRoutes, ...landingRoutes, ...toolRoutes];
+// Social/paid landing pages: prerendered so link crawlers (Facebook, X,
+// WhatsApp…) see each variant's own ad creative as the preview card, but kept
+// noindex and out of the sitemaps — they're paid-traffic destinations.
+const goRoutes = socialLandingPages.map((p) => ({
+  path: `/go/${p.slug}`,
+  title: p.seoTitle,
+  description: p.seoDescription,
+  image: `${SITE}/go/${p.slug}.jpg`,
+  imageAlt: p.seoTitle,
+  noindex: true,
+}));
+
+const allRoutes = [...staticRoutes, ...blogRoutes, ...landingRoutes, ...toolRoutes, ...goRoutes];
 
 // Home FAQ (mirrors the on-page accordion — buyer-focused).
 const FAQ = [
@@ -491,12 +504,14 @@ function buildHtml(template, route, post, landing, tool) {
   html = replaceMeta(html, "og:title", "content", route.title);
   html = replaceMeta(html, "og:description", "content", route.description);
   html = replaceMeta(html, "og:url", "content", canonicalUrl);
-  html = replaceMeta(html, "og:image", "content", OG_IMAGE);
-  html = replaceMeta(html, "og:image:alt", "content", OG_IMAGE_ALT);
+  html = replaceMeta(html, "og:image", "content", route.image ?? OG_IMAGE);
+  html = replaceMeta(html, "og:image:alt", "content", route.imageAlt ?? OG_IMAGE_ALT);
   html = replaceMeta(html, "twitter:title", "content", route.title);
   html = replaceMeta(html, "twitter:description", "content", route.description);
-  html = replaceMeta(html, "twitter:image", "content", OG_IMAGE);
+  html = replaceMeta(html, "twitter:image", "content", route.image ?? OG_IMAGE);
   html = replaceCanonical(html, canonicalUrl);
+
+  if (route.noindex) html = replaceMeta(html, "robots", "content", "noindex, follow");
 
   const head = [];
   if (post) {

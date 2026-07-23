@@ -41,6 +41,9 @@ export default function SocialLanding({ params }: { params: { variant: string } 
     title: lp?.seoTitle ?? "MapLeadExtractor",
     description: lp?.seoDescription,
     path: `/go/${params.variant}`,
+    // Per-variant ad creative (public/go/<slug>.jpg) so a shared link shows a
+    // real picture card instead of the generic site preview.
+    image: lp ? `https://mapleadextractor.net/go/${lp.slug}.jpg` : undefined,
   });
 
   // Keep social/paid LPs out of the search index; cleaned up on unmount so the
