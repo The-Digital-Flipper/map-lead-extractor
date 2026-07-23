@@ -94,9 +94,19 @@ app.get(/^\/go\/([a-z0-9][a-z0-9-]{0,63})\.jpg$/, async (req, res, next) => {
   try {
     const img = await loadLandingImage(slug);
     if (!img) return next();
-    res.setHeader("Content-Type", img.mime);
-    res.setHeader("Cache-Control", "public, max-age=300");
+    // no-cache (revalidate every view) so a freshly uploaded picture shows up
+    // immediately — the admin preview and landing pages reuse the same URL, so
+    // any max-age keeps showing the old creative after a change. Conditional
+    // 304s keep repeat views cheap.
+    res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Last-Modified", img.updatedAt.toUTCString());
+    const ims = Date.parse(String(req.headers["if-modified-since"] ?? ""));
+    // Last-Modified has second precision, so compare on whole seconds.
+    if (!Number.isNaN(ims) && Math.floor(img.updatedAt.getTime() / 1000) * 1000 <= ims) {
+      res.status(304).end();
+      return;
+    }
+    res.setHeader("Content-Type", img.mime);
     res.send(img.bytes);
   } catch (err) {
     logger.error({ err, slug }, "landing image serve failed");

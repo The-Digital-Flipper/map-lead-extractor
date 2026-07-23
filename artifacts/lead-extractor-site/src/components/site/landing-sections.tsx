@@ -646,6 +646,26 @@ export function PlatformReviews() {
               <p className="text-[11px] text-[#70757a] mt-0.5">850+ Chrome ratings</p>
             </div>
           </div>
+          {/* BBB A+ */}
+          <div className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-xl px-5 py-3 shadow-sm">
+            {/* BBB torch logo */}
+            <svg width="22" height="22" viewBox="0 0 60 80" fill="none">
+              <rect x="20" y="55" width="20" height="25" rx="2" fill="#003f87"/>
+              <rect x="24" y="48" width="12" height="10" fill="#003f87"/>
+              <ellipse cx="30" cy="32" rx="16" ry="18" fill="#003f87"/>
+              <ellipse cx="30" cy="32" rx="10" ry="12" fill="#0057b8"/>
+              <path d="M24 20 Q30 8 36 20 Q32 14 30 10 Q28 14 24 20z" fill="#f5a623"/>
+              <path d="M27 18 Q30 6 33 18 Q31 12 30 9 Q29 12 27 18z" fill="#fff"/>
+              <text x="30" y="40" textAnchor="middle" fontSize="10" fontWeight="bold" fill="white" fontFamily="Arial">BBB</text>
+            </svg>
+            <div className="text-left">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-lg font-semibold text-[#003f87] leading-none">A+</span>
+                <span className="text-[11px] text-[#003f87] font-bold">Rating</span>
+              </div>
+              <p className="text-[11px] text-[#70757a] mt-0.5">Better Business Bureau</p>
+            </div>
+          </div>
         </div>
 
         {/* Review cards */}

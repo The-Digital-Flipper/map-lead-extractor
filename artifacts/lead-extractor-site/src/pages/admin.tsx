@@ -483,7 +483,7 @@ export default function Admin() {
       });
       const d = await r.json().catch(() => ({}));
       if (r.ok) { setSocialMsg(`✓ New picture set for ${slug}`); bustImg(slug); loadSocial(); }
-      else setSocialMsg(d.error || "Upload failed — try a JPG or PNG.");
+      else setSocialMsg(d.error || `Upload failed (error ${r.status}) — try a JPG or PNG.`);
     } catch {
       setSocialMsg("Upload failed — please try again.");
     }

@@ -50,6 +50,10 @@ export function mountSite(app: Express, siteDir: string): void {
       maxAge: "1h",
       setHeaders(res, filePath) {
         if (filePath.endsWith(".html")) res.setHeader("Cache-Control", "no-cache");
+        // /go/<slug>.jpg defaults must revalidate too: once the owner uploads a
+        // replacement (served by the dynamic route at the same URL), an
+        // hour-cached copy of the default would keep masking it.
+        else if (/[\\/]go[\\/][^\\/]+\.jpg$/.test(filePath)) res.setHeader("Cache-Control", "no-cache");
       },
     }),
   );
