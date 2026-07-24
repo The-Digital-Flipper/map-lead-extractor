@@ -18,6 +18,7 @@ import { industryPages } from "@/data/landing-pages";
 import { MobileNav } from "@/components/site/mobile-nav";
 import LeadPackWidget from "@/components/site/lead-pack-widget";
 import { BuyerReviews, PlatformReviews } from "@/components/site/landing-sections";
+import TrustBadges, { SocialProofToast, LogoBar, NavReviewPill } from "@/components/site/trust-badges";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -209,6 +210,7 @@ export default function Home() {
             <a href="/tools" className="hover:text-foreground transition-colors">Calculators</a>
           </nav>
           <div className="flex items-center gap-3">
+            <NavReviewPill />
             <Show when="signed-in">
               <a href="/dashboard" className="text-sm font-semibold text-primary hover:opacity-80 transition-opacity">Dashboard</a>
             </Show>
@@ -325,6 +327,9 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ── Logo authority bar ───────────────────────────────────────────── */}
+        <LogoBar />
+
         {/* ── Lead types + widget ──────────────────────────────────────────── */}
         <section id="leads-for-sale" ref={leadsSectionRef as React.RefObject<HTMLElement>} className="py-24 relative">
           <div className="container mx-auto px-6 max-w-6xl">
@@ -390,6 +395,9 @@ export default function Home() {
                 </div>
               </div>
             </div>
+
+            {/* Trust badges below the widget section */}
+            <TrustBadges className="max-w-4xl mx-auto mt-4" />
           </div>
         </section>
 
@@ -702,6 +710,7 @@ export default function Home() {
         </div>
       </footer>
 
+      <SocialProofToast />
       <ChatWidget externalOpen={chatOpen} onExternalOpenHandled={() => setChatOpen(false)} />
     </div>
   );

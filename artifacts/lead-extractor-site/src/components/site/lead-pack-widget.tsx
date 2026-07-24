@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Download, Lock, Shield, Mail, Eye, Phone, Star, Sparkles, Facebook, Instagram, Twitter, Linkedin, Globe } from "lucide-react";
 
-import { PaymentMethods } from "@/components/site/trust-badges";
+import { PaymentMethods, GuaranteeCallout } from "@/components/site/trust-badges";
 import { PlatformReviews } from "@/components/site/landing-sections";
 
 type SocialLink = { platform: string; url: string };
@@ -612,13 +612,9 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
         </button>
         {packError && <p className="text-sm text-red-400 mt-3">{packError}</p>}
 
-        {/* Point-of-payment reassurance — right where the buying decision happens.
-            Replaces the old trust strip that sat below the card. */}
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-xs text-muted-foreground text-center">
-          <span className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5 text-primary shrink-0" /> Money-back guarantee — shortfalls auto-refunded</span>
-          <span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-primary shrink-0" /> CSV usually emailed within hours</span>
-        </div>
-        <PaymentMethods className="mt-3" />
+        {/* Point-of-payment reassurance */}
+        <GuaranteeCallout className="mt-4" />
+        <PaymentMethods className="mt-4" />
       </div>
 
 
