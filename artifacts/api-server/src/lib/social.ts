@@ -12,8 +12,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { db, socialPosts, socialSettings, socialGroups, type SocialPost, type SocialSettings, type SocialGroup } from "@workspace/db";
 import { resolveSiteDir } from "../serveSite";
-import { eq, desc, asc, and, gte, lt, or, isNull, isNotNull, sql } from "drizzle-orm";
+import { eq, desc, asc, and, gte, lt, or, isNull, isNotNull, inArray, sql } from "drizzle-orm";
 import { logger } from "./logger";
+import { tiktokConnected, publishTikTokPhoto, signPublicImageId } from "./tiktok";
+
+const SITE_ORIGIN = process.env.PUBLIC_ORIGIN || "https://mapleadextractor.net";
 
 function openAiKey(): string {
   return process.env.OPENAI_API_KEY || process.env.CHAT_GPT_API || "";
@@ -219,7 +222,7 @@ export async function getSocialSettings(): Promise<SocialSettings> {
   return again[0]!;
 }
 
-export async function updateSocialSettings(patch: Partial<Pick<SocialSettings, "enabled" | "postHourUtc" | "autoRefill" | "fbAppId" | "fbAppSecret" | "fbPageId" | "fbPageName" | "fbPageToken">>): Promise<SocialSettings> {
+export async function updateSocialSettings(patch: Partial<Pick<SocialSettings, "enabled" | "postHourUtc" | "autoRefill" | "fbAppId" | "fbAppSecret" | "fbPageId" | "fbPageName" | "fbPageToken" | "tiktokClientKey" | "tiktokClientSecret">>): Promise<SocialSettings> {
   await getSocialSettings(); // make sure the row exists
   const rows = await db
     .update(socialSettings)
@@ -873,6 +876,84 @@ export async function publishPost(postId: number): Promise<SocialPost> {
   return updated[0]!;
 }
 
+// ── TikTok cross-posting ─────────────────────────────────────────────────────
+// The daily ad goes out to TikTok too (photo post: same creative, same
+// caption). TikTok downloads the image itself, so it needs a public HTTPS URL
+// on our portal-verified domain: the pooled creative's static file when the
+// pool exists, else the signed public route serving the post's DB image.
+
+function pooledCreativeUrl(campaign: string, postId: number): string | null {
+  const siteDir = resolveSiteDir();
+  if (!siteDir) return null;
+  let files: string[];
+  try {
+    files = fs.readdirSync(path.join(siteDir, "creatives")).filter((f) => f.startsWith(`${campaign}-`) && f.endsWith(".jpg")).sort();
+  } catch {
+    return null;
+  }
+  return files.length ? `${SITE_ORIGIN}/creatives/${files[postId % files.length]}` : null;
+}
+
+async function tiktokImageUrl(post: SocialPost): Promise<string | null> {
+  const pooled = pooledCreativeUrl(post.campaign === "freetool" ? "freetool" : "leads", post.id);
+  if (pooled) return pooled;
+  if (post.imageB64) {
+    const sig = await signPublicImageId(post.id);
+    if (sig) return `${SITE_ORIGIN}/api/social-image/${post.id}.png?sig=${sig}`;
+  }
+  return null;
+}
+
+/** Publish `source`'s content to TikTok, recorded as its own platform="tiktok"
+ * history row. Never throws — a TikTok failure must not break the FB flow. */
+export async function crossPostToTikTok(source: SocialPost): Promise<SocialPost | null> {
+  try {
+    if (!(await tiktokConnected())) return null;
+    const imageUrl = await tiktokImageUrl(source);
+    if (!imageUrl) {
+      logger.warn({ postId: source.id }, "TikTok cross-post skipped — no public image available");
+      return null;
+    }
+    const r = await publishTikTokPhoto({ caption: source.body, imageUrls: [imageUrl] });
+    const note = r.restricted
+      ? "⚠️ TikTok app not audited yet — posted as PRIVATE (Self only). Submit the app for review in the TikTok developer portal to go public."
+      : source.note;
+    const rows = await db
+      .insert(socialPosts)
+      .values({
+        platform: "tiktok",
+        campaign: source.campaign,
+        body: source.body,
+        note,
+        status: "posted",
+        externalId: r.publishId,
+        externalUrl: r.postId ? `https://www.tiktok.com/@/photo/${r.postId}` : null,
+        attemptedAt: new Date(),
+        postedAt: new Date(),
+      })
+      .returning();
+    logger.info({ postId: source.id, publishId: r.publishId, restricted: r.restricted }, "Cross-posted to TikTok");
+    return rows[0]!;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ postId: source.id, err }, "TikTok cross-post failed");
+    const rows = await db
+      .insert(socialPosts)
+      .values({
+        platform: "tiktok",
+        campaign: source.campaign,
+        body: source.body,
+        note: source.note,
+        status: "failed",
+        error: msg.slice(0, 500),
+        attemptedAt: new Date(),
+      })
+      .returning()
+      .catch(() => []);
+    return rows[0] ?? null;
+  }
+}
+
 // ── Scheduler ─────────────────────────────────────────────────────────────────
 
 const TICK_MS = 5 * 60 * 1000;      // check every 5 minutes
@@ -920,11 +1001,13 @@ export async function socialTick(): Promise<void> {
       }
     }
 
-    if (!(await facebookCreds())) return;
+    const fb = await facebookCreds();
+    const tiktokOn = await tiktokConnected();
+    if (!fb && !tiktokOn) return;
 
     // Keep engagement numbers fresh in the background (a few posts per tick;
     // the 6h staleness window makes this cheap and self-limiting).
-    await syncEngagementStats(3).catch(() => {});
+    if (fb) await syncEngagementStats(3).catch(() => {});
 
     // One post per day: skip if anything was published since today's posting
     // hour, and don't start before that hour (UTC).
@@ -940,11 +1023,12 @@ export async function socialTick(): Promise<void> {
       .limit(1);
     if (postedToday.length > 0) return;
 
-    // Back off after a recent failure instead of burning the queue.
+    // Back off after a recent failure instead of burning the queue (TikTok
+    // failures count too — same daily slot, same broken-token concern).
     const recentFailure = await db
       .select({ id: socialPosts.id })
       .from(socialPosts)
-      .where(and(eq(socialPosts.status, "failed"), eq(socialPosts.platform, "facebook"), gte(socialPosts.attemptedAt, new Date(Date.now() - RETRY_BACKOFF_MS))))
+      .where(and(eq(socialPosts.status, "failed"), inArray(socialPosts.platform, ["facebook", "tiktok"]), gte(socialPosts.attemptedAt, new Date(Date.now() - RETRY_BACKOFF_MS))))
       .limit(1);
     if (recentFailure.length > 0) return;
 
@@ -980,7 +1064,25 @@ export async function socialTick(): Promise<void> {
       }
     }
 
-    await publishPost(next[0].id);
+    if (fb) {
+      const published = await publishPost(next[0].id);
+      // Same ad goes out on TikTok in the same daily slot.
+      if (published.status === "posted") await crossPostToTikTok(published);
+    } else {
+      // TikTok-only mode (no Facebook Page connected): the queued ad goes out
+      // on TikTok alone. On success the source row is marked posted so the
+      // once-per-day gate above (which counts facebook-platform rows) holds;
+      // on failure it stays queued and the failed tiktok row trips the backoff.
+      const fresh = await db.select().from(socialPosts).where(eq(socialPosts.id, next[0].id));
+      if (!fresh[0]) return;
+      const result = await crossPostToTikTok(fresh[0]);
+      if (result?.status === "posted") {
+        await db
+          .update(socialPosts)
+          .set({ status: "posted", error: null, attemptedAt: new Date(), postedAt: new Date() })
+          .where(eq(socialPosts.id, next[0].id));
+      }
+    }
   } catch (err) {
     logger.error({ err }, "Social scheduler tick failed");
   } finally {

@@ -134,6 +134,10 @@ interface SocialData {
   pageLikes: number | null;
   appConfigured: boolean;
   redirectUri: string;
+  tiktokConnected: boolean;
+  tiktokAccountName: string | null;
+  tiktokAppConfigured: boolean;
+  tiktokRedirectUri: string;
   aiConfigured: boolean;
   queue: SocialPostRow[];
   groupQueue: SocialPostRow[];
@@ -628,6 +632,8 @@ export default function Admin() {
   const [socialEditId, setSocialEditId] = useState<number | null>(null);
   const [socialDraft, setSocialDraft] = useState("");
   const [socialMsg, setSocialMsg] = useState<string | null>(null);
+  const [tkKey, setTkKey] = useState("");
+  const [tkSecret, setTkSecret] = useState("");
   // Landing-page link sharing: which copy button just fired ("slug", "slug-cap-0", …)
   const [lpCopied, setLpCopied] = useState<string | null>(null);
   // Each copy gets a fresh &v= so social apps re-scrape the link instead of
@@ -741,6 +747,16 @@ export default function Admin() {
     setSocialBusyId(null);
     loadSocial();
   };
+  const socialTikTokNow = async (id: number) => {
+    setSocialBusyId(id); setSocialMsg(null);
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/social/${id}/tiktok-now`, { method: "POST" });
+      const d = await r.json();
+      setSocialMsg(r.ok ? "✓ Posted to TikTok" : (d.error || "TikTok post failed"));
+    } catch (e) { setSocialMsg(e instanceof Error ? e.message : "TikTok post failed"); }
+    setSocialBusyId(null);
+    loadSocial();
+  };
   const socialDelete = async (id: number) => {
     setSocialBusyId(id);
     try { await adminFetch(`${basePath}/api/admin/social/${id}`, { method: "DELETE" }); } catch { /* ignore */ }
@@ -767,7 +783,7 @@ export default function Admin() {
     setSocialBusyId(null);
     loadSocial();
   };
-  const socialSettingsSave = async (patch: { enabled?: boolean; postHourUtc?: number; autoRefill?: boolean }) => {
+  const socialSettingsSave = async (patch: { enabled?: boolean; postHourUtc?: number; autoRefill?: boolean; tiktokClientKey?: string; tiktokClientSecret?: string }) => {
     try {
       await adminFetch(`${basePath}/api/admin/social/settings`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
@@ -3402,7 +3418,7 @@ export default function Admin() {
               )}
 
               {/* Status + controls */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className={`rounded-xl p-4 border ${social?.facebookConnected ? "bg-primary/5 border-primary/30" : "bg-card border-border"}`}>
                   <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2"><Globe className="w-4 h-4 text-blue-400" /> Facebook Page</div>
                   {social?.facebookConnected ? (
@@ -3437,6 +3453,36 @@ export default function Admin() {
                         <Globe className="w-4 h-4" /> Connect Facebook
                       </button>
                       <div className="text-xs text-muted-foreground mt-2">One click + Approve on Facebook — that's it</div>
+                    </>
+                  )}
+                </div>
+                <div className={`rounded-xl p-4 border ${social?.tiktokConnected ? "bg-primary/5 border-primary/30" : "bg-card border-border"}`}>
+                  <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2"><span className="text-sm">🎵</span> TikTok</div>
+                  {social?.tiktokConnected ? (
+                    <>
+                      <div className="text-lg font-display font-bold text-primary">✓ {social.tiktokAccountName || "Connected"}</div>
+                      <div className="text-xs text-muted-foreground mt-1">Daily ad cross-posts as a TikTok photo post</div>
+                      <button onClick={async () => { await adminFetch(`${basePath}/api/admin/social/tiktok/disconnect`, { method: "POST" }); loadSocial(); }}
+                        className="text-xs text-muted-foreground hover:text-red-400 mt-1">Disconnect</button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={async () => {
+                          setSocialMsg(null);
+                          try {
+                            const r = await adminFetch(`${basePath}/api/admin/social/tiktok/connect-url`);
+                            const d = await r.json().catch(() => ({}));
+                            if (r.ok && d.url) window.location.href = d.url;
+                            else setSocialMsg(d.error || "Couldn't start TikTok connect — paste your Client Key/Secret below first.");
+                          } catch {
+                            setSocialMsg("Couldn't start TikTok connect — please try again.");
+                          }
+                        }}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold bg-foreground text-background hover:opacity-90 transition-opacity">
+                        🎵 Connect TikTok
+                      </button>
+                      <div className="text-xs text-muted-foreground mt-2">{social?.tiktokAppConfigured ? "One click + Authorize on TikTok" : "Needs your TikTok app keys — see setup below"}</div>
                     </>
                   )}
                 </div>
@@ -3589,6 +3635,46 @@ export default function Admin() {
                 </div>
               )}
 
+              {/* TikTok setup — only until connected */}
+              {social && !social.tiktokConnected && (
+                <div className="bg-card border border-border rounded-2xl p-6">
+                  <h3 className="text-sm font-display font-bold mb-3">🎵 Connect TikTok (one-time)</h3>
+                  <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
+                    <li>On <span className="font-mono text-foreground">developers.tiktok.com</span>, sign in with your TikTok account → <span className="text-foreground">Manage apps</span> → <span className="text-foreground">Connect an app</span>. Fill in the basics (any name/icon works).</li>
+                    <li>Under <span className="text-foreground">Add products</span>, add <span className="text-foreground">Login Kit</span> and <span className="text-foreground">Content Posting API</span>, and request the <span className="font-mono text-xs text-foreground">user.info.basic</span> + <span className="font-mono text-xs text-foreground">video.publish</span> scopes.</li>
+                    <li>In Login Kit settings, paste this as the <span className="text-foreground">Redirect URI</span> and save:
+                      <div className="font-mono text-xs text-foreground bg-background border border-border rounded-lg px-3 py-2 mt-1 break-all select-all">{social.tiktokRedirectUri}</div>
+                    </li>
+                    <li>Under Content Posting API, <span className="text-foreground">verify your domain</span> (<span className="font-mono text-xs text-foreground">mapleadextractor.net</span>) — TikTok downloads the ad pictures from the site, so it has to trust the domain.</li>
+                    <li>Copy the app's <span className="text-foreground">Client Key</span> and <span className="text-foreground">Client Secret</span> into the boxes here and Save:
+                      <div className="flex flex-col sm:flex-row gap-2 mt-2">
+                        <input value={tkKey} onChange={(e) => setTkKey(e.target.value)} placeholder="Client Key"
+                          className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground font-mono" />
+                        <input value={tkSecret} onChange={(e) => setTkSecret(e.target.value)} placeholder="Client Secret" type="password"
+                          className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground font-mono" />
+                        <button
+                          onClick={async () => {
+                            if (!tkKey.trim() || !tkSecret.trim()) { setSocialMsg("Paste both the Client Key and the Client Secret first."); return; }
+                            await socialSettingsSave({ tiktokClientKey: tkKey.trim(), tiktokClientSecret: tkSecret.trim() });
+                            setTkKey(""); setTkSecret("");
+                            setSocialMsg("✓ TikTok app keys saved — now hit Connect TikTok above.");
+                          }}
+                          className="px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-opacity">
+                          Save
+                        </button>
+                      </div>
+                    </li>
+                    <li>Hit the <span className="text-foreground">Connect TikTok</span> button above — log in, tap <span className="text-foreground">Authorize</span>, done.</li>
+                  </ol>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    {social.tiktokAppConfigured
+                      ? "Your TikTok app keys are on file — just hit Connect TikTok above."
+                      : "Until the keys are saved, the Connect button can't start the TikTok login."}
+                    {" "}Heads-up: until TikTok reviews your app (Submit for review in the developer portal), posts publish as <span className="text-foreground">private (Self only)</span> — connect anyway, submit the review, and they go public automatically once approved.
+                  </p>
+                </div>
+              )}
+
               {/* AI posting assistant — chat box that edits the queue */}
               <div className="bg-card border border-border rounded-2xl p-6">
                 <div className="flex items-center gap-2 mb-1">
@@ -3671,6 +3757,13 @@ export default function Admin() {
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground disabled:opacity-40">
                                 {socialBusyId === p.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />} Post now
                               </button>
+                              {social.tiktokConnected && (
+                                <button onClick={() => socialTikTokNow(p.id)} disabled={socialBusyId === p.id}
+                                  title="Publish this ad to TikTok right now (photo post)"
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-foreground text-background disabled:opacity-40 hover:opacity-90">
+                                  {socialBusyId === p.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <>🎵</>} TikTok now
+                                </button>
+                              )}
                               <button onClick={() => socialGenImage(p.id)} disabled={imageBusyId === p.id || !social.aiConfigured}
                                 title="AI draws a branded graphic for this post — image posts get 2-3x the reach"
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground disabled:opacity-40 hover:opacity-80">
@@ -3855,12 +3948,17 @@ export default function Admin() {
                           {p.platform === "facebook_group" && (
                             <span className="px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-semibold">group</span>
                           )}
+                          {p.platform === "tiktok" && (
+                            <span className="px-2 py-0.5 rounded-full bg-fuchsia-500/15 text-fuchsia-400 font-semibold">🎵 TikTok</span>
+                          )}
                           {p.campaign === "freetool" && (
                             <span className="px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-semibold">🧩 free ext</span>
                           )}
                           {p.postedAt && <span className="text-muted-foreground">{new Date(p.postedAt).toLocaleString()}</span>}
                           {p.externalUrl && (
-                            <a href={p.externalUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">view on Facebook ↗</a>
+                            <a href={p.externalUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                              {p.platform === "tiktok" ? "view on TikTok ↗" : "view on Facebook ↗"}
+                            </a>
                           )}
                           {statsLine(p)}
                         </div>

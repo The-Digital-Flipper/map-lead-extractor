@@ -21,11 +21,16 @@ import { parseProxyLines, testProxy } from "../lib/proxyPool";
 import {
   getSocialSettings, updateSocialSettings, generateSocialPosts, generateFreeToolPosts, publishPost,
   facebookCreds, fbAppConfigured, fbConnectUrl, fbHandleCallback, fbSelectPage, fbDisconnect, FB_REDIRECT_URI,
+  crossPostToTikTok,
   fbPickerToken, fbPickerTokenValid,
   generateGroupPosts, listGroups, addGroup, deleteGroup, markGroupPosted, discoverGroups,
   syncEngagementStats, generatePostImage, getPostImage, removePostImage,
   socialChat, type SocialChatMessage, fbPageFollowers,
 } from "../lib/social";
+import {
+  tiktokConnectUrl, tiktokHandleCallback, tiktokDisconnect, tiktokConnected, tiktokAccountName,
+  tiktokAppConfigured, TIKTOK_REDIRECT_URI,
+} from "../lib/tiktok";
 import { sendBuyerFollowup } from "../lib/buyer-followup";
 import { sendCapturedDigest } from "../lib/captured-digest";
 import { listCustomers, inAudience, startBlast, blastStatus, sendTestEmail, type Audience } from "../lib/customer-blast";
@@ -1498,10 +1503,13 @@ router.get("/social", requireAuth, async (_req, res) => {
   // Never select image_b64 in lists — it's megabytes per row.
   const { imageB64: _imageB64, ...postCols } = getTableColumns(socialPosts);
   const listCols = { ...postCols, hasImage: sql<boolean>`${socialPosts.imageB64} IS NOT NULL` };
-  const [settings, fb, appConfigured, queue, groupQueue, history, groups, customImages, followers, clickRows] = await Promise.all([
+  const [settings, fb, appConfigured, tkConnected, tkName, tkAppConfigured, queue, groupQueue, history, groups, customImages, followers, clickRows] = await Promise.all([
     getSocialSettings(),
     facebookCreds(),
     fbAppConfigured(),
+    tiktokConnected(),
+    tiktokAccountName(),
+    tiktokAppConfigured(),
     db.select(listCols).from(socialPosts).where(and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook"))).orderBy(asc(socialPosts.id)),
     db.select(listCols).from(socialPosts).where(and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook_group"))).orderBy(asc(socialPosts.id)),
     db.select(listCols).from(socialPosts).where(sql`${socialPosts.status} <> 'queued'`).orderBy(desc(socialPosts.id)).limit(30),
@@ -1522,7 +1530,11 @@ router.get("/social", requireAuth, async (_req, res) => {
   const withClicks = <T extends { id: number }>(rows: T[]) =>
     rows.map(r => ({ ...r, linkClicks: clicksByPost.get(`post-${r.id}`)?.clicks ?? 0, linkPeople: clicksByPost.get(`post-${r.id}`)?.people ?? 0 }));
   // Never ship tokens/secrets to the browser.
-  const { fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p, ...safeSettings } = settings;
+  const {
+    fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p,
+    tiktokClientSecret: _ts, tiktokAccessToken: _ta, tiktokRefreshToken: _tr,
+    ...safeSettings
+  } = settings;
   res.json({
     settings: safeSettings,
     facebookConnected: Boolean(fb),
@@ -1531,6 +1543,10 @@ router.get("/social", requireAuth, async (_req, res) => {
     pageLikes: followers?.likes ?? null,
     appConfigured,
     redirectUri: FB_REDIRECT_URI,
+    tiktokConnected: tkConnected,
+    tiktokAccountName: tkName,
+    tiktokAppConfigured: tkAppConfigured,
+    tiktokRedirectUri: TIKTOK_REDIRECT_URI,
     aiConfigured: Boolean(process.env.OPENAI_API_KEY || process.env.CHAT_GPT_API),
     queue,
     groupQueue,
@@ -1745,6 +1761,60 @@ router.post("/social/fb/disconnect", requireAuth, async (_req, res) => {
   res.json({ ok: true });
 });
 
+// ---- TikTok OAuth: same shape as the Facebook flow ---------------------------
+// The dashboard button fetches the login URL here (authorized) and redirects
+// the browser itself.
+router.get("/social/tiktok/connect-url", requireAuth, async (_req, res) => {
+  try {
+    res.json({ url: await tiktokConnectUrl() });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ---- GET /social/tiktok/callback — TikTok redirects here after Authorize -----
+// No requireAuth: like the FB callback, this is a bare top-level navigation.
+// The HMAC-signed, 15-minute `state` (minted by tiktokConnectUrl, verified in
+// tiktokHandleCallback) proves it belongs to an admin-started connect flow.
+router.get("/social/tiktok/callback", async (req, res) => {
+  const { code, state, error_description: tkError, error } = req.query as Record<string, string | undefined>;
+  if (tkError || error || !code || !state) {
+    res.status(400).send(fbResultPage("TikTok connection failed",
+      `<h2>😕 Connection cancelled</h2><p>${tkError || error || "TikTok didn't send a login code."}</p><a class="btn" href="/admin">Back to admin</a>`));
+    return;
+  }
+  try {
+    const { displayName } = await tiktokHandleCallback(code, state);
+    res.send(fbResultPage("TikTok connected",
+      `<h2>✅ Connected${displayName ? ` to ${displayName}` : ""}</h2><p>The auto-poster can now publish your daily ad to TikTok. You can close this and head back.</p><a class="btn" href="/admin">Back to admin</a>`));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(400).send(fbResultPage("TikTok connection failed",
+      `<h2>😕 Something went wrong</h2><p>${msg}</p><a class="btn" href="/admin">Back to admin</a>`));
+  }
+});
+
+// ---- POST /social/tiktok/disconnect — forget the connected account -----------
+router.post("/social/tiktok/disconnect", requireAuth, async (_req, res) => {
+  await tiktokDisconnect();
+  res.json({ ok: true });
+});
+
+// ---- POST /social/:id/tiktok-now — cross-post one post to TikTok right now ---
+router.post("/social/:id/tiktok-now", requireAuth, async (req, res) => {
+  try {
+    if (!(await tiktokConnected())) { res.status(400).json({ error: "TikTok not connected — use the Connect TikTok button first." }); return; }
+    const rows = await db.select().from(socialPosts).where(eq(socialPosts.id, Number(req.params.id)));
+    if (!rows[0]) { res.status(404).json({ error: "Post not found" }); return; }
+    const result = await crossPostToTikTok(rows[0]);
+    if (!result) { res.status(400).json({ error: "TikTok post skipped — no public image available for this post." }); return; }
+    if (result.status === "failed") { res.status(502).json({ error: result.error, post: result }); return; }
+    res.json({ ok: true, post: result });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 // ---- POST /social/generate — top the queue up with AI-written posts ----------
 router.post("/social/generate", requireAuth, async (req, res) => {
   try {
@@ -1855,9 +1925,10 @@ router.delete("/social/:id", requireAuth, async (req, res) => {
 // Also accepts fbAppId/fbAppSecret so the Facebook app credentials can be
 // seeded into whichever database this deployment uses (dev and prod differ).
 router.put("/social/settings", requireAuth, async (req, res) => {
-  const { enabled, postHourUtc, autoRefill, fbAppId, fbAppSecret, fbPageId, fbPageName, fbPageToken } = req.body as {
+  const { enabled, postHourUtc, autoRefill, fbAppId, fbAppSecret, fbPageId, fbPageName, fbPageToken, tiktokClientKey, tiktokClientSecret } = req.body as {
     enabled?: boolean; postHourUtc?: number; autoRefill?: boolean;
     fbAppId?: string; fbAppSecret?: string; fbPageId?: string; fbPageName?: string; fbPageToken?: string;
+    tiktokClientKey?: string; tiktokClientSecret?: string;
   };
   const patch: Record<string, boolean | number | string> = {};
   if (typeof enabled === "boolean") patch.enabled = enabled;
@@ -1868,8 +1939,14 @@ router.put("/social/settings", requireAuth, async (req, res) => {
   if (typeof fbPageId === "string" && fbPageId.trim()) patch.fbPageId = fbPageId.trim();
   if (typeof fbPageName === "string" && fbPageName.trim()) patch.fbPageName = fbPageName.trim();
   if (typeof fbPageToken === "string" && fbPageToken.trim()) patch.fbPageToken = fbPageToken.trim();
+  if (typeof tiktokClientKey === "string" && tiktokClientKey.trim()) patch.tiktokClientKey = tiktokClientKey.trim();
+  if (typeof tiktokClientSecret === "string" && tiktokClientSecret.trim()) patch.tiktokClientSecret = tiktokClientSecret.trim();
   const settings = await updateSocialSettings(patch);
-  const { fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p, ...safeSettings } = settings;
+  const {
+    fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p,
+    tiktokClientSecret: _ts, tiktokAccessToken: _ta, tiktokRefreshToken: _tr,
+    ...safeSettings
+  } = settings;
   res.json({ ok: true, settings: safeSettings });
 });
 

@@ -56,6 +56,19 @@ export const socialSettings = pgTable("social_settings", {
   fbPageId: text("fb_page_id"),
   fbPageName: text("fb_page_name"),
   fbPageToken: text("fb_page_token"),
+  // TikTok connection, filled by the admin "Connect TikTok" OAuth flow. The
+  // client key/secret come from the owner's TikTok developer app (seeded here
+  // via the Social tab, env TIKTOK_CLIENT_KEY/SECRET as fallback). Access
+  // tokens live 24h and are refreshed on demand from the 365-day refresh
+  // token, which TikTok rotates on every refresh.
+  tiktokClientKey: text("tiktok_client_key"),
+  tiktokClientSecret: text("tiktok_client_secret"),
+  tiktokAccessToken: text("tiktok_access_token"),
+  tiktokRefreshToken: text("tiktok_refresh_token"),
+  tiktokExpiresAt: timestamp("tiktok_expires_at", { withTimezone: true }),
+  tiktokRefreshExpiresAt: timestamp("tiktok_refresh_expires_at", { withTimezone: true }),
+  tiktokOpenId: text("tiktok_open_id"),
+  tiktokDisplayName: text("tiktok_display_name"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
