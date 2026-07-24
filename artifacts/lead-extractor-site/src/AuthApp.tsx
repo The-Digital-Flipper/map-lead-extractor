@@ -14,6 +14,8 @@ const Pricing = lazy(() => import("@/pages/pricing"));
 const ConnectExtension = lazy(() => import("@/pages/connect-extension"));
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const CommandCenter = lazy(() => import("@/pages/command-center"));
+const Scraper = lazy(() => import("@/pages/scraper"));
+const ScraperStore = lazy(() => import("@/pages/scraper-store"));
 const Admin = lazy(() => import("@/pages/admin"));
 const AdminLogin = lazy(() => import("@/pages/admin-login"));
 
@@ -199,6 +201,12 @@ export default function AuthApp() {
                   <Show when="signed-in"><CommandCenter /></Show>
                   <Show when="signed-out"><Redirect to="/sign-in" /></Show>
                 </Suspense>
+              )} />
+              <Route path="/scraper" component={() => (
+                <Suspense fallback={null}><ScraperStore /></Suspense>
+              )} />
+              <Route path="/scraper/:slug" component={() => (
+                <Suspense fallback={null}><Scraper /></Suspense>
               )} />
               <Route component={NotFound} />
             </Switch>

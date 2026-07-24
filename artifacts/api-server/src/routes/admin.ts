@@ -1,23 +1,48 @@
-import { Router, type Request, type Response, type NextFunction } from "express";
+import express, { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "@clerk/express";
-import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, computeOpportunity, computeValue } from "@workspace/db";
-import { sql, count, gte, eq, and, desc, asc, isNull, isNotNull } from "drizzle-orm";
+import {
+  saveLandingImage, deleteLandingImage, listLandingImageSlugs, validSlug, allowedImageMime, MAX_IMAGE_BYTES,
+} from "../lib/landingImages.js";
+import { generateLandingCreative } from "../lib/landingCreative.js";
+import { db, leads, users, logs, scrapeTargets, proxies, socialPosts, packOrders, testimonials, chatConversations, chatMessages, sampleRequests, computeOpportunity, computeValue, type ScrapePlatform } from "@workspace/db";
+import { sql, count, gte, gt, eq, and, desc, asc, isNull, isNotNull, inArray, getTableColumns } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
+import { packWhere } from "../lib/packs";
+import { sendOrder } from "../lib/packWorker";
+import { scanAndSaveLead, socialScanSummary } from "../lib/socialScan";
 import { scrapeAndSave } from "../lib/scrape";
 import { researchTargets } from "../lib/research";
 import { analyzeLeads } from "../lib/analyze";
 import { discoverBusinesses } from "../lib/discover";
+import { startRun, runScrapeJob, listRuns, getRun, deleteRun, runToCsv } from "../lib/scrapeRuns";
+import { scrapeInFlight, acquireScrapeLock, releaseScrapeLock } from "../lib/scrapeLock";
 import { reconSellAngle, composeBrief, type ReconBrief } from "../lib/recon";
 import { parseProxyLines, testProxy } from "../lib/proxyPool";
 import {
-  getSocialSettings, updateSocialSettings, generateSocialPosts, publishPost,
+  getSocialSettings, updateSocialSettings, generateSocialPosts, generateFreeToolPosts, publishPost,
   facebookCreds, fbAppConfigured, fbConnectUrl, fbHandleCallback, fbSelectPage, fbDisconnect, FB_REDIRECT_URI,
+  crossPostToTikTok,
+  fbPickerToken, fbPickerTokenValid,
+  generateGroupPosts, listGroups, addGroup, deleteGroup, markGroupPosted, discoverGroups,
+  syncEngagementStats, generatePostImage, getPostImage, removePostImage,
+  socialChat, type SocialChatMessage, fbPageFollowers,
 } from "../lib/social";
+import {
+  tiktokConnectUrl, tiktokHandleCallback, tiktokDisconnect, tiktokConnected, tiktokAccountName,
+  tiktokAppConfigured, TIKTOK_REDIRECT_URI,
+} from "../lib/tiktok";
+import { sendBuyerFollowup } from "../lib/buyer-followup";
+import { sendCapturedDigest } from "../lib/captured-digest";
+import { listCustomers, inAudience, startBlast, blastStatus, sendTestEmail, type Audience } from "../lib/customer-blast";
+import { autoScrapeTick, autoScrapeStatus, setAutoScrapeEnabled, seedAutoTargets, listAutoCandidates } from "../lib/autoScrape";
+import {
+  anyProviderConfigured, providerReady, getOutreachSettings,
+  gmailSendReady, resendConfigured, replitMailConfigured, gmailSendAddress,
+  sendGmailMail, sendReplitMail,
+} from "../lib/outreach-auto";
+import { refreshGmailConnector } from "../lib/gmailConnector";
 
 const router = Router();
-
-// Guard against overlapping scrape runs — one browser at a time.
-let scrapeInFlight = false;
 
 // ── Admin secret guard ────────────────────────────────────────────────────────
 const ADMIN_SECRET = process.env.ADMIN_SECRET ?? "";
@@ -54,7 +79,33 @@ router.get("/traffic", requireAuth, async (req, res) => {
   const days = Math.min(90, Math.max(1, parseInt(String(req.query.days ?? "30"), 10) || 30));
   const windowSql = sql`created_at >= NOW() - make_interval(days => ${days})`;
 
-  const [summaryRows, liveRows, dailyRows, pageRows, refRows, deviceRows, sourceRows] = await Promise.all([
+  // Classify a session's acquisition channel from its entry pageview — the
+  // link tag (utm_source) wins, then the referrer domain, then Direct.
+  const channelCase = sql`CASE
+    WHEN COALESCE(utm_source,'') ILIKE '%facebook%' OR COALESCE(utm_source,'') IN ('fb','fb-ad') OR referrer ILIKE '%facebook.%' OR referrer ILIKE '%fb.me%' OR referrer ILIKE '%l.messenger%' THEN 'Facebook'
+    WHEN COALESCE(utm_source,'') ILIKE '%instagram%' OR referrer ILIKE '%instagram.%' OR COALESCE(utm_source,'') = 'ig' THEN 'Instagram'
+    WHEN COALESCE(utm_source,'') ILIKE '%tiktok%' OR referrer ILIKE '%tiktok.%' THEN 'TikTok'
+    WHEN COALESCE(utm_source,'') = 'google-ads' THEN 'Google Ads'
+    WHEN referrer ILIKE '%google.%' OR COALESCE(utm_source,'') ILIKE '%google%' THEN 'Google search'
+    WHEN referrer ILIKE '%bing.%' THEN 'Bing search'
+    WHEN referrer ILIKE '%duckduckgo%' THEN 'DuckDuckGo'
+    WHEN referrer ILIKE '%youtube%' OR COALESCE(utm_source,'') ILIKE '%youtube%' THEN 'YouTube'
+    WHEN referrer ILIKE '%reddit%' OR COALESCE(utm_source,'') ILIKE '%reddit%' THEN 'Reddit'
+    WHEN referrer ILIKE '%twitter%' OR referrer ILIKE '%//t.co%' OR COALESCE(utm_source,'') IN ('x','twitter') THEN 'X / Twitter'
+    WHEN referrer ILIKE '%linkedin%' OR referrer ILIKE '%lnkd.in%' THEN 'LinkedIn'
+    WHEN utm_medium = 'email' OR COALESCE(utm_source,'') ILIKE '%mail%' THEN 'Email'
+    WHEN COALESCE(utm_source,'') = 'social' THEN 'Shared link'
+    WHEN utm_source IS NOT NULL THEN 'Tagged: ' || utm_source
+    WHEN referrer IS NULL OR referrer = '' OR referrer ILIKE '%mapleadextractor.net%' THEN 'Direct'
+    ELSE 'Other sites'
+  END`;
+
+  const [
+    summaryRows, liveRows, dailyRows, pageRows, refRows, deviceRows, sourceRows,
+    newRetRows, entryRows, exitRows, heatRows, countryRows, engageRows,
+    channelRows, recentRows, prevRows, hourlyRows, campaignRows, browserRows,
+    osRows, landingRows, convRows, convDailyRows, durationRows,
+  ] = await Promise.all([
     db.execute(sql`
       SELECT
         COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')::int AS views_today,
@@ -100,6 +151,167 @@ router.get("/traffic", requireAuth, async (req, res) => {
       FROM site_visits WHERE ${windowSql} AND utm_source IS NOT NULL
       GROUP BY 1 ORDER BY visitors DESC LIMIT 10
     `),
+    // New vs returning: a visitor is "returning" if their first-ever pageview
+    // predates the window; "new" if they first appeared inside it.
+    db.execute(sql`
+      WITH active AS (
+        SELECT DISTINCT visitor_id FROM site_visits WHERE ${windowSql}
+      ), firsts AS (
+        SELECT visitor_id, MIN(created_at) AS first_seen FROM site_visits GROUP BY visitor_id
+      )
+      SELECT
+        COUNT(*) FILTER (WHERE f.first_seen >= NOW() - make_interval(days => ${days}))::int AS new_visitors,
+        COUNT(*) FILTER (WHERE f.first_seen <  NOW() - make_interval(days => ${days}))::int AS returning_visitors
+      FROM active a JOIN firsts f USING (visitor_id)
+    `),
+    // Entry pages: the first page of each session.
+    db.execute(sql`
+      SELECT path, COUNT(*)::int AS sessions FROM (
+        SELECT DISTINCT ON (session_id) session_id, path
+        FROM site_visits WHERE ${windowSql} AND session_id IS NOT NULL
+        ORDER BY session_id, created_at ASC
+      ) t GROUP BY path ORDER BY sessions DESC LIMIT 10
+    `),
+    // Exit pages: the last page of each session.
+    db.execute(sql`
+      SELECT path, COUNT(*)::int AS sessions FROM (
+        SELECT DISTINCT ON (session_id) session_id, path
+        FROM site_visits WHERE ${windowSql} AND session_id IS NOT NULL
+        ORDER BY session_id, created_at DESC
+      ) t GROUP BY path ORDER BY sessions DESC LIMIT 10
+    `),
+    // Hour-of-day × day-of-week heatmap, bucketed in the owner's local time
+    // (Central) so peaks line up with when their audience is actually awake.
+    db.execute(sql`
+      SELECT
+        EXTRACT(DOW  FROM created_at AT TIME ZONE 'America/Chicago')::int AS dow,
+        EXTRACT(HOUR FROM created_at AT TIME ZONE 'America/Chicago')::int AS hour,
+        COUNT(*)::int AS views
+      FROM site_visits WHERE ${windowSql}
+      GROUP BY 1, 2
+    `),
+    // Country breakdown (populated once a CDN/proxy sets the geo header).
+    db.execute(sql`
+      SELECT COALESCE(NULLIF(country, ''), '—') AS country,
+             COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE ${windowSql}
+      GROUP BY 1 ORDER BY visitors DESC LIMIT 12
+    `),
+    // Engagement: bounce rate + avg pages/session over sessions in the window.
+    db.execute(sql`
+      WITH s AS (
+        SELECT session_id, COUNT(*) AS views
+        FROM site_visits WHERE ${windowSql} AND session_id IS NOT NULL
+        GROUP BY session_id
+      )
+      SELECT
+        COUNT(*)::int AS sessions,
+        COUNT(*) FILTER (WHERE views = 1)::int AS bounced,
+        COALESCE(SUM(views), 0)::int AS total_views
+      FROM s
+    `),
+    // Acquisition channels — classified from each session's entry pageview.
+    db.execute(sql`
+      WITH entries AS (
+        SELECT DISTINCT ON (session_id) session_id, visitor_id, referrer, utm_source, utm_medium
+        FROM site_visits WHERE ${windowSql} AND session_id IS NOT NULL
+        ORDER BY session_id, created_at ASC
+      )
+      SELECT ${channelCase} AS channel,
+             COUNT(*)::int AS sessions,
+             COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM entries GROUP BY 1 ORDER BY sessions DESC LIMIT 12
+    `),
+    // Recent visitor sessions — the live "who's on my site" feed.
+    db.execute(sql`
+      WITH s AS (
+        SELECT session_id,
+               MIN(created_at) AS started,
+               MAX(created_at) AS ended,
+               COUNT(*)::int AS views,
+               (ARRAY_AGG(path ORDER BY created_at ASC))[1:8] AS paths,
+               (ARRAY_REMOVE(ARRAY_AGG(referrer ORDER BY created_at ASC), NULL))[1] AS referrer,
+               (ARRAY_REMOVE(ARRAY_AGG(utm_source ORDER BY created_at ASC), NULL))[1] AS utm_source,
+               (ARRAY_REMOVE(ARRAY_AGG(utm_medium ORDER BY created_at ASC), NULL))[1] AS utm_medium,
+               (ARRAY_REMOVE(ARRAY_AGG(device ORDER BY created_at ASC), NULL))[1] AS device,
+               (ARRAY_REMOVE(ARRAY_AGG(country ORDER BY created_at ASC), NULL))[1] AS country
+        FROM site_visits WHERE ${windowSql} AND session_id IS NOT NULL
+        GROUP BY session_id
+      )
+      SELECT *, ${channelCase} AS channel FROM s ORDER BY started DESC LIMIT 30
+    `),
+    // Previous window of the same length — powers the "vs last period" deltas.
+    db.execute(sql`
+      SELECT COUNT(*)::int AS views,
+             COUNT(DISTINCT visitor_id)::int AS visitors,
+             COUNT(DISTINCT session_id)::int AS sessions
+      FROM site_visits
+      WHERE created_at >= NOW() - make_interval(days => ${days * 2})
+        AND created_at <  NOW() - make_interval(days => ${days})
+    `),
+    // Hour-by-hour for the last 48 hours (owner's local time).
+    db.execute(sql`
+      SELECT to_char(date_trunc('hour', created_at AT TIME ZONE 'America/Chicago'), 'YYYY-MM-DD HH24:00') AS hour,
+             COUNT(*)::int AS views,
+             COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE created_at >= NOW() - INTERVAL '48 hours'
+      GROUP BY 1 ORDER BY 1
+    `),
+    // Campaign performance — every tagged link (utm_campaign), e.g. the
+    // lp-<slug> tags the Landing Pages tab puts on shared links.
+    db.execute(sql`
+      SELECT utm_campaign AS campaign,
+             COALESCE(utm_source, '—') AS source,
+             COUNT(*)::int AS views,
+             COUNT(DISTINCT visitor_id)::int AS visitors,
+             COUNT(DISTINCT session_id)::int AS sessions,
+             MAX(created_at) AS last_visit
+      FROM site_visits WHERE ${windowSql} AND utm_campaign IS NOT NULL
+      GROUP BY 1, 2 ORDER BY views DESC LIMIT 15
+    `),
+    db.execute(sql`
+      SELECT COALESCE(NULLIF(browser, ''), 'unknown') AS browser, COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE ${windowSql} GROUP BY 1 ORDER BY 2 DESC LIMIT 8
+    `),
+    db.execute(sql`
+      SELECT COALESCE(NULLIF(os, ''), 'unknown') AS os, COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE ${windowSql} GROUP BY 1 ORDER BY 2 DESC LIMIT 8
+    `),
+    // Landing-page (/go/*) performance.
+    db.execute(sql`
+      SELECT path, COUNT(*)::int AS views, COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE ${windowSql} AND path LIKE '/go/%'
+      GROUP BY 1 ORDER BY views DESC LIMIT 12
+    `),
+    // What the traffic turned into: captured emails + paid orders + revenue.
+    db.execute(sql`
+      SELECT
+        (SELECT COUNT(*)::int FROM sample_requests
+          WHERE email IS NOT NULL AND created_at >= NOW() - make_interval(days => ${days})) AS captured,
+        (SELECT COUNT(*)::int FROM pack_orders
+          WHERE paid_at IS NOT NULL AND paid_at >= NOW() - make_interval(days => ${days})) AS orders_paid,
+        (SELECT COALESCE(SUM(amount_cents - refunded_cents), 0)::int FROM pack_orders
+          WHERE paid_at IS NOT NULL AND paid_at >= NOW() - make_interval(days => ${days})) AS revenue_cents
+    `),
+    db.execute(sql`
+      SELECT day, SUM(captured)::int AS captured, SUM(orders)::int AS orders, SUM(revenue)::int AS revenue_cents
+      FROM (
+        SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
+               COUNT(*) FILTER (WHERE email IS NOT NULL) AS captured, 0 AS orders, 0 AS revenue
+        FROM sample_requests WHERE created_at >= NOW() - make_interval(days => ${days}) GROUP BY 1
+        UNION ALL
+        SELECT to_char(date_trunc('day', paid_at), 'YYYY-MM-DD'), 0, COUNT(*), SUM(amount_cents - refunded_cents)
+        FROM pack_orders WHERE paid_at IS NOT NULL AND paid_at >= NOW() - make_interval(days => ${days}) GROUP BY 1
+      ) t GROUP BY day ORDER BY day
+    `),
+    // Average time on site across multi-page sessions (single-page sessions
+    // have no measurable duration, so they'd drag the average to zero).
+    db.execute(sql`
+      SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (ended - started)) / 60), 0) AS avg_min FROM (
+        SELECT session_id, MIN(created_at) AS started, MAX(created_at) AS ended, COUNT(*) AS c
+        FROM site_visits WHERE ${windowSql} AND session_id IS NOT NULL GROUP BY session_id
+      ) s WHERE c > 1
+    `),
   ]);
 
   type SumRow = {
@@ -131,6 +343,72 @@ router.get("/traffic", requireAuth, async (req, res) => {
       .map(r => ({ device: r.device ?? "unknown", visitors: Number(r.visitors) })),
     sources: (sourceRows.rows as { source: string; visitors: number }[])
       .map(r => ({ source: r.source, visitors: Number(r.visitors) })),
+    newVsReturning: (() => {
+      const r = (newRetRows.rows[0] ?? {}) as { new_visitors?: number; returning_visitors?: number };
+      return { new: Number(r.new_visitors ?? 0), returning: Number(r.returning_visitors ?? 0) };
+    })(),
+    entryPages: (entryRows.rows as { path: string; sessions: number }[])
+      .map(r => ({ path: r.path, sessions: Number(r.sessions) })),
+    exitPages: (exitRows.rows as { path: string; sessions: number }[])
+      .map(r => ({ path: r.path, sessions: Number(r.sessions) })),
+    heatmap: (heatRows.rows as { dow: number; hour: number; views: number }[])
+      .map(r => ({ dow: Number(r.dow), hour: Number(r.hour), views: Number(r.views) })),
+    countries: (countryRows.rows as { country: string; visitors: number }[])
+      .map(r => ({ country: r.country, visitors: Number(r.visitors) })),
+    engagement: (() => {
+      const r = (engageRows.rows[0] ?? {}) as { sessions?: number; bounced?: number; total_views?: number };
+      const sessions = Number(r.sessions ?? 0);
+      const bounced = Number(r.bounced ?? 0);
+      const totalViews = Number(r.total_views ?? 0);
+      return {
+        sessions,
+        bounceRate: sessions ? bounced / sessions : 0,
+        pagesPerSession: sessions ? totalViews / sessions : 0,
+      };
+    })(),
+    channels: (channelRows.rows as { channel: string; sessions: number; visitors: number }[])
+      .map(r => ({ channel: r.channel, sessions: Number(r.sessions), visitors: Number(r.visitors) })),
+    recentSessions: (recentRows.rows as {
+      started: string | Date; ended: string | Date; views: number; paths: string[];
+      referrer: string | null; utm_source: string | null; device: string | null;
+      country: string | null; channel: string;
+    }[]).map(r => ({
+      startedAt: r.started instanceof Date ? r.started.toISOString() : String(r.started),
+      minutes: Math.max(0, Math.round((new Date(r.ended).getTime() - new Date(r.started).getTime()) / 60_000)),
+      views: Number(r.views),
+      paths: Array.isArray(r.paths) ? r.paths : [],
+      referrer: r.referrer,
+      source: r.utm_source,
+      device: r.device,
+      country: r.country,
+      channel: r.channel,
+    })),
+    prev: (() => {
+      const r = (prevRows.rows[0] ?? {}) as { views?: number; visitors?: number; sessions?: number };
+      return { views: Number(r.views ?? 0), visitors: Number(r.visitors ?? 0), sessions: Number(r.sessions ?? 0) };
+    })(),
+    hourly: (hourlyRows.rows as { hour: string; views: number; visitors: number }[])
+      .map(r => ({ hour: r.hour, views: Number(r.views), visitors: Number(r.visitors) })),
+    campaigns: (campaignRows.rows as {
+      campaign: string; source: string; views: number; visitors: number; sessions: number; last_visit: string | Date;
+    }[]).map(r => ({
+      campaign: r.campaign, source: r.source,
+      views: Number(r.views), visitors: Number(r.visitors), sessions: Number(r.sessions),
+      lastVisit: r.last_visit instanceof Date ? r.last_visit.toISOString() : String(r.last_visit),
+    })),
+    browsers: (browserRows.rows as { browser: string; visitors: number }[])
+      .map(r => ({ browser: r.browser, visitors: Number(r.visitors) })),
+    osList: (osRows.rows as { os: string; visitors: number }[])
+      .map(r => ({ os: r.os, visitors: Number(r.visitors) })),
+    landingPages: (landingRows.rows as { path: string; views: number; visitors: number }[])
+      .map(r => ({ path: r.path, views: Number(r.views), visitors: Number(r.visitors) })),
+    conversions: (() => {
+      const r = (convRows.rows[0] ?? {}) as { captured?: number; orders_paid?: number; revenue_cents?: number };
+      return { captured: Number(r.captured ?? 0), orders: Number(r.orders_paid ?? 0), revenueCents: Number(r.revenue_cents ?? 0) };
+    })(),
+    conversionsDaily: (convDailyRows.rows as { day: string; captured: number; orders: number; revenue_cents: number }[])
+      .map(r => ({ day: r.day, captured: Number(r.captured), orders: Number(r.orders), revenueCents: Number(r.revenue_cents) })),
+    avgSessionMinutes: Number((durationRows.rows[0] as { avg_min?: number } | undefined)?.avg_min ?? 0),
   });
 });
 
@@ -597,7 +875,7 @@ async function enrichLeadBatch(batch: (typeof leads.$inferSelect)[]): Promise<En
 // Enrich the leads a scrape just produced: the most-recently-touched unenriched
 // leads in that category that have a website (the scrape just stamped them, so
 // ordering by updated_at puts them first). Bounded so it stays snappy.
-async function autoEnrichScraped(category: string): Promise<EnrichStats> {
+export async function autoEnrichScraped(category: string): Promise<EnrichStats> {
   const fresh = await db
     .select()
     .from(leads)
@@ -641,12 +919,11 @@ router.post("/scrape", requireAuth, async (req, res) => {
     res.status(400).json({ error: "category is required (e.g. \"plumbers\")" });
     return;
   }
-  if (scrapeInFlight) {
+  if (!acquireScrapeLock()) {
     res.status(429).json({ error: "A scrape is already running — try again in a moment." });
     return;
   }
 
-  scrapeInFlight = true;
   const startedAt = Date.now();
   try {
     const result = await scrapeAndSave({
@@ -661,8 +938,75 @@ router.post("/scrape", requireAuth, async (req, res) => {
     req.log.error({ err }, "admin test scrape failed");
     res.status(500).json({ error: err instanceof Error ? err.message : "Scrape failed" });
   } finally {
-    scrapeInFlight = false;
+    releaseScrapeLock();
   }
+});
+
+// ── Scraper tab (Apify-style run console) ────────────────────────────────────
+// Same scrapeAndSave engine as /scrape above, but every run is persisted as a
+// row (input, status, dataset, counts) so the admin gets a run history and a
+// browsable/exportable dataset per run instead of a one-shot test result.
+
+// POST /scraper/runs — start a run
+router.post("/scraper/runs", requireAuth, async (req, res) => {
+  const body = (req.body ?? {}) as { category?: string; location?: string; maxScrolls?: number; platform?: ScrapePlatform };
+  const category = String(body.category ?? "").trim();
+  const location = String(body.location ?? "").trim();
+  const platform: ScrapePlatform = body.platform ?? "google_maps";
+  if (!category) {
+    res.status(400).json({ error: "category is required (e.g. \"plumbers\")" });
+    return;
+  }
+  if (!acquireScrapeLock()) {
+    res.status(429).json({ error: "A scrape is already running — try again in a moment." });
+    return;
+  }
+
+  try {
+    const run = await startRun(platform, category, location || undefined, null);
+    const finished = await runScrapeJob(run.id, platform, {
+      category,
+      location: location || undefined,
+      maxScrolls: typeof body.maxScrolls === "number" ? body.maxScrolls : 3,
+    });
+    const enrich = finished.status === "succeeded" ? await autoEnrichScraped(category).catch(() => null) : null;
+    req.log.info({ runId: finished.id, status: finished.status, saved: finished.saved, enrich }, "scraper run done");
+    res.json({ ok: finished.status === "succeeded", run: finished, enrich });
+  } catch (err) {
+    req.log.error({ err }, "scraper run failed to start");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Scrape failed" });
+  } finally {
+    releaseScrapeLock();
+  }
+});
+
+// GET /scraper/runs — history (no dataset payload — keeps the list light).
+// Site-wide (all users) — this is the owner's internal view.
+router.get("/scraper/runs", requireAuth, async (req, res) => {
+  const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit ?? "30"), 10) || 30));
+  res.json({ runs: await listRuns(limit), inFlight: scrapeInFlight() });
+});
+
+// GET /scraper/runs/:id — one run's full detail, including its dataset
+router.get("/scraper/runs/:id", requireAuth, async (req, res) => {
+  const run = await getRun(Number(req.params.id));
+  if (!run) { res.status(404).json({ error: "Run not found" }); return; }
+  res.json({ run });
+});
+
+// GET /scraper/runs/:id/export — download the run's dataset as CSV
+router.get("/scraper/runs/:id/export", requireAuth, async (req, res) => {
+  const run = await getRun(Number(req.params.id));
+  if (!run) { res.status(404).json({ error: "Run not found" }); return; }
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="scrape-run-${run.id}.csv"`);
+  res.send(runToCsv(run));
+});
+
+// DELETE /scraper/runs/:id — remove a run from history
+router.delete("/scraper/runs/:id", requireAuth, async (req, res) => {
+  await deleteRun(Number(req.params.id));
+  res.json({ ok: true });
 });
 
 // ---- POST /research — AI finds the best places to scrape -------------------
@@ -792,6 +1136,46 @@ router.post("/recon", requireAuth, async (req, res) => {
   }
 });
 
+// ---- POST /social-scan — analyze leads' actual social pages for pitch ammo --
+// Per-platform followers/recency/missing-platform findings + a pitch built
+// from them. Skips already-scanned leads; pass leadIds to target specific ones.
+router.post("/social-scan", requireAuth, async (req, res) => {
+  const body = (req.body ?? {}) as { limit?: number; leadIds?: number[]; onlyHighTicket?: boolean };
+  const limit = Math.min(8, Math.max(1, Number(body.limit) || 5));
+
+  let batch;
+  if (Array.isArray(body.leadIds) && body.leadIds.length) {
+    const ids = body.leadIds.map(Number).filter(Number.isFinite).slice(0, 8);
+    batch = await db.select().from(leads).where(and(isNull(leads.deletedAt), inArray(leads.id, ids)));
+  } else {
+    const conds = [isNull(leads.deletedAt), isNull(leads.socialScanAt)];
+    if (body.onlyHighTicket) conds.push(eq(leads.highTicket, true));
+    // Leads with a social URL on file first (probe-verifiable), best leads first.
+    batch = await db.select().from(leads).where(and(...conds))
+      .orderBy(sql`(facebook IS NOT NULL OR instagram IS NOT NULL OR twitter IS NOT NULL OR linkedin IS NOT NULL) DESC, high_ticket DESC, value_score DESC`)
+      .limit(limit);
+  }
+  if (batch.length === 0) { res.json({ scanned: 0, results: [] }); return; }
+
+  try {
+    const results = await Promise.all(batch.map(async (l) => {
+      try {
+        const report = await scanAndSaveLead(l);
+        return { id: l.id, name: l.name, category: l.category, report, summary: socialScanSummary(report) };
+      } catch (err) {
+        req.log.warn({ err, leadId: l.id }, "social scan failed for lead");
+        return null;
+      }
+    }));
+    const done = results.filter((r) => r !== null);
+    req.log.info({ scanned: done.length }, "social scan done");
+    res.json({ scanned: done.length, results: done });
+  } catch (err) {
+    req.log.error({ err }, "social scan failed");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Social scan failed" });
+  }
+});
+
 // ---- POST /analyze — AI lead intelligence: rationale + high-ticket + bios ---
 // Reads a batch of real leads and judges which are high-ticket, writing a sales
 // bio for each. Defaults to the most-recently-touched leads (the latest scrape).
@@ -856,12 +1240,11 @@ router.get("/scrape-targets/active", async (_req, res) => {
 router.post("/scrape-targets/:id/scrape", requireAuth, async (req, res) => {
   const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  if (scrapeInFlight) { res.status(429).json({ error: "A scrape is already running." }); return; }
+  if (!acquireScrapeLock()) { res.status(429).json({ error: "A scrape is already running." }); return; }
 
   const [target] = await db.select().from(scrapeTargets).where(eq(scrapeTargets.id, id)).limit(1);
-  if (!target) { res.status(404).json({ error: "Target not found" }); return; }
+  if (!target) { releaseScrapeLock(); res.status(404).json({ error: "Target not found" }); return; }
 
-  scrapeInFlight = true;
   try {
     const result = await scrapeAndSave({ category: target.category, location: target.location });
     const enrich = await autoEnrichScraped(target.category).catch(() => null);
@@ -874,7 +1257,7 @@ router.post("/scrape-targets/:id/scrape", requireAuth, async (req, res) => {
     req.log.error({ err, id }, "target scrape failed");
     res.status(500).json({ error: err instanceof Error ? err.message : "Scrape failed" });
   } finally {
-    scrapeInFlight = false;
+    releaseScrapeLock();
   }
 });
 
@@ -882,6 +1265,42 @@ router.post("/scrape-targets/:id/scrape", requireAuth, async (req, res) => {
 router.delete("/scrape-targets", requireAdmin, async (_req, res) => {
   await db.delete(scrapeTargets);
   res.json({ ok: true });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Auto-scrape — the background scheduler that keeps inventory filled for the
+// categories × core metros we sell (lib/autoScrape.ts).
+// ════════════════════════════════════════════════════════════════════════════
+
+// ---- GET /auto-scrape — scheduler status + a preview of what's next ---------
+router.get("/auto-scrape", requireAuth, async (_req, res) => {
+  const queue = (await listAutoCandidates(5)).map(({ target, inventory }) => ({
+    id: target.id, category: target.category, location: target.location,
+    priority: target.priority, lastScrapedAt: target.lastScrapedAt, inventory,
+  }));
+  res.json({ ...autoScrapeStatus(), inFlight: scrapeInFlight(), queue });
+});
+
+// ---- POST /auto-scrape — toggle the scheduler at runtime --------------------
+router.post("/auto-scrape", requireAuth, async (req, res) => {
+  const on = (req.body as { enabled?: unknown } | undefined)?.enabled;
+  if (typeof on !== "boolean") { res.status(400).json({ error: "enabled (boolean) is required" }); return; }
+  setAutoScrapeEnabled(on);
+  res.json(autoScrapeStatus());
+});
+
+// ---- POST /auto-scrape/seed — fill the plan from what we offer --------------
+router.post("/auto-scrape/seed", requireAuth, async (req, res) => {
+  const added = await seedAutoTargets();
+  req.log.info({ added }, "auto-scrape targets seeded");
+  res.json({ added });
+});
+
+// ---- POST /auto-scrape/tick — run one scheduler pass right now --------------
+router.post("/auto-scrape/tick", requireAuth, async (req, res) => {
+  const result = await autoScrapeTick();
+  req.log.info(result, "manual auto-scrape tick");
+  res.json(result);
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1081,25 +1500,113 @@ router.post("/restore-bulk", requireAdmin, async (req, res) => {
 
 // ---- GET /social — everything the Social tab needs in one call ---------------
 router.get("/social", requireAuth, async (_req, res) => {
-  const [settings, fb, appConfigured, queue, history] = await Promise.all([
+  // Never select image_b64 in lists — it's megabytes per row.
+  const { imageB64: _imageB64, ...postCols } = getTableColumns(socialPosts);
+  const listCols = { ...postCols, hasImage: sql<boolean>`${socialPosts.imageB64} IS NOT NULL` };
+  const [settings, fb, appConfigured, tkConnected, tkName, tkAppConfigured, queue, groupQueue, history, groups, customImages, followers, clickRows] = await Promise.all([
     getSocialSettings(),
     facebookCreds(),
     fbAppConfigured(),
-    db.select().from(socialPosts).where(eq(socialPosts.status, "queued")).orderBy(asc(socialPosts.id)),
-    db.select().from(socialPosts).where(sql`${socialPosts.status} <> 'queued'`).orderBy(desc(socialPosts.id)).limit(30),
+    tiktokConnected(),
+    tiktokAccountName(),
+    tiktokAppConfigured(),
+    db.select(listCols).from(socialPosts).where(and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook"))).orderBy(asc(socialPosts.id)),
+    db.select(listCols).from(socialPosts).where(and(eq(socialPosts.status, "queued"), eq(socialPosts.platform, "facebook_group"))).orderBy(asc(socialPosts.id)),
+    db.select(listCols).from(socialPosts).where(sql`${socialPosts.status} <> 'queued'`).orderBy(desc(socialPosts.id)).limit(30),
+    listGroups(),
+    listLandingImageSlugs(),
+    fbPageFollowers(),
+    // Per-post link clicks: visits whose link carried this post's tag
+    // (utm_campaign = "post-<id>", stamped at publish time).
+    db.execute(sql`
+      SELECT utm_campaign, COUNT(*)::int AS clicks, COUNT(DISTINCT visitor_id)::int AS people
+      FROM site_visits WHERE utm_campaign LIKE 'post-%' GROUP BY 1
+    `),
   ]);
+  const clicksByPost = new Map(
+    (clickRows.rows as { utm_campaign: string; clicks: number; people: number }[])
+      .map(r => [r.utm_campaign, { clicks: Number(r.clicks), people: Number(r.people) }]),
+  );
+  const withClicks = <T extends { id: number }>(rows: T[]) =>
+    rows.map(r => ({ ...r, linkClicks: clicksByPost.get(`post-${r.id}`)?.clicks ?? 0, linkPeople: clicksByPost.get(`post-${r.id}`)?.people ?? 0 }));
   // Never ship tokens/secrets to the browser.
-  const { fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p, ...safeSettings } = settings;
+  const {
+    fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p,
+    tiktokClientSecret: _ts, tiktokAccessToken: _ta, tiktokRefreshToken: _tr,
+    ...safeSettings
+  } = settings;
   res.json({
     settings: safeSettings,
     facebookConnected: Boolean(fb),
     pageName: fb?.pageName ?? null,
+    pageFollowers: followers?.followers ?? null,
+    pageLikes: followers?.likes ?? null,
     appConfigured,
     redirectUri: FB_REDIRECT_URI,
+    tiktokConnected: tkConnected,
+    tiktokAccountName: tkName,
+    tiktokAppConfigured: tkAppConfigured,
+    tiktokRedirectUri: TIKTOK_REDIRECT_URI,
     aiConfigured: Boolean(process.env.OPENAI_API_KEY || process.env.CHAT_GPT_API),
     queue,
-    history,
+    groupQueue,
+    history: withClicks(history),
+    groups,
+    customImages,
   });
+});
+
+// ── Facebook Groups (assisted posting — Meta killed the Groups API in 2024) ──
+
+// POST /social/groups — save a group to the rotation
+router.post("/social/groups", requireAuth, async (req, res) => {
+  try {
+    const { name, url, notes } = req.body as { name?: string; url?: string; notes?: string };
+    if (!name?.trim() || !url?.trim()) { res.status(400).json({ error: "Group name and link are both required." }); return; }
+    res.json({ ok: true, group: await addGroup(name, url, notes) });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// DELETE /social/groups/:id — drop a group from the rotation
+router.delete("/social/groups/:id", requireAuth, async (req, res) => {
+  await deleteGroup(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+// POST /social/groups/discover — AI web-search finds real public FB Groups
+// that fit the product's audience and auto-adds the new ones to the rotation
+router.post("/social/groups/discover", requireAuth, async (req, res) => {
+  try {
+    const count = Math.min(15, Math.max(3, Number((req.body as { count?: number })?.count) || 8));
+    const result = await discoverGroups(count);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// POST /social/groups/generate — AI writes group-flavored posts (no links/ads)
+router.post("/social/groups/generate", requireAuth, async (req, res) => {
+  try {
+    const count = Math.min(10, Math.max(1, Number((req.body as { count?: number })?.count) || 5));
+    res.json({ ok: true, posts: await generateGroupPosts(count) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// POST /social/groups/:id/posted — admin pasted a post into the group by hand
+router.post("/social/groups/:id/posted", requireAuth, async (req, res) => {
+  try {
+    const postId = Number((req.body as { postId?: number })?.postId);
+    if (!postId) { res.status(400).json({ error: "postId required" }); return; }
+    await markGroupPosted(Number(req.params.id), postId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 // ---- Facebook OAuth: GET /social/fb/connect → Facebook login dialog ----------
@@ -1108,6 +1615,16 @@ router.get("/social/fb/connect", requireAuth, async (_req, res) => {
     res.redirect(await fbConnectUrl());
   } catch (err) {
     res.status(400).send(err instanceof Error ? err.message : String(err));
+  }
+});
+
+// The dashboard button can't attach its auth header to a plain navigation, so
+// it fetches the dialog URL here (authorized) and redirects the browser itself.
+router.get("/social/fb/connect-url", requireAuth, async (_req, res) => {
+  try {
+    res.json({ url: await fbConnectUrl() });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -1123,7 +1640,11 @@ p{color:#8b949e}</style></head><body><div class="card">${body}</div></body></htm
 }
 
 // ---- GET /social/fb/callback — Facebook redirects here after Approve ---------
-router.get("/social/fb/callback", requireAuth, async (req, res) => {
+// No requireAuth: Facebook's redirect is a bare top-level navigation with no
+// admin session attached. The HMAC-signed, 15-minute `state` param (created by
+// fbConnectUrl, verified inside fbHandleCallback) is what proves this callback
+// belongs to a connect flow an authenticated admin started.
+router.get("/social/fb/callback", async (req, res) => {
   const { code, state, error_description: fbError } = req.query as Record<string, string | undefined>;
   if (fbError || !code || !state) {
     res.status(400).send(fbResultPage("Facebook connection failed",
@@ -1132,6 +1653,7 @@ router.get("/social/fb/callback", requireAuth, async (req, res) => {
   }
   try {
     const { connected, pages } = await fbHandleCallback(code, state);
+    const sig = await fbPickerToken();
     if (connected) {
       res.send(fbResultPage("Facebook connected",
         `<h2>✅ Connected to ${connected.name}</h2><p>The auto-poster can now publish to your Page. You can close this and head back.</p><a class="btn" href="/admin">Back to admin</a>`));
@@ -1139,7 +1661,7 @@ router.get("/social/fb/callback", requireAuth, async (req, res) => {
     }
     res.send(fbResultPage("Pick a Page",
       `<h2>Almost done — which Page?</h2><p>Your account manages more than one Page. Pick the one to auto-post to:</p>` +
-      pages.map((p) => `<a class="pick" href="/api/admin/social/fb/select?pageId=${encodeURIComponent(p.id)}">${p.name}</a>`).join("")));
+      pages.map((p) => `<a class="pick" href="/api/admin/social/fb/select?pageId=${encodeURIComponent(p.id)}&sig=${encodeURIComponent(sig)}">${p.name}</a>`).join("")));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).send(fbResultPage("Facebook connection failed",
@@ -1148,8 +1670,15 @@ router.get("/social/fb/callback", requireAuth, async (req, res) => {
 });
 
 // ---- GET /social/fb/select?pageId= — finish connect when multiple Pages ------
-router.get("/social/fb/select", requireAuth, async (req, res) => {
+// Also a top-level navigation (clicked on the callback result page), so it is
+// guarded by the signed `sig` token minted by the callback, not requireAuth.
+router.get("/social/fb/select", async (req, res) => {
   try {
+    if (!(await fbPickerTokenValid(String(req.query.sig ?? "")))) {
+      res.status(401).send(fbResultPage("Link expired",
+        `<h2>😕 That link expired</h2><p>Page-picker links are only valid for 15 minutes. Head back and click Connect Facebook again.</p><a class="btn" href="/admin">Back to admin</a>`));
+      return;
+    }
     const page = await fbSelectPage(String(req.query.pageId ?? ""));
     res.send(fbResultPage("Facebook connected",
       `<h2>✅ Connected to ${page.name}</h2><p>The auto-poster can now publish to your Page.</p><a class="btn" href="/admin">Back to admin</a>`));
@@ -1160,10 +1689,130 @@ router.get("/social/fb/select", requireAuth, async (req, res) => {
   }
 });
 
+// ---- Landing-page pictures: upload / revert the /go/<slug>.jpg creative -------
+// The image is sent as the raw request body (Content-Type = the file's type),
+// so a route-local raw parser with a generous limit reads it without touching
+// the global JSON body parser. Stored in the DB so it survives redeploys.
+router.post(
+  "/social/landing-image/:slug",
+  requireAuth,
+  express.raw({ type: () => true, limit: MAX_IMAGE_BYTES + 1024 }),
+  async (req, res) => {
+    const slug = String(req.params.slug ?? "");
+    if (!validSlug(slug)) { res.status(400).json({ error: "Bad slug." }); return; }
+    const mime = String(req.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
+    if (!allowedImageMime(mime)) {
+      res.status(400).json({ error: "Please upload a JPG, PNG, WebP or GIF image." });
+      return;
+    }
+    const bytes = req.body as Buffer;
+    if (!Buffer.isBuffer(bytes) || bytes.length === 0) {
+      res.status(400).json({ error: "No image received." });
+      return;
+    }
+    if (bytes.length > MAX_IMAGE_BYTES) {
+      res.status(400).json({ error: "Image is too large — keep it under 8 MB." });
+      return;
+    }
+    try {
+      await saveLandingImage(slug, mime, bytes);
+      res.json({ ok: true, slug, bytes: bytes.length });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "Save failed." });
+    }
+  },
+);
+
+// One-click "Change picture": AI-generates a brand-new ad creative for the
+// page and stores it as the override — no file picking. The client sends the
+// page's name/angle/headline (single source of truth lives in the site data).
+router.post("/social/landing-image/:slug/generate", requireAuth, async (req, res) => {
+  const slug = String(req.params.slug ?? "");
+  if (!validSlug(slug)) { res.status(400).json({ error: "Bad slug." }); return; }
+  const body = (req.body ?? {}) as { name?: unknown; angle?: unknown; headline?: unknown };
+  const brief = {
+    name: String(body.name ?? slug).slice(0, 200),
+    angle: String(body.angle ?? "").slice(0, 500),
+    headline: String(body.headline ?? "").slice(0, 300),
+  };
+  try {
+    const { mime, bytes } = await generateLandingCreative(brief);
+    if (bytes.length > MAX_IMAGE_BYTES) {
+      res.status(500).json({ error: "Generated image was unexpectedly large — please try again." });
+      return;
+    }
+    await saveLandingImage(slug, mime, bytes);
+    res.json({ ok: true, slug, bytes: bytes.length });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Image generation failed." });
+  }
+});
+
+router.delete("/social/landing-image/:slug", requireAuth, async (req, res) => {
+  const slug = String(req.params.slug ?? "");
+  if (!validSlug(slug)) { res.status(400).json({ error: "Bad slug." }); return; }
+  const removed = await deleteLandingImage(slug);
+  res.json({ ok: true, reverted: removed });
+});
+
 // ---- POST /social/fb/disconnect — forget the connected Page ------------------
 router.post("/social/fb/disconnect", requireAuth, async (_req, res) => {
   await fbDisconnect();
   res.json({ ok: true });
+});
+
+// ---- TikTok OAuth: same shape as the Facebook flow ---------------------------
+// The dashboard button fetches the login URL here (authorized) and redirects
+// the browser itself.
+router.get("/social/tiktok/connect-url", requireAuth, async (_req, res) => {
+  try {
+    res.json({ url: await tiktokConnectUrl() });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ---- GET /social/tiktok/callback — TikTok redirects here after Authorize -----
+// No requireAuth: like the FB callback, this is a bare top-level navigation.
+// The HMAC-signed, 15-minute `state` (minted by tiktokConnectUrl, verified in
+// tiktokHandleCallback) proves it belongs to an admin-started connect flow.
+router.get("/social/tiktok/callback", async (req, res) => {
+  const { code, state, error_description: tkError, error } = req.query as Record<string, string | undefined>;
+  if (tkError || error || !code || !state) {
+    res.status(400).send(fbResultPage("TikTok connection failed",
+      `<h2>😕 Connection cancelled</h2><p>${tkError || error || "TikTok didn't send a login code."}</p><a class="btn" href="/admin">Back to admin</a>`));
+    return;
+  }
+  try {
+    const { displayName } = await tiktokHandleCallback(code, state);
+    res.send(fbResultPage("TikTok connected",
+      `<h2>✅ Connected${displayName ? ` to ${displayName}` : ""}</h2><p>The auto-poster can now publish your daily ad to TikTok. You can close this and head back.</p><a class="btn" href="/admin">Back to admin</a>`));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(400).send(fbResultPage("TikTok connection failed",
+      `<h2>😕 Something went wrong</h2><p>${msg}</p><a class="btn" href="/admin">Back to admin</a>`));
+  }
+});
+
+// ---- POST /social/tiktok/disconnect — forget the connected account -----------
+router.post("/social/tiktok/disconnect", requireAuth, async (_req, res) => {
+  await tiktokDisconnect();
+  res.json({ ok: true });
+});
+
+// ---- POST /social/:id/tiktok-now — cross-post one post to TikTok right now ---
+router.post("/social/:id/tiktok-now", requireAuth, async (req, res) => {
+  try {
+    if (!(await tiktokConnected())) { res.status(400).json({ error: "TikTok not connected — use the Connect TikTok button first." }); return; }
+    const rows = await db.select().from(socialPosts).where(eq(socialPosts.id, Number(req.params.id)));
+    if (!rows[0]) { res.status(404).json({ error: "Post not found" }); return; }
+    const result = await crossPostToTikTok(rows[0]);
+    if (!result) { res.status(400).json({ error: "TikTok post skipped — no public image available for this post." }); return; }
+    if (result.status === "failed") { res.status(502).json({ error: result.error, post: result }); return; }
+    res.json({ ok: true, post: result });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 // ---- POST /social/generate — top the queue up with AI-written posts ----------
@@ -1175,6 +1824,71 @@ router.post("/social/generate", requireAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
+});
+
+// ---- POST /social/generate-freetool — free-extension ads (Chrome install) ----
+router.post("/social/generate-freetool", requireAuth, async (req, res) => {
+  try {
+    const count = Math.min(10, Math.max(1, Number((req.body as { count?: number })?.count) || 3));
+    const posts = await generateFreeToolPosts(count);
+    res.json({ ok: true, posts });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ---- POST /social/chat — AI assistant that manages the posting queue ---------
+// Body: { messages: [{role: "user"|"assistant", content}] } (the running chat).
+// The model edits the queue via tool calls; `changed` tells the UI to reload it.
+router.post("/social/chat", requireAuth, async (req, res) => {
+  try {
+    const raw = (req.body as { messages?: unknown })?.messages;
+    const messages = Array.isArray(raw)
+      ? raw.filter((m): m is SocialChatMessage =>
+          !!m && typeof m === "object" &&
+          ((m as SocialChatMessage).role === "user" || (m as SocialChatMessage).role === "assistant") &&
+          typeof (m as SocialChatMessage).content === "string")
+      : [];
+    if (messages.length === 0 || messages[messages.length - 1]!.role !== "user") {
+      res.status(400).json({ error: "messages must end with a user message" });
+      return;
+    }
+    res.json({ ok: true, ...(await socialChat(messages)) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ---- POST /social/sync-stats — refresh engagement numbers from Facebook ------
+router.post("/social/sync-stats", requireAuth, async (_req, res) => {
+  try {
+    res.json({ ok: true, synced: await syncEngagementStats(25) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ---- Post images: generate / view / remove -----------------------------------
+router.post("/social/:id/image", requireAuth, async (req, res) => {
+  try {
+    await generatePostImage(Number(req.params.id));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.get("/social/:id/image", requireAuth, async (req, res) => {
+  const img = await getPostImage(Number(req.params.id));
+  if (!img) { res.status(404).json({ error: "No image on this post" }); return; }
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "private, max-age=300");
+  res.send(img);
+});
+
+router.delete("/social/:id/image", requireAuth, async (req, res) => {
+  await removePostImage(Number(req.params.id));
+  res.json({ ok: true });
 });
 
 // ---- POST /social/:id/post-now — publish immediately (skips the schedule) ----
@@ -1208,14 +1922,409 @@ router.delete("/social/:id", requireAuth, async (req, res) => {
 });
 
 // ---- PUT /social/settings — pause/resume, posting hour, auto-refill ----------
+// Also accepts fbAppId/fbAppSecret so the Facebook app credentials can be
+// seeded into whichever database this deployment uses (dev and prod differ).
 router.put("/social/settings", requireAuth, async (req, res) => {
-  const { enabled, postHourUtc, autoRefill } = req.body as { enabled?: boolean; postHourUtc?: number; autoRefill?: boolean };
-  const patch: Record<string, boolean | number> = {};
+  const { enabled, postHourUtc, autoRefill, fbAppId, fbAppSecret, fbPageId, fbPageName, fbPageToken, tiktokClientKey, tiktokClientSecret } = req.body as {
+    enabled?: boolean; postHourUtc?: number; autoRefill?: boolean;
+    fbAppId?: string; fbAppSecret?: string; fbPageId?: string; fbPageName?: string; fbPageToken?: string;
+    tiktokClientKey?: string; tiktokClientSecret?: string;
+  };
+  const patch: Record<string, boolean | number | string> = {};
   if (typeof enabled === "boolean") patch.enabled = enabled;
   if (typeof autoRefill === "boolean") patch.autoRefill = autoRefill;
   if (typeof postHourUtc === "number" && postHourUtc >= 0 && postHourUtc <= 23) patch.postHourUtc = postHourUtc;
+  if (typeof fbAppId === "string" && fbAppId.trim()) patch.fbAppId = fbAppId.trim();
+  if (typeof fbAppSecret === "string" && fbAppSecret.trim()) patch.fbAppSecret = fbAppSecret.trim();
+  if (typeof fbPageId === "string" && fbPageId.trim()) patch.fbPageId = fbPageId.trim();
+  if (typeof fbPageName === "string" && fbPageName.trim()) patch.fbPageName = fbPageName.trim();
+  if (typeof fbPageToken === "string" && fbPageToken.trim()) patch.fbPageToken = fbPageToken.trim();
+  if (typeof tiktokClientKey === "string" && tiktokClientKey.trim()) patch.tiktokClientKey = tiktokClientKey.trim();
+  if (typeof tiktokClientSecret === "string" && tiktokClientSecret.trim()) patch.tiktokClientSecret = tiktokClientSecret.trim();
   const settings = await updateSocialSettings(patch);
-  res.json({ ok: true, settings });
+  const {
+    fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p,
+    tiktokClientSecret: _ts, tiktokAccessToken: _ta, tiktokRefreshToken: _tr,
+    ...safeSettings
+  } = settings;
+  res.json({ ok: true, settings: safeSettings });
+});
+
+// ---- Live site chat: watch conversations + take over from the AI -------------
+
+// GET /chats — conversation list, newest activity first, with unread counts.
+router.get("/chats", requireAuth, async (_req, res) => {
+  const convs = await db.select().from(chatConversations).orderBy(desc(chatConversations.updatedAt)).limit(50);
+  const out = [];
+  for (const c of convs) {
+    const [last] = await db
+      .select({ id: chatMessages.id, sender: chatMessages.sender, body: chatMessages.body, createdAt: chatMessages.createdAt })
+      .from(chatMessages)
+      .where(eq(chatMessages.conversationId, c.id))
+      .orderBy(desc(chatMessages.id))
+      .limit(1);
+    const [{ unread }] = await db
+      .select({ unread: sql<number>`count(*)::int` })
+      .from(chatMessages)
+      .where(and(eq(chatMessages.conversationId, c.id), sql`${chatMessages.id} > ${c.lastAdminReadId}`, eq(chatMessages.sender, "visitor")));
+    out.push({
+      id: c.id,
+      page: c.page,
+      adminJoined: c.adminJoined,
+      updatedAt: c.updatedAt,
+      lastVisitorAt: c.lastVisitorAt,
+      lastMessage: last ?? null,
+      unread,
+    });
+  }
+  res.json({ conversations: out });
+});
+
+// GET /chats/:id/messages?after= — full/incremental thread; marks it read.
+router.get("/chats/:id/messages", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const conv = (await db.select().from(chatConversations).where(eq(chatConversations.id, id)))[0];
+  if (!conv) { res.status(404).json({ error: "Not found" }); return; }
+  const after = Number(req.query.after) || 0;
+  const rows = await db
+    .select({ id: chatMessages.id, sender: chatMessages.sender, body: chatMessages.body, createdAt: chatMessages.createdAt })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.conversationId, id), gt(chatMessages.id, after)))
+    .orderBy(asc(chatMessages.id))
+    .limit(500);
+  const maxId = rows.length ? rows[rows.length - 1]!.id : conv.lastAdminReadId;
+  if (maxId > conv.lastAdminReadId) {
+    await db.update(chatConversations).set({ lastAdminReadId: maxId }).where(eq(chatConversations.id, id));
+  }
+  res.json({ messages: rows, adminJoined: conv.adminJoined });
+});
+
+// POST /chats/:id/reply — owner replies; AI goes silent for this conversation.
+router.post("/chats/:id/reply", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const text = typeof (req.body as { body?: unknown })?.body === "string" ? ((req.body as { body: string }).body).trim() : "";
+  if (!text) { res.status(400).json({ error: "Message is empty." }); return; }
+  const conv = (await db.select().from(chatConversations).where(eq(chatConversations.id, id)))[0];
+  if (!conv) { res.status(404).json({ error: "Not found" }); return; }
+  const [msg] = await db.insert(chatMessages).values({ conversationId: id, sender: "admin", body: text.slice(0, 4000) }).returning();
+  await db.update(chatConversations)
+    .set({ adminJoined: true, updatedAt: new Date(), lastAdminReadId: msg!.id })
+    .where(eq(chatConversations.id, id));
+  res.json({ ok: true, message: msg });
+});
+
+// POST /chats/:id/release — hand the conversation back to the AI assistant.
+router.post("/chats/:id/release", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  await db.update(chatConversations).set({ adminJoined: false, updatedAt: new Date() }).where(eq(chatConversations.id, id));
+  res.json({ ok: true });
+});
+
+// ---- Ask past buyers for a review --------------------------------------------
+// Emails every delivered buyer who hasn't been asked yet (and hasn't already
+// reviewed) their personal /review?token link. {dryRun:true} just counts.
+router.post("/orders/request-reviews", requireAuth, async (req, res) => {
+  const dryRun = !!(req.body as { dryRun?: unknown })?.dryRun;
+  const reviewedOrderIds = db.select({ id: testimonials.orderId }).from(testimonials);
+  const eligible = await db.select().from(packOrders)
+    .where(and(
+      inArray(packOrders.status, ["ready", "partial"]),
+      isNotNull(packOrders.email),
+      isNull(packOrders.reviewRequestedAt),
+      sql`${packOrders.id} not in (${reviewedOrderIds})`,
+    ))
+    .orderBy(desc(packOrders.readyAt)).limit(100);
+  if (dryRun) { res.json({ ok: true, eligible: eligible.length }); return; }
+  if (eligible.length === 0) { res.json({ ok: true, sent: 0, failed: 0, eligible: 0 }); return; }
+
+  const s = await getOutreachSettings();
+  const origin = process.env.PUBLIC_ORIGIN || "https://mapleadextractor.net";
+  const sig = s.fromName?.trim();
+  const addr = s.businessAddress?.trim();
+  let sent = 0, failed = 0;
+  for (const o of eligible) {
+    const what = [o.label || "local business", o.city, o.state].filter(Boolean).join(", ");
+    const link = `${origin}/review?token=${o.token}`;
+    const subject = `How's your ${o.label || "lead"} pack working out?`;
+    const lines = [
+      "Hi,",
+      "",
+      `Thanks again for ordering your ${o.delivered || o.requested}-lead pack (${what}).`,
+      "",
+      "If the list helped you land work, would you leave a quick review? It takes about 30 seconds and genuinely helps a small business:",
+      "",
+      `  → ${link}`,
+      "",
+      "And if anything was off with your pack, just reply to this email and we'll make it right.",
+    ];
+    if (sig) lines.push("", `— ${sig}`);
+    if (addr) lines.push("", addr);
+    const text = lines.join("\n");
+    const esc = (x: string) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#111">${esc(text).replace(new RegExp(esc(link), "g"), `<a href="${link}" style="color:#0a7d33;font-weight:600">${link}</a>`).replace(/\n/g, "<br>")}</div>`;
+    try {
+      if (gmailSendReady()) await sendGmailMail({ fromName: s.fromName, to: o.email!, subject, text, html });
+      else if (resendConfigured()) {
+        const from = s.fromEmail ? `${s.fromName || "MapLeadExtractor"} <${s.fromEmail}>` : "MapLeadExtractor <onboarding@resend.dev>";
+        const r = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ from, to: o.email, subject, text, html }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!r.ok) throw new Error(`Resend ${r.status}`);
+      } else if (replitMailConfigured()) await sendReplitMail({ to: o.email!, subject, text, html });
+      else { res.status(400).json({ error: "No email provider configured." }); return; }
+      await db.update(packOrders).set({ reviewRequestedAt: new Date(), updatedAt: new Date() }).where(eq(packOrders.id, o.id));
+      sent++;
+    } catch (err) {
+      req.log.error({ err, orderId: o.id }, "review request send failed");
+      failed++;
+    }
+  }
+  res.json({ ok: true, sent, failed, eligible: eligible.length });
+});
+
+// ---- Buyer testimonials: moderation queue ------------------------------------
+// Real reviews submitted by delivered buyers (/review?token=...). Only
+// `approved` ones ever render on the public site.
+
+router.get("/testimonials", requireAuth, async (_req, res) => {
+  const rows = await db.select().from(testimonials).orderBy(desc(testimonials.createdAt)).limit(200);
+  res.json({ testimonials: rows });
+});
+
+router.patch("/testimonials/:id", requireAuth, async (req, res) => {
+  const status = (req.body as { status?: string })?.status;
+  if (status !== "approved" && status !== "hidden" && status !== "pending") {
+    res.status(400).json({ error: "status must be approved, hidden, or pending" });
+    return;
+  }
+  const rows = await db.update(testimonials).set({ status }).where(eq(testimonials.id, Number(req.params.id))).returning();
+  if (!rows[0]) { res.status(404).json({ error: "Not found" }); return; }
+  res.json({ ok: true, testimonial: rows[0] });
+});
+
+router.delete("/testimonials/:id", requireAuth, async (req, res) => {
+  await db.delete(testimonials).where(eq(testimonials.id, Number(req.params.id)));
+  res.json({ ok: true });
+});
+
+// ---- Pack orders: the owner's review-and-send queue -------------------------
+// Every paid lead-pack order parks at needs_review; nothing reaches the buyer
+// until the owner hits Send here.
+
+router.get("/pack-orders", requireAuth, async (_req, res) => {
+  const rows = await db.select().from(packOrders).orderBy(desc(packOrders.id)).limit(200);
+  res.json({ orders: rows });
+});
+
+function packCsvCell(v: unknown): string {
+  if (v == null) return "";
+  const s = Array.isArray(v) ? v.join("; ") : String(v);
+  return (s.includes(",") || s.includes('"') || s.includes("\n")) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+// The exact rows the buyer would receive. Snapshotted orders use their frozen
+// lead IDs; still-building orders preview the current best matches.
+router.get("/pack-orders/:id/preview.csv", requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  const [order] = Number.isFinite(id) ? await db.select().from(packOrders).where(eq(packOrders.id, id)) : [];
+  if (!order) { res.status(404).json({ error: "Order not found." }); return; }
+
+  const ids = (order.leadIds ?? []) as number[];
+  const rows = ids.length
+    ? await db.select().from(leads).where(inArray(leads.id, ids)).orderBy(sql`value_score DESC, opportunity_score DESC`)
+    : await db.select().from(leads).where(packWhere(order)).orderBy(sql`value_score DESC, opportunity_score DESC`).limit(order.requested);
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="order-${order.id}-preview.csv"`);
+  const headers = ["Name", "Phone", "Emails", "Website", "Facebook", "Instagram", "Twitter", "LinkedIn", "Address", "Category", "Rating", "Reviews", "Opportunity", "Value", "Needs", "Social Intel", "Google Maps URL"];
+  let csv = headers.join(",") + "\n";
+  for (const r of rows) {
+    csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, socialScanSummary(r.socialScan), r.gmapsUrl].map(packCsvCell).join(",") + "\n";
+  }
+  res.send(csv);
+});
+
+// The Send button: emails the buyer their download link (refunding any
+// shortfall first) and marks the order delivered.
+router.post("/pack-orders/:id/send", requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad order id." }); return; }
+  try {
+    const order = await sendOrder(id);
+    res.json({ ok: true, order });
+  } catch (err) {
+    res.status(409).json({ error: err instanceof Error ? err.message : "Send failed." });
+  }
+});
+
+// ── Captured leads (free-sample email capture) ────────────────────────────────
+// The people who unlocked free sample leads with an email. `sample_requests`
+// WHERE email IS NOT NULL is the list; the whole table is the sample funnel.
+
+/** GET /api/admin/captured-leads — the captured email list + funnel stats. */
+router.get("/captured-leads", requireAuth, async (_req, res) => {
+  if (!anyProviderConfigured()) await refreshGmailConnector().catch(() => false);
+  const rows = await db.select().from(sampleRequests)
+    .where(isNotNull(sampleRequests.email))
+    .orderBy(desc(sampleRequests.id))
+    .limit(500);
+
+  const [[views], [captures]] = await Promise.all([
+    db.select({ n: count() }).from(sampleRequests),
+    db.select({ n: count() }).from(sampleRequests).where(isNotNull(sampleRequests.email)),
+  ]);
+  const followedUp = rows.filter(r => r.followedUpAt).length;
+  const unsubscribed = rows.filter(r => r.unsubscribedAt).length;
+
+  // Which captured emails have actually bought a pack (matched on Stripe email).
+  const emails = Array.from(new Set(rows.map(r => (r.email ?? "").toLowerCase()).filter(Boolean)));
+  const buyers = emails.length
+    ? await db.select({ email: packOrders.email }).from(packOrders)
+        .where(and(isNotNull(packOrders.paidAt), inArray(sql`lower(${packOrders.email})`, emails)))
+    : [];
+  const bought = new Set(buyers.map(b => (b.email ?? "").toLowerCase()));
+
+  const s = await getOutreachSettings();
+  res.json({
+    leads: rows.map(r => ({
+      id: r.id,
+      email: r.email,
+      label: r.label,
+      location: [r.city, r.state].filter(Boolean).join(", "),
+      rawRequest: r.rawRequest,
+      sampleCount: (r.leadIds ?? []).length,
+      createdAt: r.createdAt,
+      unlockedAt: r.unlockedAt,
+      followedUpAt: r.followedUpAt,
+      unsubscribedAt: r.unsubscribedAt,
+      purchased: bought.has((r.email ?? "").toLowerCase()),
+    })),
+    stats: {
+      totalViews: views?.n ?? 0,
+      captures: captures?.n ?? 0,
+      followedUp,
+      unsubscribed,
+      purchased: bought.size,
+    },
+    followupReady: anyProviderConfigured() && providerReady(s),
+  });
+});
+
+/** GET /api/admin/captured-leads/export.csv — download the captured emails. */
+router.get("/captured-leads/export.csv", requireAuth, async (_req, res) => {
+  const rows = await db.select().from(sampleRequests)
+    .where(isNotNull(sampleRequests.email))
+    .orderBy(desc(sampleRequests.id));
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="captured-leads.csv"`);
+  const headers = ["Email", "Requested", "City", "State", "Sample Size", "Captured At", "Unlocked At", "Followed Up At", "Unsubscribed At"];
+  let csv = headers.join(",") + "\n";
+  for (const r of rows) {
+    csv += [r.email, r.label, r.city, r.state, (r.leadIds ?? []).length, r.createdAt?.toISOString(), r.unlockedAt?.toISOString(), r.followedUpAt?.toISOString(), r.unsubscribedAt?.toISOString()].map(packCsvCell).join(",") + "\n";
+  }
+  res.send(csv);
+});
+
+/** POST /api/admin/captured-leads/:id/follow-up — send the buyer nudge now. */
+router.post("/captured-leads/:id/follow-up", requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id." }); return; }
+  const r = await sendBuyerFollowup(id);
+  if (r.ok) { res.json({ ok: true }); return; }
+  const status = r.reason === "no_provider" ? 409 : r.reason === "not_found" ? 404 : 400;
+  const msg = r.reason === "no_provider"
+    ? "No email provider configured — set up Gmail or Resend in the Automate settings first."
+    : r.reason === "already_sent" ? "Already followed up."
+    : r.reason === "unsubscribed" ? "This person unsubscribed."
+    : r.reason === "no_email" ? "No email on this capture."
+    : `Send failed: ${r.reason}`;
+  res.status(status).json({ error: msg });
+});
+
+/** POST /api/admin/captured-leads/digest-now — email the owner the digest of
+ *  captures since the last one (same email the twice-daily scheduler sends). */
+router.post("/captured-leads/digest-now", requireAuth, async (_req, res) => {
+  const r = await sendCapturedDigest();
+  if (r.sent) { res.json({ ok: true, count: r.count }); return; }
+  res.status(r.count ? 500 : 200).json({
+    ok: false, count: r.count,
+    message: r.count ? "Send failed — check the email provider setup." : "No new captured leads since the last digest.",
+  });
+});
+
+// ── Customer email blasts (Email customers about buying leads) ───────────────
+// Recipients are CUSTOMERS — captured sample emails + paid pack buyers — not
+// the scraped `leads` the outreach engine pitches.
+
+/** GET /api/admin/customers — merged customer list + audience counts. */
+router.get("/customers", requireAuth, async (_req, res) => {
+  // If nothing looks configured, re-check the Google Mail connector live so
+  // the owner's Connect click shows up on the next refresh, not in 5 minutes.
+  if (!anyProviderConfigured()) await refreshGmailConnector().catch(() => false);
+  const customers = await listCustomers();
+  const s = await getOutreachSettings();
+  const sendable = customers.filter(c => !c.optedOut);
+  // Which provider a send would actually go through (mirrors the fallback
+  // chain in customer-blast sendOne), so the UI can say so.
+  const sendVia = s.provider === "gmail" && gmailSendReady() ? "gmail"
+    : resendConfigured() ? "resend"
+    : gmailSendReady() ? "gmail"
+    : replitMailConfigured() ? "replit" : null;
+  res.json({
+    customers,
+    counts: {
+      all: sendable.length,
+      prospects: sendable.filter(c => inAudience(c, "prospects")).length,
+      buyers: sendable.filter(c => inAudience(c, "buyers")).length,
+      optedOut: customers.length - sendable.length,
+    },
+    ready: anyProviderConfigured() && providerReady(s),
+    sendVia,
+    gmailAddress: gmailSendAddress(),
+  });
+});
+
+const parseAudience = (v: unknown): Audience | null =>
+  v === "all" || v === "prospects" || v === "buyers" ? v : null;
+
+/** POST /api/admin/customers/blast — start sending {subject, body} to an audience. */
+router.post("/customers/blast", requireAuth, async (req, res) => {
+  const subject = String(req.body?.subject ?? "").trim();
+  const body = String(req.body?.body ?? "").trim();
+  const audience = parseAudience(req.body?.audience);
+  const skipRecentDays = Number(req.body?.skipRecentDays);
+  if (!subject || !body) { res.status(400).json({ error: "Subject and message are both required." }); return; }
+  if (!audience) { res.status(400).json({ error: "Pick an audience." }); return; }
+  const r = await startBlast({
+    subject, body, audience,
+    skipRecentDays: Number.isFinite(skipRecentDays) ? skipRecentDays : undefined,
+  });
+  if (!r.ok) { res.status(409).json({ error: r.error }); return; }
+  res.json({ ok: true, total: r.total });
+});
+
+/** GET /api/admin/customers/blast-status — progress of the running/last blast. */
+router.get("/customers/blast-status", requireAuth, (_req, res) => {
+  res.json(blastStatus());
+});
+
+/** POST /api/admin/customers/blast-test — send the draft to one address (yours). */
+router.post("/customers/blast-test", requireAuth, async (req, res) => {
+  const to = String(req.body?.to ?? "").trim();
+  const subject = String(req.body?.subject ?? "").trim();
+  const body = String(req.body?.body ?? "").trim();
+  if (!/.+@.+\..+/.test(to)) { res.status(400).json({ error: "Enter a valid test address." }); return; }
+  if (!subject || !body) { res.status(400).json({ error: "Subject and message are both required." }); return; }
+  try {
+    await sendTestEmail(to, subject, body);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(409).json({ error: err instanceof Error ? err.message : "Test send failed." });
+  }
 });
 
 export default router;

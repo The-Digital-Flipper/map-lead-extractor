@@ -306,24 +306,53 @@ async function recordProxy(id: number, ok: boolean): Promise<void> {
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
-async function runPass(queries: Query[]): Promise<void> {
-  const proxy = await pickProxy();
-  log(`Starting pass — ${queries.length} queries → ${SITE_URL}${proxy ? ` · via proxy #${proxy.id}` : " · direct"}`);
-  const browser = await chromium.launch({
+async function launchBrowser(proxy: Awaited<ReturnType<typeof pickProxy>>): Promise<Browser> {
+  return chromium.launch({
     headless: HEADLESS,
     executablePath: CHROMIUM_PATH,
     proxy: proxy?.config,
     args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"],
   });
-  const context = await makeContext(browser);
+}
+
+async function runPass(queries: Query[]): Promise<void> {
+  let proxy = await pickProxy();
+  log(`Starting pass — ${queries.length} queries → ${SITE_URL}${proxy ? ` · via proxy #${proxy.id}` : " · direct"}`);
+  let browser = await launchBrowser(proxy);
+  let context = await makeContext(browser);
 
   let totalSaved = 0;
   let totalDup = 0;
+  let proxyZeroStreak = 0;
   try {
-    for (const q of queries) {
+    for (let i = 0; i < queries.length; i++) {
+      const q = queries[i];
       log(`▶ "${q.term}"`);
       const payloads = await scrapeQuery(context, q.term);
       const places = await parsePayloads(payloads);
+
+      // A proxy that can't reach Maps (throttled gateway, dead exit, page-load
+      // timeouts) shows up as consecutive empty queries. Don't burn the whole
+      // pass on it — mark it failed and finish the pass on a direct connection,
+      // retrying the query that just came up empty.
+      if (proxy && places.length === 0) {
+        proxyZeroStreak++;
+        if (proxyZeroStreak >= 2) {
+          log(`  ! proxy #${proxy.id} produced nothing ${proxyZeroStreak} queries in a row — falling back to direct connection`);
+          await recordProxy(proxy.id, false);
+          proxy = null;
+          await context.close().catch(() => {});
+          await browser.close().catch(() => {});
+          browser = await launchBrowser(null);
+          context = await makeContext(browser);
+          proxyZeroStreak = 0;
+          i--; // retry this query directly
+          continue;
+        }
+      } else {
+        proxyZeroStreak = 0;
+      }
+
       const { saved, duplicates } = await saveLeads(places, q.category);
       totalSaved += saved;
       totalDup += duplicates;

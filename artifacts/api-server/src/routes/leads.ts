@@ -1,11 +1,14 @@
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { createHash } from "node:crypto";
-import { db, leads, leadNotes, computeScore, computeOpportunity, computeDemand, computeValue } from "@workspace/db";
-import { sql, ilike, or, gte, and, count, eq, inArray, isNull, type SQL } from "drizzle-orm";
+import { db, leads, leadNotes, packOrders, computeScore, computeOpportunity, computeDemand, computeValue } from "@workspace/db";
+import { sql, ilike, or, gte, and, count, eq, ne, inArray, isNull, type SQL } from "drizzle-orm";
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
 import { discoverBusinesses } from "../lib/discover";
+import { socialScanSummary, scanAndSaveLead } from "../lib/socialScan";
+import { generateOutreach } from "../lib/outreach";
+import { getOutreachSettings, enrollLeads } from "../lib/outreach-auto";
 
 const router = Router();
 
@@ -318,6 +321,14 @@ router.get("/", async (req, res) => {
     return;
   }
   if (status) conditions.push(eq(leads.status, status));
+  // exclude=contacted hides leads already in the follow-up queue from the main
+  // working list (status may be NULL on old rows, which also means "new").
+  const exclude = String(req.query.exclude ?? "").trim();
+  if (exclude && !VALID_STATUSES.includes(exclude as LeadStatus)) {
+    res.status(400).json({ error: `exclude must be one of: ${VALID_STATUSES.join(", ")}` });
+    return;
+  }
+  if (exclude) conditions.push(or(isNull(leads.status), ne(leads.status, exclude))!);
 
   const where = and(...conditions)!;
 
@@ -331,7 +342,7 @@ router.get("/", async (req, res) => {
 
 // ---- GET /stats — charts data -----------------------------------------------
 router.get("/stats", async (_req, res) => {
-  const [scoreRows, categoryRows, statusRows, lastRow, opportunityRows, needsRows] = await Promise.all([
+  const [scoreRows, categoryRows, statusRows, lastRow, opportunityRows, needsRows, followUpRows] = await Promise.all([
     db.execute(sql`
       SELECT
         CASE
@@ -374,6 +385,21 @@ router.get("/stats", async (_req, res) => {
       GROUP BY need
       ORDER BY cnt DESC
     `),
+    // Contacted leads whose NEXT follow-up touch is due. outreach_step counts
+    // touches sent (1 = first email), so the next touch is followUps[step-1];
+    // leads with no AI sequence default to a 3-day wait after the first email.
+    db.execute(sql`
+      SELECT COUNT(*) AS cnt
+      FROM leads
+      WHERE deleted_at IS NULL
+        AND status = 'contacted'
+        AND contacted_at IS NOT NULL
+        AND NOW() >= contacted_at + make_interval(days =>
+          COALESCE(
+            (outreach->'followUps'->(GREATEST(COALESCE(outreach_step, 1), 1) - 1)->>'day')::int,
+            CASE WHEN GREATEST(COALESCE(outreach_step, 1), 1) = 1 THEN 3 ELSE NULL END
+          ))
+    `),
   ]);
 
   // Order opportunity buckets Hot → Warm → Cold for stable chart coloring.
@@ -386,6 +412,7 @@ router.get("/stats", async (_req, res) => {
     needsCounts: (needsRows.rows as { need: string; cnt: string }[]).map(r => ({ need: r.need, count: Number(r.cnt) })),
     topCategories: (categoryRows.rows as { category: string; cnt: string }[]).map(r => ({ category: r.category, count: Number(r.cnt) })),
     statusCounts: (statusRows.rows as { status: string; cnt: string }[]).map(r => ({ status: r.status, count: Number(r.cnt) })),
+    followUpReady: Number((followUpRows.rows[0] as { cnt: string })?.cnt ?? 0),
     lastSyncedAt: (lastRow.rows[0] as { last_synced: string | null })?.last_synced ?? null,
   });
 });
@@ -484,8 +511,135 @@ router.patch("/:id/status", async (req, res) => {
     return;
   }
 
-  await db.update(leads).set({ status, updatedAt: new Date() }).where(eq(leads.id, id));
-  res.json({ ok: true, id, status });
+  const now = new Date();
+  if (status === "contacted") {
+    // First email went out: stamp contactedAt (once) and enter the follow-up
+    // queue at step 1. Re-marking an already-contacted lead keeps its clock.
+    await db.update(leads).set({
+      status,
+      contactedAt: sql`COALESCE(${leads.contactedAt}, ${now})`,
+      outreachStep: sql`GREATEST(COALESCE(${leads.outreachStep}, 0), 1)`,
+      updatedAt: now,
+    }).where(eq(leads.id, id));
+  } else if (status === "new") {
+    // Moving back to "new" resets the follow-up clock.
+    await db.update(leads).set({ status, contactedAt: null, outreachStep: 0, updatedAt: now }).where(eq(leads.id, id));
+  } else {
+    await db.update(leads).set({ status, updatedAt: now }).where(eq(leads.id, id));
+  }
+  // If auto-enroll-on-contact is on, hand the freshly-contacted lead to the
+  // engine so its follow-ups then send themselves (scheduled at the right day
+  // offset — this never re-sends the first email).
+  if (status === "contacted") {
+    try {
+      const s = await getOutreachSettings();
+      if (s.autoEnrollOnContact && s.enabled) await enrollLeads([id]);
+    } catch { /* enrollment is best-effort; the manual queue still works */ }
+  }
+  const [row] = await db.select({ contactedAt: leads.contactedAt, outreachStep: leads.outreachStep, autoOutreach: leads.autoOutreach, nextEmailAt: leads.nextEmailAt }).from(leads).where(eq(leads.id, id));
+  res.json({ ok: true, id, status, contactedAt: row?.contactedAt ?? null, outreachStep: row?.outreachStep ?? 0, autoOutreach: row?.autoOutreach ?? false, nextEmailAt: row?.nextEmailAt ?? null });
+});
+
+// ---- POST /:id/advance-step — mark the next follow-up touch as sent ----------
+// outreachStep counts touches sent: 1 = first email, 2 = follow-up 1, etc.
+router.post("/:id/advance-step", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [lead] = await db.select().from(leads).where(and(eq(leads.id, id), isNull(leads.deletedAt)));
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
+
+  const now = new Date();
+  const nextStep = Math.max(1, (lead.outreachStep ?? 0)) + 1;
+  await db.update(leads).set({
+    status: "contacted",
+    contactedAt: lead.contactedAt ?? now,
+    outreachStep: nextStep,
+    updatedAt: now,
+  }).where(eq(leads.id, id));
+  res.json({ ok: true, id, outreachStep: nextStep });
+});
+
+// ---- POST /outreach/bulk — generate AI outreach for many leads --------------
+// Registered BEFORE /:id/outreach so "outreach" isn't captured as :id.
+router.post("/outreach/bulk", async (req, res) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Sign in to generate outreach" }); return; }
+
+  const { ids, force } = req.body as { ids?: unknown; force?: boolean };
+  const validIds = Array.isArray(ids) ? ids.map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, 25) : [];
+  if (validIds.length === 0) { res.status(400).json({ error: "ids must be a non-empty array (max 25)" }); return; }
+
+  const settings = await getOutreachSettings();
+  const sender = { name: settings.fromName, offer: settings.offer };
+
+  const rows = await db.select().from(leads).where(and(inArray(leads.id, validIds), isNull(leads.deletedAt)));
+  const results: { id: number; ok: boolean; error?: string }[] = [];
+  // Sequential to stay within AI rate limits and keep memory flat.
+  for (const lead of rows) {
+    if (lead.outreach && !force) { results.push({ id: lead.id, ok: true }); continue; }
+    try {
+      const outreach = await generateOutreach(lead, sender);
+      await db.update(leads).set({ outreach, outreachAt: new Date(), updatedAt: new Date() }).where(eq(leads.id, lead.id));
+      results.push({ id: lead.id, ok: true });
+    } catch (err) {
+      results.push({ id: lead.id, ok: false, error: err instanceof Error ? err.message : "failed" });
+    }
+  }
+  res.json({ ok: true, generated: results.filter((r) => r.ok).length, results });
+});
+
+// ---- POST /:id/outreach — generate (or return cached) AI outreach for a lead -
+router.post("/:id/outreach", async (req, res) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Sign in to generate outreach" }); return; }
+
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const force = !!(req.body as { force?: boolean })?.force;
+
+  const [lead] = await db.select().from(leads).where(and(eq(leads.id, id), isNull(leads.deletedAt)));
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
+
+  if (lead.outreach && !force) {
+    res.json({ ok: true, id, outreach: lead.outreach, outreachAt: lead.outreachAt, cached: true });
+    return;
+  }
+  const settings = await getOutreachSettings();
+  try {
+    const outreach = await generateOutreach(lead, { name: settings.fromName, offer: settings.offer });
+    const at = new Date();
+    await db.update(leads).set({ outreach, outreachAt: at, updatedAt: at }).where(eq(leads.id, id));
+    res.json({ ok: true, id, outreach, outreachAt: at, cached: false });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Outreach generation failed" });
+  }
+});
+
+// ---- POST /:id/social-scan — run (or return cached) deep social profile -----
+// Same caching pattern as /:id/outreach: the scan bills an AI web search, so a
+// stored report is returned as-is unless the member explicitly forces a rerun.
+router.post("/:id/social-scan", async (req, res) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Sign in to run a social profile scan" }); return; }
+
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const force = !!(req.body as { force?: boolean })?.force;
+
+  const [lead] = await db.select().from(leads).where(and(eq(leads.id, id), isNull(leads.deletedAt)));
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
+
+  if (lead.socialScan && !force) {
+    res.json({ ok: true, id, scan: lead.socialScan, scannedAt: lead.socialScanAt, cached: true });
+    return;
+  }
+  try {
+    const scan = await scanAndSaveLead(lead);
+    res.json({ ok: true, id, scan, scannedAt: new Date(), cached: false });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Social profile scan failed" });
+  }
 });
 
 // ---- DELETE /bulk — soft-delete multiple leads ------------------------------
@@ -603,23 +757,82 @@ router.get("/pack-download", async (req, res) => {
 
   const category = meta.pack_category ?? "";
   const state = (meta.pack_state ?? "").toUpperCase();
+  const city = meta.pack_city ?? "";
   const minOpp = parseInt(meta.pack_min_opp ?? "0", 10) || 0;
+  // Fixed-size packs (e.g. the $29 / 100-lead pack) set pack_limit; admin-sold
+  // packs without it deliver everything matching the filters.
+  const packLimit = parseInt(meta.pack_limit ?? "0", 10) || 0;
 
   const conditions: SQL[] = [isNull(leads.deletedAt)];
   if (category) conditions.push(ilike(leads.category, `%${category}%`));
+  if (city) conditions.push(ilike(leads.address, `%${city}%`));
   if (/^[A-Z]{2}$/.test(state)) conditions.push(sql`address ~ ${"\\y" + state + "\\s+\\d{5}"}`);
   if (minOpp > 0) conditions.push(gte(leads.opportunityScore, minOpp));
-  const rows = await db.select().from(leads).where(and(...conditions)!).orderBy(sql`value_score DESC, opportunity_score DESC`);
+  const baseQuery = db.select().from(leads).where(and(...conditions)!).orderBy(sql`value_score DESC, opportunity_score DESC`);
+  const rows = packLimit > 0 ? await baseQuery.limit(packLimit) : await baseQuery;
 
   const dateStr = new Date().toISOString().slice(0, 10);
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", `attachment; filename="lead-pack-${dateStr}.csv"`);
-  const headers = ["Name", "Phone", "Emails", "Website", "Facebook", "Instagram", "Twitter", "LinkedIn", "Address", "Category", "Rating", "Reviews", "Opportunity", "Value", "Needs", "Google Maps URL"];
+  const headers = ["Name", "Phone", "Emails", "Website", "Facebook", "Instagram", "Twitter", "LinkedIn", "Address", "Category", "Rating", "Reviews", "Opportunity", "Value", "Needs", "Social Intel", "Google Maps URL"];
   let csv = headers.join(",") + "\n";
   for (const r of rows) {
-    csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, r.gmapsUrl].map(csvCellSafe).join(",") + "\n";
+    csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, socialScanSummary(r.socialScan), r.gmapsUrl].map(csvCellSafe).join(",") + "\n";
   }
   req.log.info({ rows: rows.length, category, state }, "paid pack downloaded");
+  res.send(csv);
+});
+
+// ---- Build-to-order packs: token-gated status page + CSV download -----------
+
+// GET /pack-order-received — the page Stripe redirects a BUILD buyer to after
+// payment. Their leads aren't ready yet (the worker gathers them async), so
+// this just confirms the order and tells them to watch their email.
+router.get("/pack-order-received", async (req, res) => {
+  const token = String(req.query.token ?? "");
+  const [order] = token ? await db.select().from(packOrders).where(eq(packOrders.token, token)) : [];
+  res.setHeader("Content-Type", "text/html");
+  if (!order) { res.status(404).send("<p>Order not found.</p>"); return; }
+  const ready = order.status === "ready" || order.status === "partial";
+  const dl = `/api/leads/pack-order-download?token=${encodeURIComponent(token)}`;
+  res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Order received</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{background:#0b0f14;color:#e6edf3;font-family:system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
+.card{background:#111722;border:1px solid #21262d;border-radius:16px;padding:40px;text-align:center;max-width:440px}
+.btn{display:inline-block;margin-top:20px;background:#00e676;color:#0b0f14;font-weight:700;padding:14px 28px;border-radius:10px;text-decoration:none}
+h1{font-size:22px}p{color:#8b949e;line-height:1.6}</style></head>
+<body><div class="card"><div style="font-size:42px">${ready ? "✅" : "⏳"}</div>
+<h1>${ready ? "Your leads are ready" : "Order received — we're on it"}</h1>
+${ready
+  ? `<p>Your lead pack is ready to download.</p><a class="btn" href="${dl}">⬇ Download leads CSV</a>`
+  : `<p>Thanks! We're putting together <strong>${order.requested} ${order.label || "local business"} leads</strong>${order.city || order.state ? ` in ${[order.city, order.state].filter(Boolean).join(", ")}` : ""} for you now — every pack gets a human quality check before it ships. We'll email your CSV download link${order.email ? ` to <strong>${order.email}</strong>` : ""} usually within a few hours (24 hours max). If we come up short, we'll automatically refund the difference.</p>`}
+<p style="font-size:12px;margin-top:18px">Order ref: ${order.token.slice(0, 8)}</p></div></body></html>`);
+});
+
+// GET /pack-order-download — streams a build order's snapshotted CSV, gated by
+// its unguessable token (the link we email the buyer). Works once fulfilled.
+router.get("/pack-order-download", async (req, res) => {
+  const token = String(req.query.token ?? "");
+  const [order] = token ? await db.select().from(packOrders).where(eq(packOrders.token, token)) : [];
+  if (!order) { res.status(404).send("Order not found."); return; }
+  if (order.status !== "ready" && order.status !== "partial") {
+    res.status(425).send("Your leads aren't ready yet — we'll email you the moment they are.");
+    return;
+  }
+  const ids = (order.leadIds ?? []) as number[];
+  const rows = ids.length
+    ? await db.select().from(leads).where(inArray(leads.id, ids)).orderBy(sql`value_score DESC, opportunity_score DESC`)
+    : [];
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="lead-pack-${order.token.slice(0, 8)}-${dateStr}.csv"`);
+  const headers = ["Name", "Phone", "Emails", "Website", "Facebook", "Instagram", "Twitter", "LinkedIn", "Address", "Category", "Rating", "Reviews", "Opportunity", "Value", "Needs", "Social Intel", "Google Maps URL"];
+  let csv = headers.join(",") + "\n";
+  for (const r of rows) {
+    csv += [r.name, r.phone, r.emails, r.website, r.facebook, r.instagram, r.twitter, r.linkedin, r.address, r.category, r.rating, r.reviewCount, r.opportunityScore, r.valueScore, r.needs, socialScanSummary(r.socialScan), r.gmapsUrl].map(csvCellSafe).join(",") + "\n";
+  }
+  req.log.info({ orderId: order.id, rows: rows.length, status: order.status }, "build pack downloaded");
   res.send(csv);
 });
 

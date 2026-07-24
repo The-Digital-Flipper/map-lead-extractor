@@ -24,22 +24,23 @@ import { fileURLToPath } from "node:url";
 // ─────────────────────────────────────────────────────────────────────────────
 const PRODUCT = {
   name: "Map Lead Extractor",
-  url: "https://mapleadextractor.net",
+  url: "https://mapleadextractor.net/get-leads",
   oneLiner:
-    "A tool that extracts business leads (name, phone, address, website, rating) from Google Maps so you can build targeted local-business lead lists in minutes instead of copying them by hand.",
+    "Done-for-you local-business lead lists: tell us the business type + area (e.g. \"roofers in Mobile, AL\") and we deliver a clean, human-reviewed CSV — name, phone, email, website, and rating — usually within hours. 100 targeted leads for $29.",
   audience:
     "sales reps, marketing/lead-gen agencies, SaaS founders doing outbound, and small-business owners who sell to other local businesses",
   keyBenefits: [
-    "Pull hundreds of local-business leads from Google Maps in a few minutes",
-    "Export name, phone, website, address, category, and rating to CSV/spreadsheet",
-    "Skip hours of manual copy-pasting from Maps",
-    "Build hyper-targeted lists by city + business type for cold outreach",
+    "Buy 100 targeted, ready-to-use local-business leads for $29 — CSV emailed to you, usually within hours (bulk tiers: 500 / 1,000 / 5,000 at a lower price per lead)",
+    "Every lead is human-reviewed before it ships — dead/closed businesses removed, phone numbers spot-checked, emails format-validated, location confirmed",
+    "Pick any business type + state (or just describe what you want) and get a hyper-targeted list — no scraping, no cleanup, no software to learn",
+    "Automatic refund if a pack ever comes up short — you only pay for leads you actually get",
+    "Skip hours of manual copy-pasting from Google Maps — the list arrives done and ready for cold outreach",
   ],
   // Keywords to weave in naturally where it fits (helps discoverability / SEO).
   keywords: [
-    "Google Maps lead extractor",
-    "scrape Google Maps leads",
-    "local business leads",
+    "buy local business leads",
+    "done-for-you lead lists",
+    "targeted business leads",
     "lead generation",
   ],
 } as const;
@@ -152,12 +153,12 @@ const client = new Anthropic(); // reads ANTHROPIC_API_KEY from the environment
 
 function buildPrompt(platform: Platform): string {
   return [
-    `You are a growth marketer writing free, organic social-media posts to promote a product.`,
+    `You are a growth marketer writing free, organic social-media posts for a business that SELLS done-for-you local-business lead lists.`,
     ``,
-    `PRODUCT: ${PRODUCT.name} (${PRODUCT.url})`,
-    `WHAT IT DOES: ${PRODUCT.oneLiner}`,
+    `WHAT WE SELL: ${PRODUCT.oneLiner}`,
+    `BUY IT AT: ${PRODUCT.url}`,
     `AUDIENCE: ${PRODUCT.audience}`,
-    `KEY BENEFITS:`,
+    `KEY SELLING POINTS:`,
     ...PRODUCT.keyBenefits.map((b) => `  - ${b}`),
     `KEYWORDS to weave in naturally where they fit: ${PRODUCT.keywords.join(", ")}`,
     ``,
@@ -167,6 +168,8 @@ function buildPrompt(platform: Platform): string {
     `Write ${POSTS_PER_PLATFORM} distinct posts for this platform. Make them genuinely`,
     `useful and varied — do not just reword the same post. Sound like a real human, not`,
     `an ad. The goal is organic reach without getting flagged as spam.`,
+    `IMPORTANT: we sell the finished leads — never pitch a free tool, scraper, extension,`,
+    `or "do it yourself"; the offer is always buying a ready-made lead list.`,
   ].join("\n");
 }
 

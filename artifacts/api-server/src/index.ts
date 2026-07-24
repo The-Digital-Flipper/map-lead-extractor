@@ -1,6 +1,14 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startSocialScheduler } from "./lib/social";
+import { startOutreachScheduler } from "./lib/outreach-auto";
+import { startReplyWatcher } from "./lib/outreach-reply";
+import { startPackScheduler } from "./lib/packWorker";
+import { startBlogScheduler } from "./lib/blog";
+import { startBuyerFollowupScheduler } from "./lib/buyer-followup";
+import { startAutoScrapeScheduler } from "./lib/autoScrape";
+import { startGmailConnectorWatcher } from "./lib/gmailConnector";
+import { startCapturedDigestScheduler } from "./lib/captured-digest";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -14,4 +22,12 @@ app.listen(port, (err) => {
   }
   logger.info({ port }, "Server listening");
   startSocialScheduler();
+  startOutreachScheduler();
+  startReplyWatcher();
+  startPackScheduler();
+  startBlogScheduler();
+  startBuyerFollowupScheduler();
+  startAutoScrapeScheduler();
+  startGmailConnectorWatcher();
+  startCapturedDigestScheduler();
 });

@@ -8,6 +8,7 @@ Disallow: /admin-login
 Disallow: /sign-in
 Disallow: /sign-up
 Disallow: /connect-extension
+Disallow: /review
 Disallow: /api/
 
 Sitemap: https://mapleadextractor.net/sitemap.xml

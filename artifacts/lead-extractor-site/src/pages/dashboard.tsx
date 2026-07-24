@@ -6,7 +6,8 @@ import {
   Search, Share2, Crown, ArrowUpRight, CreditCard, Trash2,
   RefreshCw, ChevronLeft, ChevronRight, BarChart2, X,
   CheckSquare, Square, CheckCheck, ShieldCheck, MessageSquare,
-  Settings, Bookmark, Plus, Pin, StickyNote, Tag, Bell, Sparkles,
+  Settings, Bookmark, Plus, Pin, StickyNote, Tag, Bell, Sparkles, Radar,
+  Users, Quote, Lightbulb,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis,
@@ -21,7 +22,7 @@ const FREE_LIMIT = 100;
 
 const STATUS_OPTIONS = [
   { value: "new", label: "New", color: "bg-blue-500/15 text-blue-400 border-blue-500/30" },
-  { value: "contacted", label: "Contacted", color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30" },
+  { value: "contacted", label: "Follow-Up", color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30" },
   { value: "converted", label: "Converted", color: "bg-primary/15 text-primary border-primary/30" },
   { value: "not_interested", label: "Not Interested", color: "bg-red-500/15 text-red-400 border-red-500/30" },
 ] as const;
@@ -50,6 +51,169 @@ interface Lead {
   needs: string[] | null;
   gmapsUrl: string | null;
   status: string | null;
+  contactedAt: string | null;
+  outreachStep: number | null;
+  outreach: Outreach | null;
+  autoOutreach: boolean | null;
+  nextEmailAt: string | null;
+  socialScan: SocialScan | null;
+  socialScanAt: string | null;
+}
+
+// Deep social profile report (leads.socialScan) — mirrors SocialScanReport in
+// the shared DB schema. profile is absent on scans run before the upgrade.
+interface SocialScanPlatform { platform: string; url?: string; followers?: string; lastActive?: string; note?: string }
+interface SocialScanProfile {
+  about?: string; owner?: string; founded?: string; contentThemes?: string[];
+  engagement?: string; reputation?: string; hooks?: string[];
+}
+interface SocialScan {
+  platforms: SocialScanPlatform[];
+  missing: string[];
+  grade: "none" | "weak" | "ok" | "strong";
+  profile?: SocialScanProfile;
+  pitch: string;
+  opener: string;
+  sources?: { title: string; url: string }[];
+}
+
+interface OutreachStep { day: number; channel: "email" | "sms"; subject?: string; body: string }
+interface Outreach {
+  angle: string;
+  email: { subject: string; body: string };
+  sms: string;
+  followUps: OutreachStep[];
+}
+
+// ── Follow-up queue ───────────────────────────────────────────────────────────
+// Once the first email goes out, a lead leaves the main list and sits in the
+// Follow-Up queue until its next step is due. outreachStep counts touches sent
+// (1 = first email), and due days come from the AI sequence's "Day N" offsets,
+// measured from contactedAt. Leads with no AI sequence wait a default 3 days.
+const DEFAULT_FOLLOWUP_DAY = 3;
+interface FollowUpInfo {
+  nextStep: number;           // touch number about to be sent (2 = "step 2")
+  daysSince: number;          // full days since the first email
+  ready: boolean;             // next step is due now
+  daysLeft: number;           // days until the next step is due
+  next: OutreachStep | null;  // the AI-drafted follow-up, if there is one
+  done: boolean;              // sequence exhausted — nothing left to send
+}
+function followUpInfo(lead: Lead): FollowUpInfo | null {
+  if ((lead.status ?? "new") !== "contacted" || !lead.contactedAt) return null;
+  const step = Math.max(1, lead.outreachStep ?? 1);
+  const followUps = lead.outreach?.followUps ?? [];
+  const next = followUps[step - 1] ?? null;
+  const daysSince = Math.floor((Date.now() - new Date(lead.contactedAt).getTime()) / 86_400_000);
+  // No drafted next step: leads without an AI sequence still get one default
+  // 3-day nudge after the first email; past that the sequence is done.
+  if (!next && (followUps.length > 0 || step > 1)) {
+    return { nextStep: step + 1, daysSince, ready: false, daysLeft: 0, next: null, done: true };
+  }
+  const dueDay = next?.day ?? DEFAULT_FOLLOWUP_DAY;
+  return { nextStep: step + 1, daysSince, ready: daysSince >= dueDay, daysLeft: Math.max(0, dueDay - daysSince), next, done: false };
+}
+
+// Short "when's the next auto-send" label, e.g. "in 2h", "Tue 9am", "soon".
+function whenLabel(iso: string | null): string {
+  if (!iso) return "soon";
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 60_000) return "any moment";
+  const mins = Math.round(ms / 60_000);
+  if (mins < 60) return `in ${mins}m`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `in ${hrs}h`;
+  return new Date(iso).toLocaleDateString(undefined, { weekday: "short" }) + " " +
+    new Date(iso).toLocaleTimeString(undefined, { hour: "numeric" });
+}
+
+// Shown on leads the automation engine is actively sending for.
+function AutoBadge({ lead, onPause }: { lead: Lead; onPause?: (id: number) => void }) {
+  if (!lead.autoOutreach) return null;
+  return (
+    <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full border border-primary/40 bg-primary/10 text-primary text-[10px] font-bold whitespace-nowrap"
+      title={lead.nextEmailAt ? `Next email ${new Date(lead.nextEmailAt).toLocaleString()}` : "Sequence complete"}>
+      🤖 Auto{lead.nextEmailAt ? ` · ${whenLabel(lead.nextEmailAt)}` : " · done"}
+      {onPause && (
+        <button onClick={(e) => { e.stopPropagation(); onPause(lead.id); }} title="Stop automation for this lead"
+          className="ml-0.5 hover:text-red-400 transition-colors">✕</button>
+      )}
+    </span>
+  );
+}
+
+function FollowUpBadge({ lead }: { lead: Lead }) {
+  const info = followUpInfo(lead);
+  if (!info) return null;
+  if (info.done) {
+    return <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full border border-border bg-card text-muted-foreground text-[10px] font-bold whitespace-nowrap">Sequence done</span>;
+  }
+  return info.ready ? (
+    <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full border border-primary/40 bg-primary/15 text-primary text-[10px] font-bold whitespace-nowrap animate-pulse">
+      ⚡ Step {info.nextStep} ready
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full border border-border bg-card text-muted-foreground text-[10px] font-bold whitespace-nowrap" title={`First email sent ${info.daysSince}d ago`}>
+      Step {info.nextStep} in {info.daysLeft}d
+    </span>
+  );
+}
+
+// ── Automated outreach engine ────────────────────────────────────────────────
+interface OutreachSettings {
+  enabled: boolean;
+  provider: "gmail" | "resend";
+  fromName: string;
+  fromEmail: string | null;
+  replyTo: string | null;
+  signature: string | null;
+  businessAddress: string | null;
+  offer: string | null;
+  dailyCap: number;
+  windowStartHour: number;
+  windowEndHour: number;
+  tzOffsetMinutes: number;
+  sendOnWeekends: boolean;
+  minGapMinutes: number;
+  maxGapMinutes: number;
+  autoEnrollOnContact: boolean;
+  autoReply: boolean;
+}
+interface OutreachInfo {
+  settings: OutreachSettings;
+  resendConfigured: boolean;
+  gmailConfigured: boolean;
+  gmailAddress: string | null;
+  enrolled: number;
+  pending: number;
+  replied: number;
+  sentToday: number;
+}
+interface AutoActivity {
+  id: number;
+  leadId: number;
+  leadName: string | null;
+  step: number;
+  toEmail: string;
+  subject: string;
+  status: string;
+  error: string | null;
+  createdAt: string;
+}
+// One row of the two-way conversation feed: a lead's reply ("in") or the AI's
+// answer to it ("out").
+interface AutoReply {
+  id: number;
+  leadId: number;
+  leadName: string | null;
+  direction: "in" | "out";
+  fromEmail: string;
+  subject: string | null;
+  body: string;
+  status: string;
+  error: string | null;
+  aiGenerated: boolean;
+  createdAt: string;
 }
 
 interface StatsData {
@@ -58,6 +222,7 @@ interface StatsData {
   needsCounts: { need: string; count: number }[];
   topCategories: { category: string; count: number }[];
   statusCounts: { status: string; count: number }[];
+  followUpReady: number;
   lastSyncedAt: string | null;
 }
 
@@ -373,6 +538,27 @@ export default function Dashboard() {
   const [twilioAvailable, setTwilioAvailable] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  // Automated outreach engine (hands-off sending on a human-like cadence).
+  const [autoAvailable, setAutoAvailable] = useState(false);
+  const [showAuto, setShowAuto] = useState(false);
+  const [autoInfo, setAutoInfo] = useState<OutreachInfo | null>(null);
+  const [autoDraft, setAutoDraft] = useState<OutreachSettings | null>(null);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [autoMsg, setAutoMsg] = useState<string | null>(null);
+  const [autoActivity, setAutoActivity] = useState<AutoActivity[]>([]);
+  const [autoReplies, setAutoReplies] = useState<AutoReply[]>([]);
+  // Social profile scan: per-lead deep dive on the business's public presence.
+  const [scanLead, setScanLead] = useState<Lead | null>(null);
+  const [scan, setScan] = useState<SocialScan | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  // AI outreach engine: per-lead personalized email + SMS + follow-ups.
+  const [outreachLead, setOutreachLead] = useState<Lead | null>(null);
+  const [outreach, setOutreach] = useState<Outreach | null>(null);
+  const [outreachLoading, setOutreachLoading] = useState(false);
+  const [outreachError, setOutreachError] = useState<string | null>(null);
+  const [outreachCopied, setOutreachCopied] = useState<string | null>(null);
   // Money mode: rank by opportunity (weakest businesses first) — the leads
   // worth selling websites / SEO / ads / reputation / automation to.
   const [moneyMode, setMoneyMode] = useState(() => loadPrefs().defaultMoney);
@@ -511,6 +697,10 @@ export default function Dashboard() {
     const params = new URLSearchParams({ page: String(page), limit: "50" });
     if (search) params.set("search", search);
     if (filterStatus) params.set("status", filterStatus);
+    // The main working list hides leads already in the Follow-Up queue — they
+    // live under the "Follow-Up" pill until their next step is due. The board
+    // view still needs every status to fill its pipeline columns.
+    if (!filterStatus && viewMode !== "board") params.set("exclude", "contacted");
     if (moneyMode) params.set("sort", "opportunity");
     try {
       const r = await fetch(`${basePath}/api/leads/?${params}`);
@@ -521,7 +711,7 @@ export default function Dashboard() {
     } catch {}
     setLoading(false);
     setRefreshing(false);
-  }, [page, search, filterStatus, moneyMode]);
+  }, [page, search, filterStatus, moneyMode, viewMode]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
@@ -621,12 +811,225 @@ export default function Dashboard() {
 
   const handleUpgrade = () => { window.location.href = `${basePath}/pricing`; };
 
-  // Status update
+  // Status update. Marking a lead "contacted" (first email sent) starts its
+  // follow-up clock and — in the main list, which hides the queue — moves it
+  // out of view into the Follow-Up pill until its next step is due.
   const handleStatusChange = async (id: number, status: LeadStatus) => {
-    setLeads(prev => prev.map(l => l.id === id ? { ...l, status } : l));
+    const movesToQueue = status === "contacted" && !filterStatus && viewMode !== "board";
+    setLeads(prev => movesToQueue
+      ? prev.filter(l => l.id !== id)
+      : prev.map(l => l.id === id ? {
+          ...l, status,
+          ...(status === "contacted" ? { contactedAt: l.contactedAt ?? new Date().toISOString(), outreachStep: Math.max(1, l.outreachStep ?? 0) } : {}),
+          ...(status === "new" ? { contactedAt: null, outreachStep: 0 } : {}),
+        } : l));
+    if (movesToQueue) setTotal(t => Math.max(0, t - 1));
     try {
       await fetch(`${basePath}/api/leads/${id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+      fetchStats();
     } catch {}
+  };
+
+  // Bulk email sent → move every selected lead that got it (has an email and
+  // is still "new") into the Follow-Up queue in one shot.
+  const bulkMarkContacted = async () => {
+    const ids = leads.filter(l => selected.has(l.id) && l.emails && (l.status ?? "new") === "new").map(l => l.id);
+    if (ids.length === 0) return;
+    const movesToQueue = !filterStatus && viewMode !== "board";
+    const nowIso = new Date().toISOString();
+    setLeads(prev => movesToQueue
+      ? prev.filter(l => !ids.includes(l.id))
+      : prev.map(l => ids.includes(l.id) ? { ...l, status: "contacted", contactedAt: l.contactedAt ?? nowIso, outreachStep: Math.max(1, l.outreachStep ?? 0) } : l));
+    if (movesToQueue) setTotal(t => Math.max(0, t - ids.length));
+    setSelected(new Set());
+    setShowEmailModal(false);
+    try {
+      await Promise.all(ids.map(id =>
+        fetch(`${basePath}/api/leads/${id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "contacted" }) })));
+      fetchStats();
+    } catch {}
+  };
+
+  // ── Automated outreach: config, settings, enroll/pause ──────────────────────
+  useEffect(() => {
+    fetch(`${basePath}/api/outreach/config`)
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { available?: boolean } | null) => { if (d?.available) setAutoAvailable(true); })
+      .catch(() => {});
+  }, []);
+
+  const fetchAutoInfo = useCallback(async () => {
+    try {
+      const r = await authFetch(`${basePath}/api/outreach/settings`);
+      if (!r.ok) return;
+      const d = await r.json() as OutreachInfo;
+      setAutoInfo(d);
+      setAutoDraft(d.settings);
+    } catch {}
+  }, [authFetch]);
+
+  const fetchAutoActivity = useCallback(async () => {
+    try {
+      const r = await authFetch(`${basePath}/api/outreach/activity?limit=25`);
+      if (!r.ok) return;
+      const d = await r.json() as { activity: AutoActivity[] };
+      setAutoActivity(d.activity ?? []);
+    } catch {}
+  }, [authFetch]);
+
+  const fetchAutoReplies = useCallback(async () => {
+    try {
+      const r = await authFetch(`${basePath}/api/outreach/replies?limit=30`);
+      if (!r.ok) return;
+      const d = await r.json() as { replies: AutoReply[] };
+      setAutoReplies(d.replies ?? []);
+    } catch {}
+  }, [authFetch]);
+
+  const openAuto = () => { setShowAuto(true); setAutoMsg(null); fetchAutoInfo(); fetchAutoActivity(); fetchAutoReplies(); };
+
+  const saveAutoSettings = async () => {
+    if (!autoDraft) return;
+    setAutoSaving(true); setAutoMsg(null);
+    try {
+      const r = await authFetch(`${basePath}/api/outreach/settings`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(autoDraft),
+      });
+      const d = await r.json().catch(() => ({})) as { error?: string; settings?: OutreachSettings };
+      if (!r.ok) { setAutoMsg(d.error ?? "Could not save."); return; }
+      setAutoMsg("Saved.");
+      fetchAutoInfo();
+    } catch { setAutoMsg("Network error."); }
+    finally { setAutoSaving(false); }
+  };
+
+  // One-click auto-replies: the toggle saves itself immediately — no separate
+  // Save press — so turning it on is genuinely a single click.
+  const toggleAutoReply = async () => {
+    if (!autoDraft) return;
+    const next = !autoDraft.autoReply;
+    setAutoDraft(d => d ? { ...d, autoReply: next } : d);
+    setAutoMsg(null);
+    try {
+      const r = await authFetch(`${basePath}/api/outreach/settings`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ autoReply: next }),
+      });
+      const d = await r.json().catch(() => ({})) as { error?: string };
+      if (!r.ok) {
+        setAutoDraft(dr => dr ? { ...dr, autoReply: !next } : dr);
+        setAutoMsg(d.error ?? "Could not save.");
+        return;
+      }
+      setAutoMsg(next ? "Auto-reply is on — replies get answered for you." : "Auto-reply is off.");
+      fetchAutoInfo();
+    } catch {
+      setAutoDraft(dr => dr ? { ...dr, autoReply: !next } : dr);
+      setAutoMsg("Network error.");
+    }
+  };
+
+  // Enroll the selected leads into automated sending. The engine generates any
+  // missing drafts, then sends the first email + follow-ups on its own cadence.
+  const [enrolling, setEnrolling] = useState(false);
+  const enrollSelected = async () => {
+    if (selected.size === 0) return;
+    setEnrolling(true);
+    const ids = Array.from(selected);
+    try {
+      const r = await authFetch(`${basePath}/api/outreach/enroll`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }),
+      });
+      const d = await r.json().catch(() => ({})) as { error?: string; enrolled?: number; skipped?: number };
+      if (!r.ok) { setAutoMsg(d.error ?? "Could not enroll."); }
+      else {
+        setLeads(prev => prev.map(l => ids.includes(l.id) ? { ...l, autoOutreach: true } : l));
+        setSelected(new Set());
+        fetchLeads(true); fetchStats(); fetchAutoInfo();
+      }
+    } catch {}
+    finally { setEnrolling(false); }
+  };
+
+  const pauseAuto = async (id: number) => {
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, autoOutreach: false, nextEmailAt: null } : l));
+    try {
+      await authFetch(`${basePath}/api/outreach/pause`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [id] }) });
+      fetchStats(); fetchAutoInfo();
+    } catch {}
+  };
+
+  // Follow-up queue: record that the next touch (step 2, 3, …) was sent.
+  const handleAdvanceStep = async (id: number) => {
+    try {
+      const r = await fetch(`${basePath}/api/leads/${id}/advance-step`, { method: "POST" });
+      const d = await r.json() as { outreachStep?: number };
+      if (!r.ok) return;
+      setLeads(prev => prev.map(l => l.id === id ? {
+        ...l, status: "contacted",
+        contactedAt: l.contactedAt ?? new Date().toISOString(),
+        outreachStep: d.outreachStep ?? Math.max(1, l.outreachStep ?? 0) + 1,
+      } : l));
+      fetchStats();
+    } catch {}
+  };
+
+  // Social profile: open the modal and fetch (or run) the deep scan. A lead
+  // that already has a stored report shows it instantly; Rescan forces a rerun.
+  const openScan = async (lead: Lead, force = false) => {
+    setScanLead(lead);
+    setScanError(null);
+    if (!force && lead.socialScan) { setScan(lead.socialScan); return; }
+    if (!force) setScan(null);
+    setScanLoading(true);
+    try {
+      const r = await authFetch(`${basePath}/api/leads/${lead.id}/social-scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Could not run the social profile scan");
+      setScan(d.scan as SocialScan);
+      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, socialScan: d.scan as SocialScan, socialScanAt: String(d.scannedAt ?? "") || l.socialScanAt } : l));
+    } catch (e) {
+      setScanError(e instanceof Error ? e.message : "Could not run the social profile scan");
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
+  // AI outreach: open the modal for a lead and fetch (or generate) its drafts.
+  const openOutreach = async (lead: Lead, force = false) => {
+    setOutreachLead(lead);
+    setOutreachError(null);
+    setOutreachCopied(null);
+    if (!force) setOutreach(null);
+    setOutreachLoading(true);
+    try {
+      const r = await authFetch(`${basePath}/api/leads/${lead.id}/outreach`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Could not generate outreach");
+      setOutreach(d.outreach as Outreach);
+    } catch (e) {
+      setOutreachError(e instanceof Error ? e.message : "Could not generate outreach");
+    } finally {
+      setOutreachLoading(false);
+    }
+  };
+  const copyOut = async (label: string, text: string) => {
+    try { await navigator.clipboard.writeText(text); setOutreachCopied(label); setTimeout(() => setOutreachCopied(c => c === label ? null : c), 2000); } catch { /* ignore */ }
+  };
+  // First email sent from the outreach modal → the lead enters the Follow-Up
+  // queue (and leaves the main list). Only auto-moves leads still marked "new"
+  // so converted / not-interested statuses are never clobbered.
+  const markFirstEmailSent = () => {
+    if (!outreachLead || (outreachLead.status ?? "new") !== "new") return;
+    handleStatusChange(outreachLead.id, "contacted");
+    setOutreachLead(prev => prev ? { ...prev, status: "contacted", contactedAt: prev.contactedAt ?? new Date().toISOString(), outreachStep: Math.max(1, prev.outreachStep ?? 0) } : prev);
   };
 
   // Delete single
@@ -679,7 +1082,17 @@ export default function Dashboard() {
   const sortedLeads = [...leads].sort((a, b) => (pinned.has(b.id) ? 1 : 0) - (pinned.has(a.id) ? 1 : 0));
   // Tag filter (client-side over the loaded page) + all tags for the filter bar.
   const allTags = [...new Set(Object.values(notes).flatMap(n => n.tags ?? []))].sort();
-  const displayLeads = tagFilter ? sortedLeads.filter(l => notes[l.id]?.tags?.includes(tagFilter)) : sortedLeads;
+  const tagFiltered = tagFilter ? sortedLeads.filter(l => notes[l.id]?.tags?.includes(tagFilter)) : sortedLeads;
+  // Follow-Up queue view: due-now leads float to the top, then soonest-due.
+  const displayLeads = filterStatus === "contacted"
+    ? [...tagFiltered].sort((a, b) => {
+        const fa = followUpInfo(a), fb = followUpInfo(b);
+        const ra = fa && !fa.done && fa.ready ? 0 : 1;
+        const rb = fb && !fb.done && fb.ready ? 0 : 1;
+        if (ra !== rb) return ra - rb;
+        return (fa && !fa.done ? fa.daysLeft : 999) - (fb && !fb.done ? fb.daysLeft : 999);
+      })
+    : tagFiltered;
   const cols = prefs.cols;
   const densityCls = prefs.density === "compact" ? "[&_td]:py-1.5 [&_th]:py-2" : "";
 
@@ -751,6 +1164,15 @@ export default function Dashboard() {
               {/* Customize + Last synced + refresh */}
               <div className="flex flex-col items-end gap-1.5 shrink-0">
                 <div className="flex items-center gap-2">
+                  {autoAvailable && (
+                    <button
+                      onClick={openAuto}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${autoInfo?.settings.enabled ? "bg-primary/15 border-primary/50 text-primary" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"}`}
+                      title="Automated email outreach"
+                    >
+                      <Zap className="w-3.5 h-3.5" /> Automate{autoInfo?.settings.enabled ? " · ON" : ""}
+                    </button>
+                  )}
                   <button
                     onClick={() => setShowCustomize(s => !s)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${showCustomize ? "bg-primary/10 border-primary/40 text-primary" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"}`}
@@ -1095,6 +1517,19 @@ export default function Dashboard() {
             </motion.div>
           )}
 
+          {/* Follow-up queue: leads whose next outreach step is due now */}
+          {stats && stats.followUpReady > 0 && filterStatus !== "contacted" && (
+            <motion.button initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.16 }}
+              onClick={() => { setFilterStatus("contacted"); setPage(1); }}
+              className="w-full flex items-center gap-3 mb-4 px-4 py-3 rounded-xl border border-primary/40 bg-primary/10 text-left hover:bg-primary/15 transition-colors">
+              <Bell className="w-4 h-4 text-primary shrink-0" />
+              <span className="text-sm text-foreground">
+                <span className="font-bold text-primary">{stats.followUpReady} lead{stats.followUpReady !== 1 ? "s" : ""}</span> in the Follow-Up queue {stats.followUpReady !== 1 ? "are" : "is"} ready for the next step
+              </span>
+              <span className="ml-auto text-xs font-bold text-primary whitespace-nowrap">Open queue →</span>
+            </motion.button>
+          )}
+
           {/* Status filter pills */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.18 }}
             className="flex items-center gap-2 mb-4 flex-wrap">
@@ -1115,9 +1550,21 @@ export default function Dashboard() {
                 {stats?.statusCounts.find(s => s.status === opt.value) && (
                   <span className="ml-1 opacity-70">({stats.statusCounts.find(s => s.status === opt.value)!.count})</span>
                 )}
+                {opt.value === "contacted" && (stats?.followUpReady ?? 0) > 0 && (
+                  <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-primary/20 text-primary font-bold">{stats!.followUpReady} ready</span>
+                )}
               </button>
             ))}
           </motion.div>
+
+          {/* Queue explainer when viewing the Follow-Up pill */}
+          {filterStatus === "contacted" && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              className="flex items-start gap-2 mb-4 px-4 py-3 rounded-xl border border-border bg-card text-xs text-muted-foreground">
+              <Mail className="w-3.5 h-3.5 mt-0.5 shrink-0 text-primary" />
+              <span>These leads got their first email and are waiting here until their next step is due. <span className="text-primary font-semibold">⚡ Step ready</span> means it's time to send the follow-up — open <Sparkles className="w-3 h-3 inline" /> AI Outreach on the lead to send it and mark it done.</span>
+            </motion.div>
+          )}
 
           {/* Leads table */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.2 }}>
@@ -1168,21 +1615,27 @@ export default function Dashboard() {
                 <div className="py-20 text-center">
                   <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
                 </div>
-              ) : leads.length === 0 ? (
+              ) : leads.length === 0 ? (() => {
+                const queued = stats?.statusCounts.find(s => s.status === "contacted")?.count ?? 0;
+                const allInQueue = !search && !filterStatus && queued > 0;
+                return (
                 <div className="py-20 text-center">
-                  <div className="text-4xl mb-3">📋</div>
-                  <p className="font-semibold text-foreground mb-1">No leads found</p>
+                  <div className="text-4xl mb-3">{allInQueue ? "📨" : "📋"}</div>
+                  <p className="font-semibold text-foreground mb-1">{allInQueue ? "All caught up!" : "No leads found"}</p>
                   <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                    {search || filterStatus ? "Try adjusting your filters." : "Install the extension, enter your API key, then run an extraction — leads appear here automatically."}
+                    {allInQueue
+                      ? <>Every lead has had its first email — {queued.toLocaleString()} {queued !== 1 ? "are" : "is"} waiting in the <button onClick={() => { setFilterStatus("contacted"); setPage(1); }} className="text-primary font-semibold hover:underline">Follow-Up queue</button> until the next step is due.</>
+                      : search || filterStatus ? "Try adjusting your filters." : "Install the extension, enter your API key, then run an extraction — leads appear here automatically."}
                   </p>
-                  {!search && !filterStatus && (
+                  {!search && !filterStatus && !allInQueue && (
                     <a href={STORE_URL} target="_blank" rel="noopener noreferrer"
                       className="inline-flex items-center gap-2 mt-5 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity">
                       Install Extension
                     </a>
                   )}
                 </div>
-              ) : viewMode === "board" ? (
+                );
+              })() : viewMode === "board" ? (
                 /* ── Kanban pipeline board ── */
                 <div className="p-4 overflow-x-auto">
                   <div className="flex gap-4 min-w-max">
@@ -1209,6 +1662,7 @@ export default function Dashboard() {
                                 </div>
                                 {lead.category && <div className="text-xs text-muted-foreground truncate">{lead.category}</div>}
                                 {lead.phone && <a href={`tel:${lead.phone}`} className="text-xs text-primary font-mono hover:underline">{lead.phone}</a>}
+                                {lead.autoOutreach ? <AutoBadge lead={lead} onPause={pauseAuto} /> : <FollowUpBadge lead={lead} />}
                                 {notes[lead.id]?.tags && notes[lead.id].tags.length > 0 && (
                                   <div className="flex flex-wrap gap-1 mt-1.5">
                                     {notes[lead.id].tags.map(t => (
@@ -1350,13 +1804,30 @@ export default function Dashboard() {
                               <td className="px-4 py-3"><ScoreBadge score={lead.score} /></td>
                             )}
                             <td className="px-4 py-3">
-                              <StatusBadge status={lead.status} id={lead.id} onChange={handleStatusChange} />
+                              <div className="flex flex-col items-start">
+                                <StatusBadge status={lead.status} id={lead.id} onChange={handleStatusChange} />
+                                {lead.autoOutreach ? <AutoBadge lead={lead} onPause={pauseAuto} /> : <FollowUpBadge lead={lead} />}
+                              </div>
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
                                 {notes[lead.id]?.reminderAt && !notes[lead.id]?.reminderDone && (
                                   <Bell className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
                                 )}
+                                <button
+                                  onClick={() => openScan(lead)}
+                                  className={`transition-colors ${lead.socialScan ? "text-primary" : "text-muted-foreground/40 hover:text-primary"}`}
+                                  title={lead.socialScan ? "Social profile — view the deep scan of this business" : "Social profile — scan their socials, reviews & web presence"}
+                                >
+                                  <Radar className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => openOutreach(lead)}
+                                  className="text-muted-foreground/40 hover:text-primary transition-colors"
+                                  title="AI outreach — write a personalized email, text & follow-ups"
+                                >
+                                  <Sparkles className="w-4 h-4" />
+                                </button>
                                 <button
                                   onClick={() => openNote(lead.id)}
                                   className={`transition-colors ${notes[lead.id]?.note || notes[lead.id]?.tags?.length ? "text-primary" : "text-muted-foreground/40 hover:text-primary"}`}
@@ -1443,6 +1914,18 @@ export default function Dashboard() {
             <span className="text-sm font-bold text-foreground pr-2 border-r border-border mr-1">
               {selected.size} selected
             </span>
+
+            {autoAvailable && selEmails.length > 0 && (
+              <button
+                onClick={enrollSelected}
+                disabled={enrolling}
+                title="Start automated email outreach for these leads — the engine sends the first email and follow-ups on its own, human-like cadence"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                {enrolling ? "Starting…" : "Automate"}
+              </button>
+            )}
 
             {selEmails.length > 0 && (
               <button
@@ -1584,6 +2067,13 @@ export default function Dashboard() {
                       <ArrowUpRight className="w-3.5 h-3.5" /> Open in Gmail
                     </a>
                   </div>
+                </div>
+                <div className="flex items-center justify-end gap-3 mt-4 pt-4 border-t border-border">
+                  <span className="text-[11px] text-muted-foreground mr-auto">Sent it? Move these leads to the Follow-Up queue until step 2 is due.</span>
+                  <button onClick={bulkMarkContacted}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-primary/40 bg-primary/10 text-primary text-xs font-bold hover:bg-primary/20 transition-colors">
+                    <CheckCheck className="w-3.5 h-3.5" /> Email #1 sent — move to Follow-Up
+                  </button>
                 </div>
               </motion.div>
             </motion.div>
@@ -1805,6 +2295,662 @@ export default function Dashboard() {
                   Save
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Social profile modal */}
+      <AnimatePresence>
+        {scanLead && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setScanLead(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-card border border-border rounded-2xl w-full max-w-xl shadow-2xl max-h-[88vh] overflow-y-auto"
+            >
+              <div className="flex items-center gap-2 p-6 pb-3 sticky top-0 bg-card border-b border-border">
+                <Radar className="w-4 h-4 text-primary" />
+                <h3 className="font-display font-bold truncate">Social Profile</h3>
+                <span className="text-xs text-muted-foreground truncate">· {scanLead.name ?? "lead"}</span>
+                {scan && !scanLoading && (
+                  <button
+                    onClick={() => openScan(scanLead, true)}
+                    className="ml-auto flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors"
+                    title="Run the scan again for fresh data"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Rescan
+                  </button>
+                )}
+                <button onClick={() => setScanLead(null)} className={`${scan && !scanLoading ? "" : "ml-auto"} text-muted-foreground hover:text-foreground`}>
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-6 pt-4 space-y-4">
+                {scanLoading && (
+                  <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
+                    <RefreshCw className="w-6 h-6 animate-spin text-primary" />
+                    <p className="text-sm">Scanning their socials, reviews & web presence… (~30-60s)</p>
+                  </div>
+                )}
+
+                {scanError && !scanLoading && (
+                  <div className="py-8 text-center space-y-3">
+                    <p className="text-sm text-red-400">{scanError}</p>
+                    <button onClick={() => openScan(scanLead, true)}
+                      className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity">
+                      Try again
+                    </button>
+                  </div>
+                )}
+
+                {scan && !scanLoading && (
+                  <>
+                    {/* Grade + platform audit */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Presence</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${
+                        scan.grade === "strong" ? "bg-primary/15 text-primary border-primary/30"
+                        : scan.grade === "ok" ? "bg-blue-500/15 text-blue-400 border-blue-500/30"
+                        : scan.grade === "weak" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/30"
+                        : "bg-red-500/15 text-red-400 border-red-500/30"}`}>
+                        {scan.grade}
+                      </span>
+                    </div>
+                    {scan.platforms.length > 0 && (
+                      <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
+                        {scan.platforms.map((p, i) => (
+                          <div key={i} className="px-4 py-2.5 text-xs flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                            {p.url
+                              ? <a href={p.url} target="_blank" rel="noopener noreferrer" className="font-bold capitalize text-primary hover:underline">{p.platform}</a>
+                              : <span className="font-bold capitalize">{p.platform}</span>}
+                            {p.followers && <span className="text-muted-foreground">{p.followers} followers</span>}
+                            {p.lastActive && <span className="text-muted-foreground">· {p.lastActive}</span>}
+                            {p.note && <span className="w-full text-muted-foreground/80">{p.note}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {scan.missing.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-bold text-red-400">Not on:</span> {scan.missing.join(", ")}
+                      </p>
+                    )}
+
+                    {/* Deep profile */}
+                    {scan.profile && (
+                      <div className="rounded-xl border border-border p-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Users className="w-3.5 h-3.5 text-primary" />
+                          <span className="text-xs font-bold">About the business</span>
+                        </div>
+                        {scan.profile.about && <p className="text-xs text-foreground">{scan.profile.about}</p>}
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          {scan.profile.owner && <span><span className="font-bold text-foreground">Owner:</span> {scan.profile.owner}</span>}
+                          {scan.profile.founded && <span><span className="font-bold text-foreground">Since:</span> {scan.profile.founded}</span>}
+                        </div>
+                        {scan.profile.contentThemes && scan.profile.contentThemes.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {scan.profile.contentThemes.map((t, i) => (
+                              <span key={i} className="px-2 py-0.5 rounded-full bg-background border border-border text-xs text-muted-foreground">{t}</span>
+                            ))}
+                          </div>
+                        )}
+                        {scan.profile.engagement && <p className="text-xs text-muted-foreground"><span className="font-bold text-foreground">Engagement:</span> {scan.profile.engagement}</p>}
+                        {scan.profile.reputation && (
+                          <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+                            <Quote className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
+                            <span><span className="font-bold text-foreground">Reviews say:</span> {scan.profile.reputation}</span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Hooks */}
+                    {scan.profile?.hooks && scan.profile.hooks.length > 0 && (
+                      <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Lightbulb className="w-3.5 h-3.5 text-primary" />
+                          <span className="text-xs font-bold">Conversation starters</span>
+                        </div>
+                        <ul className="space-y-1.5">
+                          {scan.profile.hooks.map((h, i) => (
+                            <li key={i} className="text-xs text-foreground flex items-start gap-1.5">
+                              <span className="text-primary shrink-0">→</span> {h}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Pitch + opener */}
+                    {scan.pitch && (
+                      <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/10 border border-primary/30">
+                        <Zap className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                        <p className="text-xs text-foreground"><span className="font-bold">How to pitch:</span> {scan.pitch}</p>
+                      </div>
+                    )}
+                    {scan.opener && (
+                      <div className="rounded-xl border border-border overflow-hidden">
+                        <div className="flex items-center gap-2 px-4 py-2 bg-background border-b border-border">
+                          <MessageSquare className="w-3.5 h-3.5 text-primary" />
+                          <span className="text-xs font-bold">Opener</span>
+                          <button onClick={() => copyOut("scan-opener", scan.opener)}
+                            className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                            {outreachCopied === "scan-opener" ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+                            {outreachCopied === "scan-opener" ? "Copied" : "Copy"}
+                          </button>
+                        </div>
+                        <p className="px-4 py-3 text-xs text-foreground whitespace-pre-wrap">{scan.opener}</p>
+                      </div>
+                    )}
+
+                    {/* Sources */}
+                    {scan.sources && scan.sources.length > 0 && (
+                      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                        Sources: {scan.sources.map((s, i) => (
+                          <span key={i}>{i > 0 && " · "}<a href={s.url} target="_blank" rel="noopener noreferrer" className="hover:text-primary underline decoration-dotted">{s.title}</a></span>
+                        ))}
+                      </p>
+                    )}
+
+                    {/* Hand off to outreach */}
+                    <button
+                      onClick={() => { const l = scanLead; setScanLead(null); openOutreach(l); }}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" /> Write outreach using this profile
+                    </button>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* AI outreach modal */}
+      <AnimatePresence>
+        {outreachLead && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setOutreachLead(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-card border border-border rounded-2xl w-full max-w-xl shadow-2xl max-h-[88vh] overflow-y-auto"
+            >
+              <div className="flex items-center gap-2 p-6 pb-3 sticky top-0 bg-card border-b border-border">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <h3 className="font-display font-bold truncate">AI Outreach</h3>
+                <span className="text-xs text-muted-foreground truncate">· {outreachLead.name ?? "lead"}</span>
+                {outreach && !outreachLoading && (
+                  <button
+                    onClick={() => openOutreach(outreachLead, true)}
+                    className="ml-auto flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors"
+                    title="Regenerate"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Redo
+                  </button>
+                )}
+                <button onClick={() => setOutreachLead(null)} className={`${outreach && !outreachLoading ? "" : "ml-auto"} text-muted-foreground hover:text-foreground`}>
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-6 pt-4 space-y-4">
+                {outreachLoading && (
+                  <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
+                    <RefreshCw className="w-6 h-6 animate-spin text-primary" />
+                    <p className="text-sm">Writing personalized outreach from this lead's data…</p>
+                  </div>
+                )}
+
+                {outreachError && !outreachLoading && (
+                  <div className="py-8 text-center space-y-3">
+                    <p className="text-sm text-red-400">{outreachError}</p>
+                    <button onClick={() => openOutreach(outreachLead, true)}
+                      className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity">
+                      Try again
+                    </button>
+                  </div>
+                )}
+
+                {outreach && !outreachLoading && (() => {
+                  const gmailHref = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(outreachLead.emails ?? "")}&su=${encodeURIComponent(outreach.email.subject)}&body=${encodeURIComponent(outreach.email.body)}`;
+                  const smsHref = `sms:${outreachLead.phone ?? ""}?body=${encodeURIComponent(outreach.sms)}`;
+                  const inQueue = (outreachLead.status ?? "new") === "contacted";
+                  const fu = followUpInfo(outreachLead);
+                  return (
+                    <>
+                      {outreach.angle && (
+                        <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/10 border border-primary/30">
+                          <Zap className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                          <p className="text-xs text-foreground"><span className="font-bold">Angle:</span> {outreach.angle}</p>
+                        </div>
+                      )}
+
+                      {/* Email */}
+                      <div className="rounded-xl border border-border overflow-hidden">
+                        <div className="flex items-center gap-2 px-4 py-2 bg-background border-b border-border">
+                          <Mail className="w-3.5 h-3.5 text-primary" />
+                          <span className="text-xs font-bold">Cold Email</span>
+                          <div className="ml-auto flex items-center gap-2">
+                            <button onClick={() => copyOut("email", `Subject: ${outreach.email.subject}\n\n${outreach.email.body}`)}
+                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                              {outreachCopied === "email" ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+                              {outreachCopied === "email" ? "Copied" : "Copy"}
+                            </button>
+                            {outreachLead.emails && (
+                              <a href={gmailHref} target="_blank" rel="noopener noreferrer" onClick={markFirstEmailSent}
+                                className="flex items-center gap-1 text-xs font-semibold text-primary hover:opacity-80">
+                                <ArrowUpRight className="w-3.5 h-3.5" /> Gmail
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <div className="p-4 space-y-2">
+                          <p className="text-xs font-semibold text-foreground">{outreach.email.subject}</p>
+                          <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{outreach.email.body}</p>
+                        </div>
+                      </div>
+
+                      {/* SMS */}
+                      <div className="rounded-xl border border-border overflow-hidden">
+                        <div className="flex items-center gap-2 px-4 py-2 bg-background border-b border-border">
+                          <MessageSquare className="w-3.5 h-3.5 text-primary" />
+                          <span className="text-xs font-bold">Text Message</span>
+                          <div className="ml-auto flex items-center gap-2">
+                            <button onClick={() => copyOut("sms", outreach.sms)}
+                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                              {outreachCopied === "sms" ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+                              {outreachCopied === "sms" ? "Copied" : "Copy"}
+                            </button>
+                            {outreachLead.phone && (
+                              <a href={smsHref} className="flex items-center gap-1 text-xs font-semibold text-primary hover:opacity-80">
+                                <ArrowUpRight className="w-3.5 h-3.5" /> Text
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <p className="p-4 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{outreach.sms}</p>
+                      </div>
+
+                      {/* Follow-ups */}
+                      {outreach.followUps.length > 0 && (
+                        <div>
+                          <p className="text-xs font-bold text-muted-foreground mb-2 uppercase tracking-wide">Follow-up sequence</p>
+                          <div className="space-y-2">
+                            {outreach.followUps.map((f, i) => (
+                              <div key={i} className={`rounded-lg border p-3 ${inQueue && fu && !fu.done && i === fu.nextStep - 2 ? "border-primary/50 bg-primary/5" : "border-border"}`}>
+                                <div className="flex items-center gap-2 mb-1.5">
+                                  <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold">Day {f.day}</span>
+                                  <span className="text-[10px] font-semibold uppercase text-muted-foreground">{f.channel}</span>
+                                  {inQueue && fu && !fu.done && i === fu.nextStep - 2 && (
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${fu.ready ? "bg-primary text-primary-foreground" : "bg-primary/15 text-primary"}`}>
+                                      {fu.ready ? "⚡ Send now" : `Next — in ${fu.daysLeft}d`}
+                                    </span>
+                                  )}
+                                  {f.subject && <span className="text-[11px] font-semibold text-foreground truncate">{f.subject}</span>}
+                                  <button onClick={() => copyOut(`f${i}`, f.subject ? `Subject: ${f.subject}\n\n${f.body}` : f.body)}
+                                    className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors">
+                                    {outreachCopied === `f${i}` ? <Check className="w-3 h-3 text-primary" /> : <Copy className="w-3 h-3" />}
+                                  </button>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed">{f.body}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Footer: step 1 → move to the queue; in queue → advance steps */}
+                      <div className="flex items-center justify-end gap-3 pt-1">
+                        {!inQueue ? (
+                          <>
+                            <span className="text-[11px] text-muted-foreground mr-auto">Sent it? The lead moves to the Follow-Up queue until step 2 is due.</span>
+                            <button
+                              onClick={() => { handleStatusChange(outreachLead.id, "contacted" as LeadStatus); setOutreachLead(null); }}
+                              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity">
+                              <CheckCheck className="w-3.5 h-3.5" /> Email #1 sent — move to Follow-Up
+                            </button>
+                          </>
+                        ) : fu && !fu.done ? (
+                          <>
+                            <span className="text-[11px] text-muted-foreground mr-auto">
+                              {fu.ready ? `Step ${fu.nextStep} is due — send it, then mark it sent.` : `Step ${fu.nextStep} unlocks in ${fu.daysLeft} day${fu.daysLeft !== 1 ? "s" : ""}.`}
+                            </span>
+                            <button
+                              onClick={() => { handleAdvanceStep(outreachLead.id); setOutreachLead(null); }}
+                              disabled={!fu.ready}
+                              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">
+                              <CheckCheck className="w-3.5 h-3.5" /> Step {fu.nextStep} sent
+                            </button>
+                          </>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground">Sequence complete — set the lead to Converted or Not Interested from its status badge.</span>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Automated outreach settings modal */}
+      <AnimatePresence>
+        {showAuto && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setShowAuto(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.96, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 10 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-card border border-border rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center gap-2 p-6 pb-4 sticky top-0 bg-card border-b border-border z-10">
+                <Zap className="w-4 h-4 text-primary" />
+                <h3 className="font-display font-bold">Automated Outreach</h3>
+                {autoDraft && (
+                  <label className="ml-auto flex items-center gap-2 cursor-pointer">
+                    <span className={`text-xs font-bold ${autoDraft.enabled ? "text-primary" : "text-muted-foreground"}`}>{autoDraft.enabled ? "ON" : "OFF"}</span>
+                    <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoDraft.enabled ? "bg-primary" : "bg-border"}`}
+                      onClick={() => setAutoDraft(d => d ? { ...d, enabled: !d.enabled } : d)}>
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoDraft.enabled ? "translate-x-4" : "translate-x-0.5"}`} />
+                    </span>
+                  </label>
+                )}
+                <button onClick={() => setShowAuto(false)} className="text-muted-foreground hover:text-foreground ml-2"><X className="w-4 h-4" /></button>
+              </div>
+
+              {!autoDraft ? (
+                <div className="py-16 text-center"><RefreshCw className="w-6 h-6 animate-spin text-primary mx-auto" /></div>
+              ) : (
+                <div className="p-6 pt-4 space-y-5">
+                  {/* How it works */}
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/10 border border-primary/30">
+                    <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                    <p className="text-xs text-foreground leading-relaxed">
+                      Enrolled leads get their first email and every follow-up sent for you — spaced out inside your daily
+                      window, in random gaps, under a daily cap, and threaded like real replies. It reads like a person
+                      working their inbox, not a blast.
+                    </p>
+                  </div>
+
+                  {/* What you're offering — the emails are written entirely around this */}
+                  <label className="block">
+                    <span className="text-xs font-semibold text-foreground block mb-1.5">What are you offering? <span className="text-muted-foreground/60 font-normal">(optional)</span></span>
+                    <textarea value={autoDraft.offer ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, offer: e.target.value } : d)} rows={3}
+                      placeholder="In your own words — e.g. what you do, who for, and the main benefit. Every email is written around this."
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/50" />
+                    <span className="text-[11px] text-muted-foreground mt-1 block">Type your own pitch and every email is written around exactly that. Left blank, emails pitch the standard offer: websites, SEO, ads, reputation & marketing automation for local businesses.</span>
+                  </label>
+
+                  {/* One-click auto-replies: AI answers leads who write back */}
+                  <div className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${autoDraft.autoReply ? "bg-primary/10 border-primary/40" : "bg-background/50 border-border"}`}>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-foreground mb-1">
+                        <Sparkles className={`w-3.5 h-3.5 ${autoDraft.autoReply ? "text-primary" : "text-muted-foreground"}`} />
+                        AI answers replies for me
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        When a lead writes back, the AI reads their reply and sends a short, grounded response within
+                        minutes — threaded into the same conversation, built only from your offer above. Opt-outs are
+                        honored automatically, and after 3 AI responses the conversation is handed to you.
+                      </p>
+                      {!autoInfo?.gmailConfigured && (
+                        <p className="text-[11px] text-yellow-500 mt-1">Needs your Gmail connected — that's the inbox it watches.</p>
+                      )}
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer shrink-0 mt-0.5">
+                      <span className={`text-xs font-bold ${autoDraft.autoReply ? "text-primary" : "text-muted-foreground"}`}>{autoDraft.autoReply ? "ON" : "OFF"}</span>
+                      <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoDraft.autoReply ? "bg-primary" : "bg-border"}`}
+                        onClick={toggleAutoReply}>
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoDraft.autoReply ? "translate-x-4" : "translate-x-0.5"}`} />
+                      </span>
+                    </label>
+                  </div>
+
+                  {/* Live counters */}
+                  {autoInfo && (
+                    <div className="grid grid-cols-4 gap-3">
+                      {[
+                        { label: "Enrolled", value: autoInfo.enrolled },
+                        { label: "Queued", value: autoInfo.pending },
+                        { label: "Sent today", value: autoInfo.sentToday },
+                        { label: "Replied", value: autoInfo.replied },
+                      ].map(c => (
+                        <div key={c.label} className="rounded-xl border border-border bg-background/50 p-3 text-center">
+                          <div className="text-xl font-display font-bold text-primary">{c.value}</div>
+                          <div className="text-[11px] text-muted-foreground font-semibold">{c.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Recent activity feed */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Recent sends</span>
+                      <button onClick={fetchAutoActivity} title="Refresh" className="text-muted-foreground/60 hover:text-primary transition-colors">
+                        <RefreshCw className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {autoActivity.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-border bg-background/30 py-6 text-center text-xs text-muted-foreground">
+                        No emails sent yet. Enroll leads with <span className="text-primary font-semibold">Automate</span> and the engine takes it from here.
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-border divide-y divide-border max-h-56 overflow-y-auto">
+                        {autoActivity.map(a => (
+                          <div key={a.id} className="flex items-center gap-2 px-3 py-2 text-xs">
+                            <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${a.status === "sent" ? "bg-primary" : "bg-red-400"}`} title={a.status === "sent" ? "Sent" : (a.error ?? "Failed")} />
+                            <span className="font-semibold text-foreground truncate max-w-[120px]" title={a.leadName ?? a.toEmail}>{a.leadName ?? a.toEmail}</span>
+                            <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold shrink-0">{a.step === 1 ? "Email #1" : `Follow-up ${a.step - 1}`}</span>
+                            <span className="text-muted-foreground truncate flex-1" title={a.subject}>{a.subject}</span>
+                            <span className="text-muted-foreground/60 shrink-0 whitespace-nowrap">{new Date(a.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}, {new Date(a.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Replies feed: what leads wrote back and what the AI answered */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Replies</span>
+                      <button onClick={fetchAutoReplies} title="Refresh" className="text-muted-foreground/60 hover:text-primary transition-colors">
+                        <RefreshCw className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {autoReplies.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-border bg-background/30 py-6 text-center text-xs text-muted-foreground">
+                        No replies yet. When a lead writes back it shows up here{autoDraft.autoReply ? " — along with the AI's answer" : ""}.
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-border divide-y divide-border max-h-64 overflow-y-auto">
+                        {autoReplies.map(r => (
+                          <div key={r.id} className="px-3 py-2 text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${r.direction === "in" ? "bg-blue-500/15 text-blue-400" : r.status === "sent" ? "bg-primary/10 text-primary" : "bg-red-500/15 text-red-400"}`}>
+                                {r.direction === "in" ? "↩ Reply" : r.status === "sent" ? "🤖 AI answered" : "🤖 Failed"}
+                              </span>
+                              <span className="font-semibold text-foreground truncate max-w-[140px]" title={r.leadName ?? r.fromEmail}>{r.leadName ?? r.fromEmail}</span>
+                              <span className="text-muted-foreground/60 shrink-0 whitespace-nowrap ml-auto">{new Date(r.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}, {new Date(r.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>
+                            </div>
+                            <p className="text-muted-foreground mt-1 line-clamp-2 whitespace-pre-line" title={r.error ?? r.body}>{r.error ?? r.body}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Provider selector */}
+                  <div>
+                    <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Send with</span>
+                    <div className="flex items-center gap-1 bg-background border border-border rounded-lg p-1 w-fit">
+                      {(["gmail", "resend"] as const).map(p => (
+                        <button key={p} onClick={() => setAutoDraft(d => d ? { ...d, provider: p } : d)}
+                          className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${autoDraft.provider === p ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                          {p === "gmail" ? "Gmail (free)" : "Resend + domain"}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                      Emails send from this connected mailbox only — it's separate from the email you log in with, and each lead is contacted at their own address.
+                    </p>
+                  </div>
+
+                  {/* Gmail path */}
+                  {autoDraft.provider === "gmail" && (
+                    autoInfo?.gmailConfigured ? (
+                      <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/10 border border-primary/30 text-xs text-foreground">
+                        <Check className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
+                        Gmail connected — sending as <span className="font-semibold text-primary">{autoInfo.gmailAddress}</span>. Emails go out from your real inbox and replies land there.
+                      </div>
+                    ) : (
+                      <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-xs text-yellow-500 space-y-1.5">
+                        <div className="flex items-center gap-2 font-semibold"><Mail className="w-3.5 h-3.5" /> Connect your Gmail (free, ~2 min)</div>
+                        <ol className="list-decimal list-inside space-y-0.5 text-yellow-500/90">
+                          <li>Turn on 2-Step Verification at myaccount.google.com → Security.</li>
+                          <li>Create an App Password at myaccount.google.com/apppasswords (copy the 16-char code).</li>
+                          <li>Add two secrets in Replit → Secrets: <span className="font-mono">GMAIL_USER</span> (your address) and <span className="font-mono">GMAIL_APP_PASSWORD</span> (the code), then restart.</li>
+                        </ol>
+                      </div>
+                    )
+                  )}
+
+                  {/* Resend path */}
+                  {autoDraft.provider === "resend" && (
+                    <>
+                      {!autoInfo?.resendConfigured && (
+                        <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-xs text-yellow-500">
+                          <Mail className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          Add your <span className="font-mono">RESEND_API_KEY</span> secret and verify a domain in Resend, then set the From address below.
+                        </div>
+                      )}
+                      <label className="block">
+                        <span className="text-xs font-semibold text-muted-foreground block mb-1.5">From email (Resend-verified)</span>
+                        <input type="email" value={autoDraft.fromEmail ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, fromEmail: e.target.value } : d)}
+                          placeholder="ryan@yourdomain.com"
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                      </label>
+                    </>
+                  )}
+
+                  {/* Sender name + reply-to (both providers) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="block">
+                      <span className="text-xs font-semibold text-muted-foreground block mb-1.5">From name</span>
+                      <input type="text" value={autoDraft.fromName ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, fromName: e.target.value } : d)}
+                        placeholder="Ryan @ Gulf Coast"
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Reply-to (optional)</span>
+                      <input type="email" value={autoDraft.replyTo ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, replyTo: e.target.value } : d)}
+                        placeholder={autoDraft.provider === "gmail" ? "Defaults to your Gmail" : "Defaults to your From email"}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                    </label>
+                  </div>
+
+                  {/* Signature + address */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="block">
+                      <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Signature</span>
+                      <textarea value={autoDraft.signature ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, signature: e.target.value } : d)} rows={3}
+                        placeholder={"Ryan Boudreaux\nGulf Coast Digital\n(251) 555-0134"}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/50" />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Business mailing address <span className="text-muted-foreground/60">(required)</span></span>
+                      <textarea value={autoDraft.businessAddress ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, businessAddress: e.target.value } : d)} rows={3}
+                        placeholder={"123 Bay St, Mobile, AL 36602"}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/50" />
+                    </label>
+                  </div>
+
+                  {/* Cadence */}
+                  <div>
+                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Sending cadence</div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <label className="block">
+                        <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Emails per day (max)</span>
+                        <input type="number" min={1} max={500} value={autoDraft.dailyCap} onChange={e => setAutoDraft(d => d ? { ...d, dailyCap: Number(e.target.value) } : d)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Window start (hour)</span>
+                        <input type="number" min={0} max={23} value={autoDraft.windowStartHour} onChange={e => setAutoDraft(d => d ? { ...d, windowStartHour: Number(e.target.value) } : d)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Window end (hour)</span>
+                        <input type="number" min={1} max={24} value={autoDraft.windowEndHour} onChange={e => setAutoDraft(d => d ? { ...d, windowEndHour: Number(e.target.value) } : d)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Timezone</span>
+                        <select value={autoDraft.tzOffsetMinutes} onChange={e => setAutoDraft(d => d ? { ...d, tzOffsetMinutes: Number(e.target.value) } : d)}
+                          className="w-full bg-background border border-border rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-primary/50">
+                          <option value={-240}>Eastern (EDT)</option>
+                          <option value={-300}>Central (CDT)</option>
+                          <option value={-360}>Mountain (MDT)</option>
+                          <option value={-420}>Pacific (PDT)</option>
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Gap between sends (min)</span>
+                        <div className="flex items-center gap-1">
+                          <input type="number" min={1} max={240} value={autoDraft.minGapMinutes} onChange={e => setAutoDraft(d => d ? { ...d, minGapMinutes: Number(e.target.value) } : d)}
+                            className="w-full bg-background border border-border rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                          <span className="text-muted-foreground text-xs">to</span>
+                          <input type="number" min={1} max={480} value={autoDraft.maxGapMinutes} onChange={e => setAutoDraft(d => d ? { ...d, maxGapMinutes: Number(e.target.value) } : d)}
+                            className="w-full bg-background border border-border rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                        </div>
+                      </label>
+                      <label className="flex items-center gap-2 mt-6">
+                        <input type="checkbox" checked={autoDraft.sendOnWeekends} onChange={e => setAutoDraft(d => d ? { ...d, sendOnWeekends: e.target.checked } : d)}
+                          className="w-4 h-4 accent-[hsl(var(--primary))]" />
+                        <span className="text-xs font-semibold text-foreground">Send on weekends</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" checked={autoDraft.autoEnrollOnContact} onChange={e => setAutoDraft(d => d ? { ...d, autoEnrollOnContact: e.target.checked } : d)}
+                      className="w-4 h-4 mt-0.5 accent-[hsl(var(--primary))]" />
+                    <span className="text-xs text-foreground">Auto-enroll a lead the moment I mark it contacted, so its follow-ups run themselves.</span>
+                  </label>
+
+                  <p className="text-[11px] text-muted-foreground leading-relaxed border-t border-border pt-3">
+                    Emails read like a personal 1:1 message — no visible unsubscribe link. Opt-outs are handled quietly
+                    behind the scenes and the engine hard-stops on any unsubscribe, bounce, or reply, which is what keeps
+                    you landing in the inbox. Enroll leads from the list with the <span className="text-primary font-semibold">Automate</span> button.
+                  </p>
+
+                  <div className="flex items-center gap-3 pt-1">
+                    {autoMsg && <span className={`text-xs font-semibold ${autoMsg === "Saved." ? "text-primary" : "text-red-400"}`}>{autoMsg}</span>}
+                    <button onClick={saveAutoSettings} disabled={autoSaving}
+                      className="ml-auto flex items-center gap-1.5 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
+                      {autoSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                      {autoSaving ? "Saving…" : "Save settings"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}

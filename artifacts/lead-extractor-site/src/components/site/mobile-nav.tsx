@@ -8,11 +8,13 @@ const STORE_URL =
 
 const LINKS = [
   { href: "/", label: "Home" },
+  { href: "/#leads-for-sale", label: "Buy Leads" },
   { href: "/#industries", label: "Industries" },
+  { href: "/free-tool", label: "Free Tool" },
   { href: "/pricing", label: "Pricing" },
   { href: "/blog", label: "Blog" },
-  { href: "/tools", label: "Free Tools" },
-  { href: "/#faq", label: "FAQ" },
+  { href: "/tools", label: "Calculators" },
+  { href: "/scraper", label: "Scraper" },
 ];
 
 /**
