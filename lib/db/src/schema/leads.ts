@@ -102,6 +102,9 @@ export const leads = pgTable("leads", {
   repliedAt: timestamp("replied_at", { withTimezone: true }),
   // Deliverability suppression: 'bounced' | 'complained' → never email again.
   emailHealth: text("email_health"),
+  // When the one-shot warm-lead re-engagement email went out (opened/clicked
+  // but never replied). null = not sent; set = never send another.
+  reengagedAt: timestamp("reengaged_at", { withTimezone: true }),
   // RFC Message-ID of this lead's first email, so follow-ups thread beneath it.
   threadMessageId: text("thread_message_id"),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),

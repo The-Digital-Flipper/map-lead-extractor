@@ -292,6 +292,41 @@ export function renderEmail(rawBody: string, s: OutreachSettings): { text: strin
   return { text, html };
 }
 
+// ── Engagement tracking ──────────────────────────────────────────────────────
+// Every outbound email carries an unguessable per-email token in (a) a 1×1
+// tracking pixel and (b) rewritten body links that bounce through our redirect.
+// The public routes in routes/outreach.ts stamp opened_at / clicked_at when
+// they fire. Redirect URLs are HMAC-signed so the endpoint can't be abused as
+// an open redirect.
+
+function trackSecret(): string {
+  return process.env.ADMIN_SECRET || process.env.GMAIL_APP_PASSWORD || "lead-track";
+}
+
+export function signTrackedUrl(token: string, url: string): string {
+  return crypto.createHmac("sha256", trackSecret()).update(`${token}|${url}`).digest("hex").slice(0, 16);
+}
+
+export function trackedUrlValid(token: string, url: string, sig: string): boolean {
+  const expected = signTrackedUrl(token, url);
+  return sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+}
+
+/** Rewrite bare URLs in the rendered HTML into tracked redirect links and
+ * append the open pixel. The visible text stays the original URL. */
+export function instrumentHtml(html: string, token: string): string {
+  const track = (url: string) =>
+    `${PUBLIC_ORIGIN}/api/outreach/c/${token}?u=${encodeURIComponent(url)}&s=${signTrackedUrl(token, url)}`;
+  let out = html.replace(/https?:\/\/[^\s<>"']+/g, (m) => {
+    const visible = m.replace(/[.,)!?]+$/, "");     // trailing punctuation stays outside the link
+    const rest = m.slice(visible.length);
+    const original = visible.replace(/&amp;/g, "&"); // undo HTML escaping for the real destination
+    return `<a href="${track(original)}" style="color:#1a73e8">${visible}</a>${rest}`;
+  });
+  const pixel = `<img src="${PUBLIC_ORIGIN}/api/outreach/o/${token}.gif" width="1" height="1" style="display:block;width:1px;height:1px;border:0" alt="">`;
+  return out.endsWith("</div>") ? `${out.slice(0, -6)}${pixel}</div>` : out + pixel;
+}
+
 // ── Sending ──────────────────────────────────────────────────────────────────
 
 // The From address for the active provider. Gmail must send as the
@@ -311,7 +346,9 @@ async function sendStep(lead: Lead, s: OutreachSettings, step: number): Promise<
   if (!to || !content) return false;
 
   const token = lead.unsubToken ?? crypto.randomUUID();
-  const { text, html } = renderEmail(content.body, s);
+  const trackToken = crypto.randomUUID();
+  const { text, html: baseHtml } = renderEmail(content.body, s);
+  const html = instrumentHtml(baseHtml, trackToken);
   const fromAddr = fromEmailFor(s);
   const domain = fromAddr.split("@")[1] || "mail.local";
   const messageId = `<${token}.${step}.${Date.now()}@${domain}>`;
@@ -373,7 +410,7 @@ async function sendStep(lead: Lead, s: OutreachSettings, step: number): Promise<
 
     await db.insert(outreachEmails).values({
       leadId: lead.id, step, toEmail: to, subject: content.subject, body: content.body,
-      status: "sent", providerId, messageId,
+      status: "sent", providerId, messageId, trackToken,
     });
     return true;
   } catch (err) {

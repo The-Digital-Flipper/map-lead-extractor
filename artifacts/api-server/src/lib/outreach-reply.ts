@@ -28,6 +28,7 @@ import {
   renderEmail, markReplied,
 } from "./outreach-auto";
 import { generateReply, type ReplyTurn } from "./outreach";
+import { notifyOwner } from "./alerts";
 
 // How far back the inbox scan looks. Anything older on first boot is history.
 const SCAN_DAYS = 7;
@@ -201,6 +202,15 @@ async function processInbound(msg: InboundMsg, s: OutreachSettings): Promise<voi
       .where(eq(leads.id, lead.id));
     return;
   }
+
+  // A real (non-opt-out) reply is the hottest signal there is — ping the owner
+  // immediately so they can jump into the conversation while it's warm.
+  const who = lead.name || msg.fromEmail;
+  void notifyOwner({
+    subject: `🔥 ${who} replied to your outreach`,
+    text: `${who} (${msg.fromEmail}) wrote back:\n\n"${msg.body.slice(0, 600)}"\n\nTheir follow-up sequence is stopped — reply from your Gmail inbox or the dashboard.\n\nDashboard: ${process.env.PUBLIC_ORIGIN || "https://mapleadextractor.net"}/admin`,
+    sms: `🔥 ${who} replied to your outreach: "${msg.body.slice(0, 120)}"`,
+  });
   if (!s.autoReply || lead.unsubscribedAt) return;
   if (await autoRepliesSent(lead.id) >= MAX_AUTO_REPLIES_PER_LEAD) return;
 

@@ -13,10 +13,11 @@ import {
   getOutreachSettings, updateOutreachSettings, resendConfigured,
   gmailConfigured, gmailAddress, gmailSendReady, gmailSendAddress, anyProviderConfigured, providerReady,
   replitMailConfigured, enrollLeads, pauseLeads, markReplied, unsubscribeByToken, sentToday,
-  primaryEmail, renderEmail, sendGmailMail, sendReplitMail,
+  primaryEmail, renderEmail, sendGmailMail, sendReplitMail, trackedUrlValid,
 } from "../lib/outreach-auto";
 import { connectorGmailAvailable } from "../lib/gmailConnector";
 import { generateOutreach } from "../lib/outreach";
+import { notifyOwner } from "../lib/alerts";
 
 const router = Router();
 const ADMIN_SECRET = process.env.ADMIN_SECRET ?? "";
@@ -388,5 +389,64 @@ async function handleUnsub(req: Request, res: Response) {
 }
 router.get("/u/:token", handleUnsub);
 router.post("/u/:token", handleUnsub);
+
+// ---- GET /o/:token(.gif) — public open-tracking pixel -----------------------
+// Referenced by the 1×1 image embedded in every outbound email. Stamps
+// opened_at the first time it loads; always answers with a real GIF so mail
+// clients render nothing visible.
+const PIXEL_GIF = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+router.get("/o/:token", async (req, res) => {
+  const token = String(req.params.token ?? "").replace(/\.gif$/, "");
+  try {
+    if (token) {
+      const [row] = await db.select().from(outreachEmails).where(eq(outreachEmails.trackToken, token));
+      if (row && !row.openedAt) {
+        await db.update(outreachEmails).set({ openedAt: new Date() }).where(eq(outreachEmails.id, row.id));
+      }
+    }
+  } catch { /* tracking must never error the response */ }
+  res.set({ "Content-Type": "image/gif", "Cache-Control": "no-store, private", Expires: "0" });
+  res.end(PIXEL_GIF);
+});
+
+// ---- GET /c/:token?u=&s= — public click-tracking redirect -------------------
+// Body links in outbound emails bounce through here: stamp clicked_at (and
+// opened_at — a click implies an open), alert the owner on a lead's FIRST
+// click, then 302 to the real destination. The HMAC sig ties the URL to the
+// email token so this can't be used as an open redirect.
+router.get("/c/:token", async (req, res) => {
+  const token = String(req.params.token ?? "");
+  const url = String(req.query.u ?? "");
+  const sig = String(req.query.s ?? "");
+  if (!/^https?:\/\//i.test(url) || !token || !trackedUrlValid(token, url, sig)) {
+    res.status(400).type("text").send("Invalid link");
+    return;
+  }
+  try {
+    const [row] = await db.select().from(outreachEmails).where(eq(outreachEmails.trackToken, token));
+    if (row) {
+      const now = new Date();
+      const firstClickOnEmail = !row.clickedAt;
+      await db.update(outreachEmails)
+        .set({ openedAt: row.openedAt ?? now, clickedAt: row.clickedAt ?? now })
+        .where(eq(outreachEmails.id, row.id));
+      if (firstClickOnEmail) {
+        // First click across ALL of this lead's emails → hot-lead ping.
+        const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(outreachEmails)
+          .where(and(eq(outreachEmails.leadId, row.leadId), isNotNull(outreachEmails.clickedAt), sql`${outreachEmails.id} <> ${row.id}`));
+        if (n === 0) {
+          const [lead] = await db.select().from(leads).where(eq(leads.id, row.leadId));
+          const who = lead?.name || row.toEmail;
+          void notifyOwner({
+            subject: `👀 Hot lead: ${who} clicked your email link`,
+            text: `${who} (${row.toEmail}) just clicked the link in "${row.subject}".\n\nThey're looking at your offer right now — a quick personal follow-up while it's warm goes a long way.\n\nDashboard: https://mapleadextractor.net/admin`,
+            sms: `👀 Hot lead: ${who} just clicked the link in your outreach email (${row.toEmail}).`,
+          });
+        }
+      }
+    }
+  } catch { /* tracking must never block the redirect */ }
+  res.redirect(302, url);
+});
 
 export default router;

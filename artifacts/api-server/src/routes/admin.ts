@@ -32,6 +32,7 @@ import {
   tiktokAppConfigured, TIKTOK_REDIRECT_URI,
 } from "../lib/tiktok";
 import { postpeerConfigured, postpeerTikTokAccount } from "../lib/postpeer";
+import { sendBriefingNow } from "../lib/daily-briefing";
 import { sendBuyerFollowup } from "../lib/buyer-followup";
 import { sendCapturedDigest } from "../lib/captured-digest";
 import { listCustomers, inAudience, startBlast, blastStatus, sendTestEmail, type Audience } from "../lib/customer-blast";
@@ -1498,6 +1499,17 @@ router.post("/restore-bulk", requireAdmin, async (req, res) => {
 });
 
 // ═══ Social auto-poster ═══════════════════════════════════════════════════════
+
+// ---- POST /briefing/send-now — email the daily briefing immediately ----------
+router.post("/briefing/send-now", requireAuth, async (_req, res) => {
+  try {
+    const ok = await sendBriefingNow();
+    if (!ok) { res.status(400).json({ error: "No owner email configured to send the briefing to." }); return; }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
 
 // ---- GET /social — everything the Social tab needs in one call ---------------
 router.get("/social", requireAuth, async (_req, res) => {

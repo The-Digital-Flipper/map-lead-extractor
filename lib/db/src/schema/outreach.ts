@@ -74,10 +74,16 @@ export const outreachEmails = pgTable("outreach_emails", {
   // thread as replies (In-Reply-To / References) under the first email.
   providerId: text("provider_id"),
   messageId: text("message_id"),
+  // Engagement tracking: unguessable token embedded in this email's tracking
+  // pixel and rewritten links; stamped when the pixel loads / a link is clicked.
+  trackToken: text("track_token").unique(),
+  openedAt: timestamp("opened_at", { withTimezone: true }),
+  clickedAt: timestamp("clicked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   index("outreach_emails_lead_idx").on(t.leadId),
   index("outreach_emails_created_idx").on(t.createdAt),
+  index("outreach_emails_track_idx").on(t.trackToken),
 ]);
 
 // Two-way conversation log for the reply automation: one row per inbound reply
