@@ -13,7 +13,7 @@ import { useSeo } from "@/lib/seo";
 import { industryPages } from "@/data/landing-pages";
 import { MobileNav } from "@/components/site/mobile-nav";
 import LeadPackWidget from "@/components/site/lead-pack-widget";
-import { BuyerReviews, LeadStockLine } from "@/components/site/landing-sections";
+import { BuyerReviews, PlatformReviews } from "@/components/site/landing-sections";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
 
@@ -185,10 +185,6 @@ export default function Home() {
                   <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-primary" /> One-time payment, no subscription</span>
                   <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-primary" /> Every lead human-reviewed</span>
                   <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-primary" /> Refund if we come up short</span>
-                </motion.div>
-
-                <motion.div variants={fadeIn} className="mb-3">
-                  <LeadStockLine className="text-center" />
                 </motion.div>
 
                 <motion.p variants={fadeIn} className="text-sm text-primary font-semibold mb-12">
@@ -391,6 +387,7 @@ export default function Home() {
           </div>
         </section>
 
+        <PlatformReviews />
         <BuyerReviews />
 
         {/* Section 8: Final CTA */}

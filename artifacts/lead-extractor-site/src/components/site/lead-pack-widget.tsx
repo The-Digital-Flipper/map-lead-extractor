@@ -311,11 +311,10 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
 
   return (
     <div className="max-w-2xl mx-auto">
-      {/* Price + value header — honest framing, no manufactured "was" price */}
+      {/* Price + value header */}
       <div className="text-center mb-6">
         <div className="flex items-baseline justify-center gap-3 mb-2">
           <span className="text-5xl font-display font-bold text-foreground">$29</span>
-          <span className="px-2.5 py-1 rounded-full bg-primary/15 border border-primary/30 text-primary text-xs font-bold">just 29¢ per verified lead</span>
         </div>
         <p className="text-muted-foreground">100 targeted local business leads — phone, email, website, ratings & more</p>
       </div>
@@ -329,7 +328,7 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
           </div>
           <div className="min-w-0">
             <p className="text-sm font-bold text-foreground">See 5 real leads free — before you pay</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Pick a type/state below — or just click — and preview real matching businesses. No card, no signup.</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Pick a type/state above or type a request, then preview real matching businesses. No card, no signup.</p>
           </div>
         </div>
 
@@ -497,44 +496,11 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
         )}
       </div>
 
-      {/* Main conversion card — ONE primary path (the picker, which always
-          returns valid results); the free-text request is the secondary path
-          below it so a typo'd query can't dead-end the visitor. */}
+      {/* Main conversion card */}
       <div className="bg-card/60 border border-primary/20 rounded-2xl p-6 shadow-lg shadow-primary/5 mb-4">
 
-        <label className="block text-sm font-semibold text-foreground mb-2">Pick your leads</label>
-        <div className="flex flex-col sm:flex-row gap-3 mb-5">
-          <select
-            value={packCategory}
-            onChange={e => setPackCategory(e.target.value)}
-            data-testid="select-pack-category"
-            aria-label="Business type"
-            className="h-12 flex-1 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
-            <option value="">All business types</option>
-            {PACK_CATEGORIES.map(c => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-          </select>
-          <select
-            value={packState}
-            onChange={e => setPackState(e.target.value)}
-            data-testid="select-pack-state"
-            aria-label="State"
-            className="h-12 flex-1 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
-            <option value="">All states (nationwide)</option>
-            {US_STATES.map(s => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex-1 h-px bg-border" />
-          <span className="text-xs text-muted-foreground">or describe exactly what you need</span>
-          <div className="flex-1 h-px bg-border" />
-        </div>
-
-        {/* Free-text request — secondary path */}
+        {/* Free-text request */}
+        <label className="block text-sm font-semibold text-foreground mb-2">Tell us what you're looking for</label>
         <div className="flex flex-col sm:flex-row gap-3 mb-5">
           <input
             type="text"
@@ -582,6 +548,37 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
           </div>
         )}
 
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex-1 h-px bg-border" />
+          <span className="text-xs text-muted-foreground">or pick from a list</span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3 mb-5">
+          <select
+            value={packCategory}
+            onChange={e => setPackCategory(e.target.value)}
+            data-testid="select-pack-category"
+            aria-label="Business type"
+            className="h-12 flex-1 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
+            <option value="">All business types</option>
+            {PACK_CATEGORIES.map(c => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+          <select
+            value={packState}
+            onChange={e => setPackState(e.target.value)}
+            data-testid="select-pack-state"
+            aria-label="State"
+            className="h-12 flex-1 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
+            <option value="">All states (nationwide)</option>
+            {US_STATES.map(s => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+
         {/* Every category/state is always orderable. If we have 100+ on hand it
             ships instantly; if not, it's built to order (queued for fulfillment,
             24h delivery, auto refund on any shortfall) — never blocked. */}
@@ -624,37 +621,6 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
         <PaymentMethods className="mt-3" />
       </div>
 
-
-      {/* What's actually in the file — honest product preview, no invented
-          customers. (The fabricated Google-review cards that used to sit here
-          were removed deliberately — never reintroduce fake reviews.) */}
-      <div className="rounded-2xl border border-border bg-card/40 p-4 overflow-hidden">
-        <p className="text-xs font-semibold text-foreground mb-2.5">Every row of your CSV includes:</p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[11px] whitespace-nowrap">
-            <thead>
-              <tr className="text-left text-muted-foreground border-b border-border">
-                {["Business", "Phone", "Email", "Website", "Rating", "Reviews", "City / State", "Socials"].map(h => (
-                  <th key={h} className="px-2.5 py-1.5 font-semibold">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="text-muted-foreground">
-                <td className="px-2.5 py-1.5 font-mono text-foreground">Riverside Roofing Co.</td>
-                <td className="px-2.5 py-1.5 font-mono">(813) 555-0142</td>
-                <td className="px-2.5 py-1.5 font-mono">office@riversideroofing…</td>
-                <td className="px-2.5 py-1.5 font-mono">riversideroofing.com</td>
-                <td className="px-2.5 py-1.5 font-mono">4.8</td>
-                <td className="px-2.5 py-1.5 font-mono">214</td>
-                <td className="px-2.5 py-1.5 font-mono">Tampa, FL</td>
-                <td className="px-2.5 py-1.5 font-mono">FB · IG</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p className="text-[10px] text-muted-foreground mt-2">Example row — use the free 5-lead preview above to see real ones from your market.</p>
-      </div>
 
       {/* Volume pricing */}
       <div className="mt-10">

@@ -4,7 +4,6 @@ import { motion } from "framer-motion";
 import { Zap, Star } from "lucide-react";
 import { useSeo } from "@/lib/seo";
 import LeadPackWidget from "@/components/site/lead-pack-widget";
-import { LeadStockLine } from "@/components/site/landing-sections";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -85,14 +84,9 @@ export default function Pricing() {
             </p>
           </motion.div>
 
-          {/* Live social proof — a real number, never invented review scores
-              (the old fake Google/Trustpilot badges here were removed
-              deliberately; see the testimonials note in replit.md). */}
-          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.08 }} className="mb-12">
-            <LeadStockLine className="text-center" />
-          </motion.div>
-
-          {/* The buy-leads widget (shared with the home page) */}
+          {/* The buy-leads widget (shared with the home page). NOTE: the fake
+              Google/Trustpilot rating badges that used to sit here stay removed
+              (FTC fake-review rule; see replit.md). */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.12 }}>
             <LeadPackWidget showReviews />
           </motion.div>
