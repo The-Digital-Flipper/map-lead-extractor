@@ -624,12 +624,16 @@ export async function syncEngagementStats(limit: number): Promise<number> {
       }>(`${FB_GRAPH}/${row.externalId}?fields=reactions.summary(true).limit(0),comments.summary(true).limit(0),shares&access_token=${encodeURIComponent(fb.token)}`);
 
       let impressions: number | null = null;
+      let fbClicks: number | null = null;
       try {
-        const ins = await fbGet<{ data?: { values?: { value?: number }[] }[] }>(
-          `${FB_GRAPH}/${row.externalId}/insights?metric=post_impressions_unique&access_token=${encodeURIComponent(fb.token)}`,
+        const ins = await fbGet<{ data?: { name?: string; values?: { value?: number }[] }[] }>(
+          `${FB_GRAPH}/${row.externalId}/insights?metric=post_impressions_unique,post_clicks&access_token=${encodeURIComponent(fb.token)}`,
         );
-        impressions = ins.data?.[0]?.values?.[0]?.value ?? null;
-      } catch { /* read_insights not granted — reach stays unknown */ }
+        for (const m of ins.data ?? []) {
+          if (m.name === "post_impressions_unique") impressions = m.values?.[0]?.value ?? null;
+          if (m.name === "post_clicks") fbClicks = m.values?.[0]?.value ?? null;
+        }
+      } catch { /* read_insights not granted — reach/clicks stay unknown */ }
 
       await db
         .update(socialPosts)
@@ -638,6 +642,7 @@ export async function syncEngagementStats(limit: number): Promise<number> {
           comments: data.comments?.summary?.total_count ?? 0,
           shares: data.shares?.count ?? 0,
           ...(impressions !== null ? { impressions } : {}),
+          ...(fbClicks !== null ? { fbClicks } : {}),
           statsSyncedAt: new Date(),
         })
         .where(eq(socialPosts.id, row.id));
@@ -650,6 +655,21 @@ export async function syncEngagementStats(limit: number): Promise<number> {
   }
   if (synced) logger.info({ synced }, "Engagement stats synced");
   return synced;
+}
+
+/** Current follower/like counts for the connected Page (null if not connected
+ *  or the fields aren't readable). Shown in the admin Social tab header. */
+export async function fbPageFollowers(): Promise<{ followers: number | null; likes: number | null } | null> {
+  const fb = await facebookCreds();
+  if (!fb) return null;
+  try {
+    const d = await fbGet<{ followers_count?: number; fan_count?: number }>(
+      `${FB_GRAPH}/${fb.pageId}?fields=followers_count,fan_count&access_token=${encodeURIComponent(fb.token)}`,
+    );
+    return { followers: d.followers_count ?? null, likes: d.fan_count ?? null };
+  } catch {
+    return null;
+  }
 }
 
 // ── AI post images ────────────────────────────────────────────────────────────
@@ -784,6 +804,15 @@ export async function removePostImage(postId: number): Promise<void> {
 
 // ── Publishing ────────────────────────────────────────────────────────────────
 
+// Tag every tracked link in a post with that post's own id, so the Traffic
+// beacon records utm_campaign = "post-<id>" and clicks can be counted PER
+// POST (the Social tab reads those counts back from site_visits).
+function tagPostLinks(text: string, postId: number): string {
+  return text.replace(/https?:\/\/[^\s)"'<>]+/g, (u) =>
+    /utm_source=/.test(u) && !/utm_campaign=/.test(u) ? `${u}&utm_campaign=post-${postId}` : u,
+  );
+}
+
 export async function publishPost(postId: number): Promise<SocialPost> {
   const fb = await facebookCreds();
   if (!fb) throw new Error("Facebook not connected — use the Connect Facebook button in the admin Social tab.");
@@ -794,19 +823,22 @@ export async function publishPost(postId: number): Promise<SocialPost> {
   if (post.status === "posted") throw new Error("Already posted");
   if (post.platform !== "facebook") throw new Error("That's a group post — use Copy & Open in the Groups panel (Facebook doesn't let apps post to groups).");
 
+  const message = tagPostLinks(post.body, post.id);
+
   // With an image: photo post via /photos (multipart). Without: link post via /feed.
   let res: Response;
   if (post.imageB64) {
     const form = new FormData();
-    form.append("message", post.body);
+    form.append("message", message);
     form.append("access_token", fb.token);
     form.append("source", new Blob([Buffer.from(post.imageB64, "base64")], { type: "image/png" }), "post.png");
     res = await fetch(`https://graph.facebook.com/v23.0/${fb.pageId}/photos`, { method: "POST", body: form });
   } else {
     // Link-post fallback (no image): free-tool ads point at the Chrome Web
     // Store listing, leads ads at the sales page.
-    const link = post.campaign === "freetool" ? FREE_TOOL.storeUrl : PRODUCT.url;
-    const params = new URLSearchParams({ message: post.body, link, access_token: fb.token });
+    const rawLink = post.campaign === "freetool" ? FREE_TOOL.storeUrl : PRODUCT.url;
+    const link = `${rawLink}${rawLink.includes("?") ? "&" : "?"}utm_source=facebook&utm_medium=social&utm_campaign=post-${post.id}`;
+    const params = new URLSearchParams({ message, link, access_token: fb.token });
     res = await fetch(`https://graph.facebook.com/v23.0/${fb.pageId}/feed`, { method: "POST", body: params });
   }
   const data = (await res.json().catch(() => ({}))) as { id?: string; post_id?: string; error?: { message?: string } };

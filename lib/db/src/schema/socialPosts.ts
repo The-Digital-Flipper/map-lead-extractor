@@ -30,6 +30,8 @@ export const socialPosts = pgTable("social_posts", {
   comments: integer("comments"),
   shares: integer("shares"),
   impressions: integer("impressions"),
+  // Facebook's own post_clicks metric (all clicks anywhere on the post).
+  fbClicks: integer("fb_clicks"),
   statsSyncedAt: timestamp("stats_synced_at", { withTimezone: true }),
 }, (t) => [
   index("social_posts_status_idx").on(t.status),

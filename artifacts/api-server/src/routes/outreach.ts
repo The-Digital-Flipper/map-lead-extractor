@@ -12,7 +12,7 @@ import { and, desc, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import {
   getOutreachSettings, updateOutreachSettings, resendConfigured,
   gmailConfigured, gmailAddress, gmailSendReady, gmailSendAddress, anyProviderConfigured, providerReady,
-  enrollLeads, pauseLeads, markReplied, unsubscribeByToken, sentToday,
+  replitMailConfigured, enrollLeads, pauseLeads, markReplied, unsubscribeByToken, sentToday,
 } from "../lib/outreach-auto";
 
 const router = Router();
@@ -91,16 +91,21 @@ router.patch("/settings", requireAuth, async (req, res) => {
     return;
   }
 
-  // Can't turn it on unless the chosen provider is actually ready to send.
+  // Can't turn it on unless something can actually send. Replit Mail backstops
+  // both provider choices (the engine's sendStep falls back to it), so only
+  // refuse when neither the chosen provider nor the backstop is available.
   if (patch.enabled) {
     const current = await getOutreachSettings();
     const provider = (patch.provider ?? current.provider) as string;
-    if (provider === "gmail" && !gmailSendReady()) {
-      res.status(400).json({ error: "Connect Google Mail in Replit's integrations panel (or add GMAIL_USER + GMAIL_APP_PASSWORD secrets) before turning Gmail sending on." });
-      return;
-    }
-    if (provider === "resend" && !(resendConfigured() && (patch.fromEmail ?? current.fromEmail))) {
-      res.status(400).json({ error: "Add your RESEND_API_KEY and a verified From email before turning Resend sending on." });
+    const primaryReady = provider === "gmail"
+      ? gmailSendReady()
+      : resendConfigured() && !!(patch.fromEmail ?? current.fromEmail);
+    if (!primaryReady && !replitMailConfigured()) {
+      res.status(400).json({
+        error: provider === "gmail"
+          ? "Connect Google Mail in Replit's integrations panel (or add GMAIL_USER + GMAIL_APP_PASSWORD secrets) before turning Gmail sending on."
+          : "Add your RESEND_API_KEY and a verified From email before turning Resend sending on.",
+      });
       return;
     }
   }

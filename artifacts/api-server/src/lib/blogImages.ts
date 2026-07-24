@@ -88,14 +88,18 @@ async function generateHero(title: string, category: string, styleIdx: number): 
       quality: "medium",
       output_format: "jpeg",
     });
-  } catch {
-    return await callImagesApi(key, {
-      model: "dall-e-3",
-      prompt,
-      size: "1792x1024",
-      quality: "standard",
-      response_format: "b64_json",
-    });
+  } catch (primaryErr) {
+    try {
+      return await callImagesApi(key, {
+        model: "dall-e-3",
+        prompt,
+        size: "1792x1024",
+        quality: "standard",
+      });
+    } catch {
+      // The gpt-image-1 error (e.g. billing limit) is the meaningful one.
+      throw primaryErr;
+    }
   }
 }
 

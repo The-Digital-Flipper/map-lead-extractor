@@ -14,7 +14,7 @@ import {
 } from "react-simple-maps";
 import { Tooltip } from "react-tooltip";
 import { SOCIAL_LANDING_PAGES } from "@/data/social-landing-pages";
-import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Cell } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Cell, ComposedChart, Line, Legend } from "recharts";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL as string;
@@ -102,6 +102,15 @@ interface TrafficData {
     referrer: string | null; source: string | null; device: string | null;
     country: string | null; channel: string;
   }[];
+  prev?: { views: number; visitors: number; sessions: number };
+  hourly?: { hour: string; views: number; visitors: number }[];
+  campaigns?: { campaign: string; source: string; views: number; visitors: number; sessions: number; lastVisit: string }[];
+  browsers?: { browser: string; visitors: number }[];
+  osList?: { os: string; visitors: number }[];
+  landingPages?: { path: string; views: number; visitors: number }[];
+  conversions?: { captured: number; orders: number; revenueCents: number };
+  conversionsDaily?: { day: string; captured: number; orders: number; revenueCents: number }[];
+  avgSessionMinutes?: number;
 }
 
 interface SocialPostRow {
@@ -110,7 +119,8 @@ interface SocialPostRow {
   postedAt: string | null; createdAt: string | null;
   hasImage: boolean;
   likes: number | null; comments: number | null; shares: number | null;
-  impressions: number | null; statsSyncedAt: string | null;
+  impressions: number | null; fbClicks: number | null; statsSyncedAt: string | null;
+  linkClicks?: number; linkPeople?: number;
 }
 interface SocialGroupRow {
   id: number; name: string; url: string; notes: string | null;
@@ -120,6 +130,8 @@ interface SocialData {
   settings: { enabled: boolean; postHourUtc: number; autoRefill: boolean };
   facebookConnected: boolean;
   pageName: string | null;
+  pageFollowers: number | null;
+  pageLikes: number | null;
   appConfigured: boolean;
   redirectUri: string;
   aiConfigured: boolean;
@@ -284,7 +296,14 @@ export default function Admin() {
     } catch { /* ignore */ }
     setLoadingTraffic(false);
   }, []);
-  useEffect(() => { if (activeTab === "traffic") loadTraffic(trafficDays); }, [activeTab, trafficDays, loadTraffic]);
+  useEffect(() => {
+    if (activeTab !== "traffic") return;
+    loadTraffic(trafficDays);
+    // Keep the tab live — the "on site now" number and recent-visitor feed
+    // update themselves while you watch.
+    const t = setInterval(() => loadTraffic(trafficDays), 60_000);
+    return () => clearInterval(t);
+  }, [activeTab, trafficDays, loadTraffic]);
 
   // ── Captured leads (email capture from the free-sample flow) ───────────────
   type CapturedLead = {
@@ -550,11 +569,14 @@ export default function Admin() {
   // change (the URL is otherwise identical and would show the cached old one).
   const [lpImgBusy, setLpImgBusy] = useState<string | null>(null);
   const [lpImgBusyText, setLpImgBusyText] = useState("Working…");
+  // Shown inside the card itself — the socialMsg banner sits at the top of the
+  // tab and is off-screen when you're down at the Landing Pages grid.
+  const [lpImgErr, setLpImgErr] = useState<{ slug: string; msg: string } | null>(null);
   const [imgBust, setImgBust] = useState<Record<string, number>>({});
   const bustImg = (slug: string) => setImgBust((b) => ({ ...b, [slug]: (b[slug] ?? 0) + 1 }));
   // One click = a brand-new AI-made creative for this page (takes ~15-40s).
   const lpImgGenerate = async (lp: (typeof SOCIAL_LANDING_PAGES)[number]) => {
-    setLpImgBusy(lp.slug); setLpImgBusyText("Creating a new picture… (~30s)"); setSocialMsg(null);
+    setLpImgBusy(lp.slug); setLpImgBusyText("Creating a new picture… (~30s)"); setSocialMsg(null); setLpImgErr(null);
     try {
       const r = await adminFetch(`${basePath}/api/admin/social/landing-image/${lp.slug}/generate`, {
         method: "POST",
@@ -567,25 +589,25 @@ export default function Admin() {
       });
       const d = await r.json().catch(() => ({}));
       if (r.ok) { setSocialMsg(`✓ New picture created for ${lp.slug} — click again for a different one`); bustImg(lp.slug); loadSocial(); }
-      else setSocialMsg(d.error || `Couldn't create a picture (error ${r.status}) — please try again.`);
+      else setLpImgErr({ slug: lp.slug, msg: d.error || `Couldn't create a picture (error ${r.status}) — please try again.` });
     } catch {
-      setSocialMsg("Couldn't create a picture — please try again.");
+      setLpImgErr({ slug: lp.slug, msg: "Couldn't create a picture — please try again." });
     }
     setLpImgBusy(null);
   };
   const lpImgUpload = async (slug: string, file: File) => {
     if (!file) return;
-    if (file.size > 8 * 1024 * 1024) { setSocialMsg("That image is over 8 MB — pick a smaller one."); return; }
-    setLpImgBusy(slug); setLpImgBusyText("Uploading…"); setSocialMsg(null);
+    if (file.size > 8 * 1024 * 1024) { setLpImgErr({ slug, msg: "That image is over 8 MB — pick a smaller one." }); return; }
+    setLpImgBusy(slug); setLpImgBusyText("Uploading…"); setSocialMsg(null); setLpImgErr(null);
     try {
       const r = await adminFetch(`${basePath}/api/admin/social/landing-image/${slug}`, {
         method: "POST", headers: { "Content-Type": file.type }, body: file,
       });
       const d = await r.json().catch(() => ({}));
       if (r.ok) { setSocialMsg(`✓ New picture set for ${slug}`); bustImg(slug); loadSocial(); }
-      else setSocialMsg(d.error || `Upload failed (error ${r.status}) — try a JPG or PNG.`);
+      else setLpImgErr({ slug, msg: d.error || `Upload failed (error ${r.status}) — try a JPG or PNG.` });
     } catch {
-      setSocialMsg("Upload failed — please try again.");
+      setLpImgErr({ slug, msg: "Upload failed — please try again." });
     }
     setLpImgBusy(null);
   };
@@ -736,10 +758,15 @@ export default function Admin() {
     setImageBusyId(null); setImgVersion((v) => v + 1);
     loadSocial();
   };
-  const statsLine = (p: SocialPostRow) => p.statsSyncedAt === null ? null : (
-    <span className="flex items-center gap-2 text-xs text-muted-foreground">
+  const statsLine = (p: SocialPostRow) => (p.statsSyncedAt === null && !(p.linkClicks ?? 0)) ? null : (
+    <span className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
       <span>👍 {p.likes ?? 0}</span><span>💬 {p.comments ?? 0}</span><span>↗ {p.shares ?? 0}</span>
       {p.impressions !== null && <span>👁 {p.impressions.toLocaleString()} reached</span>}
+      {p.fbClicks !== null && <span>👆 {p.fbClicks.toLocaleString()} post clicks</span>}
+      <span className="text-primary font-semibold" title="People who clicked through to your site from this post's link (your own tracking)">
+        🔗 {(p.linkClicks ?? 0).toLocaleString()} site visit{(p.linkClicks ?? 0) === 1 ? "" : "s"}
+        {(p.linkPeople ?? 0) > 0 ? ` · ${p.linkPeople} ppl` : ""}
+      </span>
     </span>
   );
 
@@ -800,10 +827,15 @@ export default function Admin() {
   };
   // The one-click flow: copy the next queued group post, pop the group open in
   // a new tab, and log it against this group — all that's left is Ctrl+V.
+  // Tag tracked links with this post's id so clicks from it count per-post in
+  // the analytics (same tagging the auto-publisher does server-side).
+  const tagPostLinks = (text: string, postId: number) =>
+    text.replace(/https?:\/\/[^\s)"'<>]+/g, (u) =>
+      /utm_source=/.test(u) && !/utm_campaign=/.test(u) ? `${u}&utm_campaign=post-${postId}` : u);
   const groupCopyOpen = async (g: SocialGroupRow) => {
     const next = social?.groupQueue[0];
     if (!next) { setSocialMsg("No group posts queued — hit “Write 5 group posts” first."); return; }
-    try { await navigator.clipboard.writeText(next.body); } catch { /* clipboard blocked — post text is still visible below */ }
+    try { await navigator.clipboard.writeText(tagPostLinks(next.body, next.id)); } catch { /* clipboard blocked — post text is still visible below */ }
     window.open(g.url, "_blank", "noopener");
     setGroupBusyId(g.id); setSocialMsg(null);
     try {
@@ -2385,23 +2417,47 @@ export default function Admin() {
                 </div>
               </div>
 
-              {/* Headline numbers */}
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                {[
-                  { label: "On site now", value: traffic ? traffic.summary.live.toLocaleString() : "…", icon: <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-60" /><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary" /></span>, sub: "last 5 minutes", highlight: true },
-                  { label: "Visitors today", value: traffic ? traffic.summary.visitorsToday.toLocaleString() : "…", icon: <Users className="w-4 h-4 text-blue-400" />, sub: "last 24 hours" },
-                  { label: "Views today", value: traffic ? traffic.summary.viewsToday.toLocaleString() : "…", icon: <Eye className="w-4 h-4 text-green-400" />, sub: "last 24 hours" },
-                  { label: "Visitors", value: traffic ? traffic.summary.visitors.toLocaleString() : "…", icon: <Users className="w-4 h-4 text-primary" />, sub: `last ${trafficDays} days` },
-                  { label: "Pageviews", value: traffic ? traffic.summary.views.toLocaleString() : "…", icon: <Eye className="w-4 h-4 text-orange-400" />, sub: `last ${trafficDays} days` },
-                  { label: "Sessions", value: traffic ? traffic.summary.sessions.toLocaleString() : "…", icon: <TrendingUp className="w-4 h-4 text-yellow-400" />, sub: `last ${trafficDays} days` },
-                ].map((s, i) => (
-                  <div key={i} className={`rounded-xl p-4 border ${s.highlight ? "bg-primary/5 border-primary/30" : "bg-card border-border"}`}>
-                    <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">{s.icon} {s.label}</div>
-                    <div className={`text-2xl font-display font-bold ${s.highlight ? "text-primary" : "text-foreground"}`}>{s.value}</div>
-                    <div className="text-xs text-muted-foreground mt-1">{s.sub}</div>
+              {/* Headline numbers — with "vs the previous period" deltas */}
+              {(() => {
+                // e.g. +40% vs the previous 30 days; hidden when there's no history to compare.
+                const delta = (cur: number, prevVal?: number) => {
+                  if (prevVal == null || (prevVal === 0 && cur === 0)) return null;
+                  if (prevVal === 0) return { up: true, text: "new" };
+                  const pct = Math.round(((cur - prevVal) / prevVal) * 100);
+                  if (pct === 0) return { up: true, text: "±0%" };
+                  return { up: pct > 0, text: `${pct > 0 ? "+" : ""}${pct}%` };
+                };
+                const p = traffic?.prev;
+                const conv = traffic?.conversions;
+                const cards = [
+                  { label: "On site now", value: traffic ? traffic.summary.live.toLocaleString() : "…", icon: <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-60" /><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary" /></span>, sub: "last 5 minutes", highlight: true, delta: null as ReturnType<typeof delta> },
+                  { label: "Visitors today", value: traffic ? traffic.summary.visitorsToday.toLocaleString() : "…", icon: <Users className="w-4 h-4 text-blue-400" />, sub: "last 24 hours", highlight: false, delta: null },
+                  { label: "Views today", value: traffic ? traffic.summary.viewsToday.toLocaleString() : "…", icon: <Eye className="w-4 h-4 text-green-400" />, sub: "last 24 hours", highlight: false, delta: null },
+                  { label: "Visitors", value: traffic ? traffic.summary.visitors.toLocaleString() : "…", icon: <Users className="w-4 h-4 text-primary" />, sub: `last ${trafficDays} days`, highlight: false, delta: traffic ? delta(traffic.summary.visitors, p?.visitors) : null },
+                  { label: "Pageviews", value: traffic ? traffic.summary.views.toLocaleString() : "…", icon: <Eye className="w-4 h-4 text-orange-400" />, sub: `last ${trafficDays} days`, highlight: false, delta: traffic ? delta(traffic.summary.views, p?.views) : null },
+                  { label: "Sessions", value: traffic ? traffic.summary.sessions.toLocaleString() : "…", icon: <TrendingUp className="w-4 h-4 text-yellow-400" />, sub: `last ${trafficDays} days`, highlight: false, delta: traffic ? delta(traffic.summary.sessions, p?.sessions) : null },
+                  { label: "Emails captured", value: conv ? conv.captured.toLocaleString() : "…", icon: <Mail className="w-4 h-4 text-blue-400" />, sub: `last ${trafficDays} days`, highlight: false, delta: null },
+                  { label: "Money made", value: conv ? `$${(conv.revenueCents / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "…", icon: <DollarSign className="w-4 h-4 text-primary" />, sub: conv ? `${conv.orders} sale${conv.orders === 1 ? "" : "s"} · last ${trafficDays} days` : `last ${trafficDays} days`, highlight: true, delta: null },
+                ];
+                return (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {cards.map((s, i) => (
+                      <div key={i} className={`rounded-xl p-4 border ${s.highlight ? "bg-primary/5 border-primary/30" : "bg-card border-border"}`}>
+                        <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">{s.icon} {s.label}</div>
+                        <div className="flex items-baseline gap-2">
+                          <span className={`text-2xl font-display font-bold ${s.highlight ? "text-primary" : "text-foreground"}`}>{s.value}</span>
+                          {s.delta && (
+                            <span className={`text-xs font-bold ${s.delta.up ? "text-primary" : "text-red-400"}`}>
+                              {s.delta.up ? "▲" : "▼"} {s.delta.text}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">{s.sub}{s.delta ? ` · vs prior ${trafficDays} days` : ""}</div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                );
+              })()}
 
               {/* Daily series */}
               <div className="bg-card border border-border rounded-2xl p-6">
@@ -2429,6 +2485,102 @@ export default function Admin() {
                     </p>
                   </div>
                 )}
+              </div>
+
+              {/* Traffic → money: visitors, captured emails and sales on one timeline */}
+              <div className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-1">
+                  <DollarSign className="w-4 h-4 text-primary" />
+                  <h3 className="text-lg font-display font-bold">What your traffic turned into</h3>
+                </div>
+                <p className="text-xs text-muted-foreground mb-4">Visitors per day, with the emails captured and sales made on those same days — so you can see which traffic days actually paid off.</p>
+                {traffic && traffic.daily.length > 0 ? (() => {
+                  const convByDay = new Map((traffic.conversionsDaily ?? []).map(c => [c.day, c]));
+                  const data = traffic.daily.map(d => {
+                    const c = convByDay.get(d.day);
+                    return { day: d.day, visitors: d.visitors, captured: c?.captured ?? 0, sales: c?.orders ?? 0, revenue: (c?.revenueCents ?? 0) / 100 };
+                  });
+                  return (
+                    <ResponsiveContainer width="100%" height={260}>
+                      <ComposedChart data={data} margin={{ left: 0, right: 8 }}>
+                        <XAxis dataKey="day" tick={{ fill: "#8b949e", fontSize: 10 }} axisLine={false} tickLine={false}
+                          tickFormatter={(d: string) => d.slice(5)} interval="preserveStartEnd" />
+                        <YAxis yAxisId="v" tick={{ fill: "#8b949e", fontSize: 11 }} axisLine={false} tickLine={false} width={36} allowDecimals={false} />
+                        <YAxis yAxisId="m" orientation="right" tick={{ fill: "#8b949e", fontSize: 11 }} axisLine={false} tickLine={false} width={44}
+                          tickFormatter={(v: number) => `$${v}`} />
+                        <RechartsTooltip contentStyle={{ background: "#0d1117", border: "1px solid #21262d", borderRadius: 8, color: "#e6edf3" }}
+                          formatter={(v: number, name: string) => name === "revenue" ? [`$${v.toLocaleString()}`, "Revenue"] : [v.toLocaleString(), name === "visitors" ? "Visitors" : name === "captured" ? "Emails captured" : "Sales"]} />
+                        <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v: string) => v === "visitors" ? "Visitors" : v === "captured" ? "Emails captured" : v === "sales" ? "Sales" : "Revenue ($)"} />
+                        <Bar yAxisId="v" dataKey="visitors" fill="rgba(0,230,118,0.35)" radius={[3, 3, 0, 0]} />
+                        <Line yAxisId="v" dataKey="captured" stroke="#58a6ff" strokeWidth={2} dot={{ r: 2 }} />
+                        <Line yAxisId="v" dataKey="sales" stroke="#f0883e" strokeWidth={2} dot={{ r: 2 }} />
+                        <Line yAxisId="m" dataKey="revenue" stroke="#00E676" strokeWidth={2.5} dot={{ r: 2.5 }} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  );
+                })() : <p className="text-sm text-muted-foreground">No visits recorded yet — this fills in as traffic arrives.</p>}
+              </div>
+
+              {/* Last 48 hours, hour by hour */}
+              <div className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <Activity className="w-4 h-4 text-primary" />
+                  <h3 className="text-lg font-display font-bold">Last 48 hours</h3>
+                  <span className="text-xs text-muted-foreground">hour by hour, Central time</span>
+                </div>
+                {traffic && (traffic.hourly?.length ?? 0) > 0 ? (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={traffic.hourly} margin={{ left: 0, right: 8 }}>
+                      <XAxis dataKey="hour" tick={{ fill: "#8b949e", fontSize: 10 }} axisLine={false} tickLine={false}
+                        tickFormatter={(h: string) => h.slice(5).replace(" ", " · ")} interval="preserveStartEnd" />
+                      <YAxis tick={{ fill: "#8b949e", fontSize: 11 }} axisLine={false} tickLine={false} width={30} allowDecimals={false} />
+                      <RechartsTooltip contentStyle={{ background: "#0d1117", border: "1px solid #21262d", borderRadius: 8, color: "#e6edf3" }}
+                        formatter={(v: number, name: string) => [v.toLocaleString(), name === "views" ? "Pageviews" : "Visitors"]} />
+                      <Bar dataKey="views" fill="rgba(0,230,118,0.3)" radius={[2, 2, 0, 0]} />
+                      <Bar dataKey="visitors" fill="#00E676" radius={[2, 2, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : <p className="text-sm text-muted-foreground">No visits in the last 48 hours yet.</p>}
+              </div>
+
+              {/* Campaign performance — every tagged link you've shared */}
+              <div className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-1">
+                  <Target className="w-4 h-4 text-primary" />
+                  <h3 className="text-lg font-display font-bold">Campaign performance</h3>
+                </div>
+                <p className="text-xs text-muted-foreground mb-4">Every tagged link you've shared — landing-page links from the Social tab show up as "lp-…". If a campaign is missing, nobody has clicked that link yet.</p>
+                {traffic && (traffic.campaigns?.length ?? 0) > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-muted-foreground border-b border-border">
+                          <th className="py-2 pr-3">Campaign</th><th className="py-2 pr-3">Shared on</th>
+                          <th className="py-2 pr-3">Visits</th><th className="py-2 pr-3">People</th><th className="py-2">Last click</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(traffic.campaigns ?? []).map((c, i) => {
+                          const lp = c.campaign.startsWith("lp-") ? SOCIAL_LANDING_PAGES.find(l => l.slug === c.campaign.slice(3)) : null;
+                          return (
+                            <tr key={i} className="border-b border-border/50">
+                              <td className="py-2 pr-3">
+                                <span className="font-semibold text-foreground">{lp ? `${lp.emoji} ${lp.name}` : c.campaign}</span>
+                                {lp && <span className="text-xs text-muted-foreground font-mono"> · /go/{lp.slug}</span>}
+                              </td>
+                              <td className="py-2 pr-3 text-muted-foreground">{c.source}</td>
+                              <td className="py-2 pr-3 font-bold text-primary">{c.sessions.toLocaleString()}</td>
+                              <td className="py-2 pr-3 text-muted-foreground">{c.visitors.toLocaleString()}</td>
+                              <td className="py-2 whitespace-nowrap text-muted-foreground">
+                                {new Date(c.lastVisit).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : <p className="text-sm text-muted-foreground">No tagged-link clicks yet — copy a landing-page link from the Social tab and share it; every click lands here with its campaign name.</p>}
               </div>
 
               {/* Acquisition channels — the "where is my traffic from" answer */}
@@ -2531,14 +2683,16 @@ export default function Admin() {
               </div>
 
               {/* Engagement + new vs returning */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 {(() => {
                   const e = traffic?.engagement;
                   const nr = traffic?.newVsReturning;
                   const nrTotal = Math.max(1, (nr?.new ?? 0) + (nr?.returning ?? 0));
+                  const avgMin = traffic?.avgSessionMinutes ?? 0;
                   const cards = [
                     { label: "Bounce rate", value: e ? `${Math.round(e.bounceRate * 100)}%` : "…", sub: "left after one page", icon: <TrendingUp className="w-4 h-4 text-red-400" /> },
                     { label: "Pages / session", value: e ? e.pagesPerSession.toFixed(1) : "…", sub: `${(e?.sessions ?? 0).toLocaleString()} sessions`, icon: <Eye className="w-4 h-4 text-green-400" /> },
+                    { label: "Time on site", value: traffic ? (avgMin >= 1 ? `${avgMin.toFixed(1)} min` : "<1 min") : "…", sub: "average visit that browsed", icon: <Calendar className="w-4 h-4 text-yellow-400" /> },
                     { label: "New visitors", value: nr ? nr.new.toLocaleString() : "…", sub: `${Math.round((nr?.new ?? 0) / nrTotal * 100)}% of visitors`, icon: <Users className="w-4 h-4 text-primary" /> },
                     { label: "Returning", value: nr ? nr.returning.toLocaleString() : "…", sub: `${Math.round((nr?.returning ?? 0) / nrTotal * 100)}% of visitors`, icon: <Users className="w-4 h-4 text-blue-400" /> },
                   ];
@@ -2603,6 +2757,75 @@ export default function Admin() {
                       </div>
                     );
                   })()}
+                </div>
+              </div>
+
+              {/* Landing pages / Browsers / Operating systems */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="bg-card border border-border rounded-2xl p-6">
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Landing pages (/go links)</h3>
+                  {traffic && (traffic.landingPages?.length ?? 0) > 0 ? (
+                    <div className="space-y-2">
+                      {(traffic.landingPages ?? []).map((p, i) => {
+                        const lp = SOCIAL_LANDING_PAGES.find(l => `/go/${l.slug}` === p.path);
+                        return (
+                          <div key={i} className="flex items-center justify-between gap-2">
+                            <span className="text-sm text-foreground truncate">{lp ? `${lp.emoji} ${lp.name}` : <span className="font-mono">{p.path}</span>}</span>
+                            <span className="text-xs shrink-0">
+                              <span className="font-bold text-primary">{p.views.toLocaleString()}</span>
+                              <span className="text-muted-foreground"> · {p.visitors.toLocaleString()} ppl</span>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : <p className="text-sm text-muted-foreground">No landing-page visits yet — share the /go links from the Social tab.</p>}
+                </div>
+
+                <div className="bg-card border border-border rounded-2xl p-6">
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Browsers</h3>
+                  {traffic && (traffic.browsers?.length ?? 0) > 0 ? (() => {
+                    const rows = traffic.browsers ?? [];
+                    const total = Math.max(1, rows.reduce((s, b) => s + b.visitors, 0));
+                    return (
+                      <div className="space-y-3">
+                        {rows.map((b, i) => (
+                          <div key={i}>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-sm text-foreground capitalize">{b.browser}</span>
+                              <span className="text-xs font-bold text-primary">{b.visitors.toLocaleString()} · {Math.round((b.visitors / total) * 100)}%</span>
+                            </div>
+                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full bg-primary rounded-full" style={{ width: `${(b.visitors / total) * 100}%` }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })() : <p className="text-sm text-muted-foreground">No data yet</p>}
+                </div>
+
+                <div className="bg-card border border-border rounded-2xl p-6">
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Operating systems</h3>
+                  {traffic && (traffic.osList?.length ?? 0) > 0 ? (() => {
+                    const rows = traffic.osList ?? [];
+                    const total = Math.max(1, rows.reduce((s, o) => s + o.visitors, 0));
+                    return (
+                      <div className="space-y-3">
+                        {rows.map((o, i) => (
+                          <div key={i}>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-sm text-foreground">{o.os}</span>
+                              <span className="text-xs font-bold text-primary">{o.visitors.toLocaleString()} · {Math.round((o.visitors / total) * 100)}%</span>
+                            </div>
+                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full bg-primary rounded-full" style={{ width: `${(o.visitors / total) * 100}%` }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })() : <p className="text-sm text-muted-foreground">No data yet</p>}
                 </div>
               </div>
 
@@ -2749,6 +2972,12 @@ export default function Admin() {
                   {social?.facebookConnected ? (
                     <>
                       <div className="text-lg font-display font-bold text-primary">✓ {social.pageName || "Connected"}</div>
+                      {social.pageFollowers !== null && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          <span className="text-foreground font-semibold">{social.pageFollowers.toLocaleString()}</span> followers
+                          {social.pageLikes !== null && <> · <span className="text-foreground font-semibold">{social.pageLikes.toLocaleString()}</span> page likes</>}
+                        </div>
+                      )}
                       <button onClick={async () => { await adminFetch(`${basePath}/api/admin/social/fb/disconnect`, { method: "POST" }); loadSocial(); }}
                         className="text-xs text-muted-foreground hover:text-red-400 mt-1">Disconnect</button>
                     </>
@@ -2847,6 +3076,11 @@ export default function Admin() {
                           </div>
                         )}
                       </div>
+                      {lpImgErr?.slug === lp.slug && (
+                        <div className="text-xs px-3 py-2 rounded-lg border bg-red-500/10 border-red-500/30 text-red-400 mb-2">
+                          {lpImgErr.msg}
+                        </div>
+                      )}
                       <div className="flex items-center gap-2 flex-wrap mb-2">
                         <button
                           onClick={() => lpImgGenerate(lp)}
@@ -3092,7 +3326,7 @@ export default function Admin() {
                       <>
                         <p className="text-sm text-foreground whitespace-pre-wrap">{social.groupQueue[0].body}</p>
                         <div className="flex items-center gap-2 mt-3">
-                          <button onClick={() => { navigator.clipboard.writeText(social.groupQueue[0].body).catch(() => {}); setSocialMsg("✓ Copied — paste it wherever you like"); }}
+                          <button onClick={() => { navigator.clipboard.writeText(tagPostLinks(social.groupQueue[0].body, social.groupQueue[0].id)).catch(() => {}); setSocialMsg("✓ Copied — paste it wherever you like"); }}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80">
                             <Copy className="w-3 h-3" /> Copy only
                           </button>

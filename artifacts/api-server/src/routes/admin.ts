@@ -24,7 +24,7 @@ import {
   fbPickerToken, fbPickerTokenValid,
   generateGroupPosts, listGroups, addGroup, deleteGroup, markGroupPosted, discoverGroups,
   syncEngagementStats, generatePostImage, getPostImage, removePostImage,
-  socialChat, type SocialChatMessage,
+  socialChat, type SocialChatMessage, fbPageFollowers,
 } from "../lib/social";
 import { sendBuyerFollowup } from "../lib/buyer-followup";
 import { listCustomers, inAudience, startBlast, blastStatus, sendTestEmail, type Audience } from "../lib/customer-blast";
@@ -96,7 +96,8 @@ router.get("/traffic", requireAuth, async (req, res) => {
   const [
     summaryRows, liveRows, dailyRows, pageRows, refRows, deviceRows, sourceRows,
     newRetRows, entryRows, exitRows, heatRows, countryRows, engageRows,
-    channelRows, recentRows,
+    channelRows, recentRows, prevRows, hourlyRows, campaignRows, browserRows,
+    osRows, landingRows, convRows, convDailyRows, durationRows,
   ] = await Promise.all([
     db.execute(sql`
       SELECT
@@ -232,6 +233,78 @@ router.get("/traffic", requireAuth, async (req, res) => {
       )
       SELECT *, ${channelCase} AS channel FROM s ORDER BY started DESC LIMIT 30
     `),
+    // Previous window of the same length — powers the "vs last period" deltas.
+    db.execute(sql`
+      SELECT COUNT(*)::int AS views,
+             COUNT(DISTINCT visitor_id)::int AS visitors,
+             COUNT(DISTINCT session_id)::int AS sessions
+      FROM site_visits
+      WHERE created_at >= NOW() - make_interval(days => ${days * 2})
+        AND created_at <  NOW() - make_interval(days => ${days})
+    `),
+    // Hour-by-hour for the last 48 hours (owner's local time).
+    db.execute(sql`
+      SELECT to_char(date_trunc('hour', created_at AT TIME ZONE 'America/Chicago'), 'YYYY-MM-DD HH24:00') AS hour,
+             COUNT(*)::int AS views,
+             COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE created_at >= NOW() - INTERVAL '48 hours'
+      GROUP BY 1 ORDER BY 1
+    `),
+    // Campaign performance — every tagged link (utm_campaign), e.g. the
+    // lp-<slug> tags the Landing Pages tab puts on shared links.
+    db.execute(sql`
+      SELECT utm_campaign AS campaign,
+             COALESCE(utm_source, '—') AS source,
+             COUNT(*)::int AS views,
+             COUNT(DISTINCT visitor_id)::int AS visitors,
+             COUNT(DISTINCT session_id)::int AS sessions,
+             MAX(created_at) AS last_visit
+      FROM site_visits WHERE ${windowSql} AND utm_campaign IS NOT NULL
+      GROUP BY 1, 2 ORDER BY views DESC LIMIT 15
+    `),
+    db.execute(sql`
+      SELECT COALESCE(NULLIF(browser, ''), 'unknown') AS browser, COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE ${windowSql} GROUP BY 1 ORDER BY 2 DESC LIMIT 8
+    `),
+    db.execute(sql`
+      SELECT COALESCE(NULLIF(os, ''), 'unknown') AS os, COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE ${windowSql} GROUP BY 1 ORDER BY 2 DESC LIMIT 8
+    `),
+    // Landing-page (/go/*) performance.
+    db.execute(sql`
+      SELECT path, COUNT(*)::int AS views, COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM site_visits WHERE ${windowSql} AND path LIKE '/go/%'
+      GROUP BY 1 ORDER BY views DESC LIMIT 12
+    `),
+    // What the traffic turned into: captured emails + paid orders + revenue.
+    db.execute(sql`
+      SELECT
+        (SELECT COUNT(*)::int FROM sample_requests
+          WHERE email IS NOT NULL AND created_at >= NOW() - make_interval(days => ${days})) AS captured,
+        (SELECT COUNT(*)::int FROM pack_orders
+          WHERE paid_at IS NOT NULL AND paid_at >= NOW() - make_interval(days => ${days})) AS orders_paid,
+        (SELECT COALESCE(SUM(amount_cents - refunded_cents), 0)::int FROM pack_orders
+          WHERE paid_at IS NOT NULL AND paid_at >= NOW() - make_interval(days => ${days})) AS revenue_cents
+    `),
+    db.execute(sql`
+      SELECT day, SUM(captured)::int AS captured, SUM(orders)::int AS orders, SUM(revenue)::int AS revenue_cents
+      FROM (
+        SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
+               COUNT(*) FILTER (WHERE email IS NOT NULL) AS captured, 0 AS orders, 0 AS revenue
+        FROM sample_requests WHERE created_at >= NOW() - make_interval(days => ${days}) GROUP BY 1
+        UNION ALL
+        SELECT to_char(date_trunc('day', paid_at), 'YYYY-MM-DD'), 0, COUNT(*), SUM(amount_cents - refunded_cents)
+        FROM pack_orders WHERE paid_at IS NOT NULL AND paid_at >= NOW() - make_interval(days => ${days}) GROUP BY 1
+      ) t GROUP BY day ORDER BY day
+    `),
+    // Average time on site across multi-page sessions (single-page sessions
+    // have no measurable duration, so they'd drag the average to zero).
+    db.execute(sql`
+      SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (ended - started)) / 60), 0) AS avg_min FROM (
+        SELECT session_id, MIN(created_at) AS started, MAX(created_at) AS ended, COUNT(*) AS c
+        FROM site_visits WHERE ${windowSql} AND session_id IS NOT NULL GROUP BY session_id
+      ) s WHERE c > 1
+    `),
   ]);
 
   type SumRow = {
@@ -303,6 +376,32 @@ router.get("/traffic", requireAuth, async (req, res) => {
       country: r.country,
       channel: r.channel,
     })),
+    prev: (() => {
+      const r = (prevRows.rows[0] ?? {}) as { views?: number; visitors?: number; sessions?: number };
+      return { views: Number(r.views ?? 0), visitors: Number(r.visitors ?? 0), sessions: Number(r.sessions ?? 0) };
+    })(),
+    hourly: (hourlyRows.rows as { hour: string; views: number; visitors: number }[])
+      .map(r => ({ hour: r.hour, views: Number(r.views), visitors: Number(r.visitors) })),
+    campaigns: (campaignRows.rows as {
+      campaign: string; source: string; views: number; visitors: number; sessions: number; last_visit: string | Date;
+    }[]).map(r => ({
+      campaign: r.campaign, source: r.source,
+      views: Number(r.views), visitors: Number(r.visitors), sessions: Number(r.sessions),
+      lastVisit: r.last_visit instanceof Date ? r.last_visit.toISOString() : String(r.last_visit),
+    })),
+    browsers: (browserRows.rows as { browser: string; visitors: number }[])
+      .map(r => ({ browser: r.browser, visitors: Number(r.visitors) })),
+    osList: (osRows.rows as { os: string; visitors: number }[])
+      .map(r => ({ os: r.os, visitors: Number(r.visitors) })),
+    landingPages: (landingRows.rows as { path: string; views: number; visitors: number }[])
+      .map(r => ({ path: r.path, views: Number(r.views), visitors: Number(r.visitors) })),
+    conversions: (() => {
+      const r = (convRows.rows[0] ?? {}) as { captured?: number; orders_paid?: number; revenue_cents?: number };
+      return { captured: Number(r.captured ?? 0), orders: Number(r.orders_paid ?? 0), revenueCents: Number(r.revenue_cents ?? 0) };
+    })(),
+    conversionsDaily: (convDailyRows.rows as { day: string; captured: number; orders: number; revenue_cents: number }[])
+      .map(r => ({ day: r.day, captured: Number(r.captured), orders: Number(r.orders), revenueCents: Number(r.revenue_cents) })),
+    avgSessionMinutes: Number((durationRows.rows[0] as { avg_min?: number } | undefined)?.avg_min ?? 0),
   });
 });
 
@@ -1397,7 +1496,7 @@ router.get("/social", requireAuth, async (_req, res) => {
   // Never select image_b64 in lists — it's megabytes per row.
   const { imageB64: _imageB64, ...postCols } = getTableColumns(socialPosts);
   const listCols = { ...postCols, hasImage: sql<boolean>`${socialPosts.imageB64} IS NOT NULL` };
-  const [settings, fb, appConfigured, queue, groupQueue, history, groups, customImages] = await Promise.all([
+  const [settings, fb, appConfigured, queue, groupQueue, history, groups, customImages, followers, clickRows] = await Promise.all([
     getSocialSettings(),
     facebookCreds(),
     fbAppConfigured(),
@@ -1406,19 +1505,34 @@ router.get("/social", requireAuth, async (_req, res) => {
     db.select(listCols).from(socialPosts).where(sql`${socialPosts.status} <> 'queued'`).orderBy(desc(socialPosts.id)).limit(30),
     listGroups(),
     listLandingImageSlugs(),
+    fbPageFollowers(),
+    // Per-post link clicks: visits whose link carried this post's tag
+    // (utm_campaign = "post-<id>", stamped at publish time).
+    db.execute(sql`
+      SELECT utm_campaign, COUNT(*)::int AS clicks, COUNT(DISTINCT visitor_id)::int AS people
+      FROM site_visits WHERE utm_campaign LIKE 'post-%' GROUP BY 1
+    `),
   ]);
+  const clicksByPost = new Map(
+    (clickRows.rows as { utm_campaign: string; clicks: number; people: number }[])
+      .map(r => [r.utm_campaign, { clicks: Number(r.clicks), people: Number(r.people) }]),
+  );
+  const withClicks = <T extends { id: number }>(rows: T[]) =>
+    rows.map(r => ({ ...r, linkClicks: clicksByPost.get(`post-${r.id}`)?.clicks ?? 0, linkPeople: clicksByPost.get(`post-${r.id}`)?.people ?? 0 }));
   // Never ship tokens/secrets to the browser.
   const { fbAppSecret: _s, fbUserToken: _u, fbPageToken: _p, ...safeSettings } = settings;
   res.json({
     settings: safeSettings,
     facebookConnected: Boolean(fb),
     pageName: fb?.pageName ?? null,
+    pageFollowers: followers?.followers ?? null,
+    pageLikes: followers?.likes ?? null,
     appConfigured,
     redirectUri: FB_REDIRECT_URI,
     aiConfigured: Boolean(process.env.OPENAI_API_KEY || process.env.CHAT_GPT_API),
     queue,
     groupQueue,
-    history,
+    history: withClicks(history),
     groups,
     customImages,
   });

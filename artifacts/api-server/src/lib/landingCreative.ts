@@ -49,12 +49,27 @@ export async function callImagesApi(
   });
   if (!res.ok) {
     const detail = (await res.text().catch(() => "")).slice(0, 300);
+    if (detail.includes("billing_hard_limit_reached") || detail.includes("insufficient_quota")) {
+      throw new Error(
+        "Your OpenAI account has hit its billing limit, so it can't make images right now — add credit or raise the limit at platform.openai.com (Settings → Billing), then try again.",
+      );
+    }
     throw new Error(`OpenAI images ${res.status}: ${detail}`);
   }
-  const data = (await res.json()) as { data?: { b64_json?: string }[] };
-  const b64 = data.data?.[0]?.b64_json;
-  if (!b64) throw new Error("OpenAI returned no image data.");
-  const bytes = Buffer.from(b64, "base64");
+  const data = (await res.json()) as { data?: { b64_json?: string; url?: string }[] };
+  const first = data.data?.[0];
+  let bytes: Buffer;
+  if (first?.b64_json) {
+    bytes = Buffer.from(first.b64_json, "base64");
+  } else if (first?.url) {
+    // dall-e-3 returns a temporary URL by default (response_format is no
+    // longer an accepted parameter) — download it.
+    const dl = await fetch(first.url);
+    if (!dl.ok) throw new Error(`OpenAI image download failed (${dl.status}).`);
+    bytes = Buffer.from(await dl.arrayBuffer());
+  } else {
+    throw new Error("OpenAI returned no image data.");
+  }
   // JPEG magic bytes; gpt-image-1 honors output_format, dall-e-3 returns PNG.
   const mime = bytes[0] === 0xff && bytes[1] === 0xd8 ? "image/jpeg" : "image/png";
   return { mime, bytes };
@@ -74,14 +89,18 @@ export async function generateLandingCreative(brief: CreativeBrief): Promise<{ m
       quality: "medium",
       output_format: "jpeg",
     });
-  } catch {
+  } catch (primaryErr) {
     // dall-e-3 has no 3:2 size — 1792x1024 is the closest landscape.
-    return await callImagesApi(key, {
-      model: "dall-e-3",
-      prompt,
-      size: "1792x1024",
-      quality: "standard",
-      response_format: "b64_json",
-    });
+    try {
+      return await callImagesApi(key, {
+        model: "dall-e-3",
+        prompt,
+        size: "1792x1024",
+        quality: "standard",
+      });
+    } catch {
+      // The gpt-image-1 error (e.g. billing limit) is the meaningful one.
+      throw primaryErr;
+    }
   }
 }
