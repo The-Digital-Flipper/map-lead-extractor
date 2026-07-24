@@ -6,7 +6,8 @@ import {
   Search, Share2, Crown, ArrowUpRight, CreditCard, Trash2,
   RefreshCw, ChevronLeft, ChevronRight, BarChart2, X,
   CheckSquare, Square, CheckCheck, ShieldCheck, MessageSquare,
-  Settings, Bookmark, Plus, Pin, StickyNote, Tag, Bell, Sparkles,
+  Settings, Bookmark, Plus, Pin, StickyNote, Tag, Bell, Sparkles, Radar,
+  Users, Quote, Lightbulb,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis,
@@ -55,6 +56,25 @@ interface Lead {
   outreach: Outreach | null;
   autoOutreach: boolean | null;
   nextEmailAt: string | null;
+  socialScan: SocialScan | null;
+  socialScanAt: string | null;
+}
+
+// Deep social profile report (leads.socialScan) — mirrors SocialScanReport in
+// the shared DB schema. profile is absent on scans run before the upgrade.
+interface SocialScanPlatform { platform: string; url?: string; followers?: string; lastActive?: string; note?: string }
+interface SocialScanProfile {
+  about?: string; owner?: string; founded?: string; contentThemes?: string[];
+  engagement?: string; reputation?: string; hooks?: string[];
+}
+interface SocialScan {
+  platforms: SocialScanPlatform[];
+  missing: string[];
+  grade: "none" | "weak" | "ok" | "strong";
+  profile?: SocialScanProfile;
+  pitch: string;
+  opener: string;
+  sources?: { title: string; url: string }[];
 }
 
 interface OutreachStep { day: number; channel: "email" | "sms"; subject?: string; body: string }
@@ -527,6 +547,12 @@ export default function Dashboard() {
   const [autoMsg, setAutoMsg] = useState<string | null>(null);
   const [autoActivity, setAutoActivity] = useState<AutoActivity[]>([]);
   const [autoReplies, setAutoReplies] = useState<AutoReply[]>([]);
+  // Social profile scan: per-lead deep dive on the business's public presence.
+  const [scanLead, setScanLead] = useState<Lead | null>(null);
+  const [scan, setScan] = useState<SocialScan | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+
   // AI outreach engine: per-lead personalized email + SMS + follow-ups.
   const [outreachLead, setOutreachLead] = useState<Lead | null>(null);
   const [outreach, setOutreach] = useState<Outreach | null>(null);
@@ -945,6 +971,31 @@ export default function Dashboard() {
       } : l));
       fetchStats();
     } catch {}
+  };
+
+  // Social profile: open the modal and fetch (or run) the deep scan. A lead
+  // that already has a stored report shows it instantly; Rescan forces a rerun.
+  const openScan = async (lead: Lead, force = false) => {
+    setScanLead(lead);
+    setScanError(null);
+    if (!force && lead.socialScan) { setScan(lead.socialScan); return; }
+    if (!force) setScan(null);
+    setScanLoading(true);
+    try {
+      const r = await authFetch(`${basePath}/api/leads/${lead.id}/social-scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Could not run the social profile scan");
+      setScan(d.scan as SocialScan);
+      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, socialScan: d.scan as SocialScan, socialScanAt: String(d.scannedAt ?? "") || l.socialScanAt } : l));
+    } catch (e) {
+      setScanError(e instanceof Error ? e.message : "Could not run the social profile scan");
+    } finally {
+      setScanLoading(false);
+    }
   };
 
   // AI outreach: open the modal for a lead and fetch (or generate) its drafts.
@@ -1764,6 +1815,13 @@ export default function Dashboard() {
                                   <Bell className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
                                 )}
                                 <button
+                                  onClick={() => openScan(lead)}
+                                  className={`transition-colors ${lead.socialScan ? "text-primary" : "text-muted-foreground/40 hover:text-primary"}`}
+                                  title={lead.socialScan ? "Social profile — view the deep scan of this business" : "Social profile — scan their socials, reviews & web presence"}
+                                >
+                                  <Radar className="w-4 h-4" />
+                                </button>
+                                <button
                                   onClick={() => openOutreach(lead)}
                                   className="text-muted-foreground/40 hover:text-primary transition-colors"
                                   title="AI outreach — write a personalized email, text & follow-ups"
@@ -2236,6 +2294,180 @@ export default function Dashboard() {
                   className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity">
                   Save
                 </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Social profile modal */}
+      <AnimatePresence>
+        {scanLead && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setScanLead(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-card border border-border rounded-2xl w-full max-w-xl shadow-2xl max-h-[88vh] overflow-y-auto"
+            >
+              <div className="flex items-center gap-2 p-6 pb-3 sticky top-0 bg-card border-b border-border">
+                <Radar className="w-4 h-4 text-primary" />
+                <h3 className="font-display font-bold truncate">Social Profile</h3>
+                <span className="text-xs text-muted-foreground truncate">· {scanLead.name ?? "lead"}</span>
+                {scan && !scanLoading && (
+                  <button
+                    onClick={() => openScan(scanLead, true)}
+                    className="ml-auto flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors"
+                    title="Run the scan again for fresh data"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Rescan
+                  </button>
+                )}
+                <button onClick={() => setScanLead(null)} className={`${scan && !scanLoading ? "" : "ml-auto"} text-muted-foreground hover:text-foreground`}>
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-6 pt-4 space-y-4">
+                {scanLoading && (
+                  <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
+                    <RefreshCw className="w-6 h-6 animate-spin text-primary" />
+                    <p className="text-sm">Scanning their socials, reviews & web presence… (~30-60s)</p>
+                  </div>
+                )}
+
+                {scanError && !scanLoading && (
+                  <div className="py-8 text-center space-y-3">
+                    <p className="text-sm text-red-400">{scanError}</p>
+                    <button onClick={() => openScan(scanLead, true)}
+                      className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity">
+                      Try again
+                    </button>
+                  </div>
+                )}
+
+                {scan && !scanLoading && (
+                  <>
+                    {/* Grade + platform audit */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Presence</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${
+                        scan.grade === "strong" ? "bg-primary/15 text-primary border-primary/30"
+                        : scan.grade === "ok" ? "bg-blue-500/15 text-blue-400 border-blue-500/30"
+                        : scan.grade === "weak" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/30"
+                        : "bg-red-500/15 text-red-400 border-red-500/30"}`}>
+                        {scan.grade}
+                      </span>
+                    </div>
+                    {scan.platforms.length > 0 && (
+                      <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
+                        {scan.platforms.map((p, i) => (
+                          <div key={i} className="px-4 py-2.5 text-xs flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                            {p.url
+                              ? <a href={p.url} target="_blank" rel="noopener noreferrer" className="font-bold capitalize text-primary hover:underline">{p.platform}</a>
+                              : <span className="font-bold capitalize">{p.platform}</span>}
+                            {p.followers && <span className="text-muted-foreground">{p.followers} followers</span>}
+                            {p.lastActive && <span className="text-muted-foreground">· {p.lastActive}</span>}
+                            {p.note && <span className="w-full text-muted-foreground/80">{p.note}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {scan.missing.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-bold text-red-400">Not on:</span> {scan.missing.join(", ")}
+                      </p>
+                    )}
+
+                    {/* Deep profile */}
+                    {scan.profile && (
+                      <div className="rounded-xl border border-border p-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Users className="w-3.5 h-3.5 text-primary" />
+                          <span className="text-xs font-bold">About the business</span>
+                        </div>
+                        {scan.profile.about && <p className="text-xs text-foreground">{scan.profile.about}</p>}
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          {scan.profile.owner && <span><span className="font-bold text-foreground">Owner:</span> {scan.profile.owner}</span>}
+                          {scan.profile.founded && <span><span className="font-bold text-foreground">Since:</span> {scan.profile.founded}</span>}
+                        </div>
+                        {scan.profile.contentThemes && scan.profile.contentThemes.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {scan.profile.contentThemes.map((t, i) => (
+                              <span key={i} className="px-2 py-0.5 rounded-full bg-background border border-border text-xs text-muted-foreground">{t}</span>
+                            ))}
+                          </div>
+                        )}
+                        {scan.profile.engagement && <p className="text-xs text-muted-foreground"><span className="font-bold text-foreground">Engagement:</span> {scan.profile.engagement}</p>}
+                        {scan.profile.reputation && (
+                          <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+                            <Quote className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
+                            <span><span className="font-bold text-foreground">Reviews say:</span> {scan.profile.reputation}</span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Hooks */}
+                    {scan.profile?.hooks && scan.profile.hooks.length > 0 && (
+                      <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Lightbulb className="w-3.5 h-3.5 text-primary" />
+                          <span className="text-xs font-bold">Conversation starters</span>
+                        </div>
+                        <ul className="space-y-1.5">
+                          {scan.profile.hooks.map((h, i) => (
+                            <li key={i} className="text-xs text-foreground flex items-start gap-1.5">
+                              <span className="text-primary shrink-0">→</span> {h}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Pitch + opener */}
+                    {scan.pitch && (
+                      <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/10 border border-primary/30">
+                        <Zap className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                        <p className="text-xs text-foreground"><span className="font-bold">How to pitch:</span> {scan.pitch}</p>
+                      </div>
+                    )}
+                    {scan.opener && (
+                      <div className="rounded-xl border border-border overflow-hidden">
+                        <div className="flex items-center gap-2 px-4 py-2 bg-background border-b border-border">
+                          <MessageSquare className="w-3.5 h-3.5 text-primary" />
+                          <span className="text-xs font-bold">Opener</span>
+                          <button onClick={() => copyOut("scan-opener", scan.opener)}
+                            className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                            {outreachCopied === "scan-opener" ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+                            {outreachCopied === "scan-opener" ? "Copied" : "Copy"}
+                          </button>
+                        </div>
+                        <p className="px-4 py-3 text-xs text-foreground whitespace-pre-wrap">{scan.opener}</p>
+                      </div>
+                    )}
+
+                    {/* Sources */}
+                    {scan.sources && scan.sources.length > 0 && (
+                      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                        Sources: {scan.sources.map((s, i) => (
+                          <span key={i}>{i > 0 && " · "}<a href={s.url} target="_blank" rel="noopener noreferrer" className="hover:text-primary underline decoration-dotted">{s.title}</a></span>
+                        ))}
+                      </p>
+                    )}
+
+                    {/* Hand off to outreach */}
+                    <button
+                      onClick={() => { const l = scanLead; setScanLead(null); openOutreach(l); }}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" /> Write outreach using this profile
+                    </button>
+                  </>
+                )}
               </div>
             </motion.div>
           </motion.div>

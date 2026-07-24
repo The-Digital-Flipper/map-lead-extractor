@@ -63,6 +63,12 @@ function leadPayload(lead: Lead): Record<string, unknown> {
     // missing platforms) — the most concrete personalization hooks we have.
     socialPages: socialScanSummary(lead.socialScan) || null,
     socialOpener: lead.socialScan?.opener || null,
+    // Deep social profile (owner as publicly listed, what they post, review
+    // sentiment, ready-made hooks) — use these to personalize hard.
+    ownerName: lead.socialScan?.profile?.owner || null,
+    aboutBusiness: lead.socialScan?.profile?.about || null,
+    reviewReputation: lead.socialScan?.profile?.reputation || null,
+    outreachHooks: lead.socialScan?.profile?.hooks ?? [],
   };
 }
 

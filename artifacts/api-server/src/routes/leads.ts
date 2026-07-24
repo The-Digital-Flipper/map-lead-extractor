@@ -6,7 +6,7 @@ import { sql, ilike, or, gte, and, count, eq, ne, inArray, isNull, type SQL } fr
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
 import { discoverBusinesses } from "../lib/discover";
-import { socialScanSummary } from "../lib/socialScan";
+import { socialScanSummary, scanAndSaveLead } from "../lib/socialScan";
 import { generateOutreach } from "../lib/outreach";
 import { getOutreachSettings, enrollLeads } from "../lib/outreach-auto";
 
@@ -613,6 +613,32 @@ router.post("/:id/outreach", async (req, res) => {
     res.json({ ok: true, id, outreach, outreachAt: at, cached: false });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Outreach generation failed" });
+  }
+});
+
+// ---- POST /:id/social-scan — run (or return cached) deep social profile -----
+// Same caching pattern as /:id/outreach: the scan bills an AI web search, so a
+// stored report is returned as-is unless the member explicitly forces a rerun.
+router.post("/:id/social-scan", async (req, res) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Sign in to run a social profile scan" }); return; }
+
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const force = !!(req.body as { force?: boolean })?.force;
+
+  const [lead] = await db.select().from(leads).where(and(eq(leads.id, id), isNull(leads.deletedAt)));
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
+
+  if (lead.socialScan && !force) {
+    res.json({ ok: true, id, scan: lead.socialScan, scannedAt: lead.socialScanAt, cached: true });
+    return;
+  }
+  try {
+    const scan = await scanAndSaveLead(lead);
+    res.json({ ok: true, id, scan, scannedAt: new Date(), cached: false });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Social profile scan failed" });
   }
 });
 

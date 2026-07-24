@@ -1479,7 +1479,8 @@ export default function Admin() {
 
   // Social page scan — per-platform followers/recency/missing-platform ammo.
   type SocialScanPlatform = { platform: string; url?: string; followers?: string; lastActive?: string; note?: string };
-  type SocialScanReport = { platforms: SocialScanPlatform[]; missing: string[]; grade: string; pitch: string; opener: string; sources?: ReconSource[] };
+  type SocialScanProfile = { about?: string; owner?: string; founded?: string; contentThemes?: string[]; engagement?: string; reputation?: string; hooks?: string[] };
+  type SocialScanReport = { platforms: SocialScanPlatform[]; missing: string[]; grade: string; profile?: SocialScanProfile; pitch: string; opener: string; sources?: ReconSource[] };
   type SocialScanLead = { id: number; name: string | null; category: string | null; report: SocialScanReport; summary: string };
   const [socialScanning, setSocialScanning] = useState(false);
   const [socialScanResult, setSocialScanResult] = useState<{ scanned: number; results: SocialScanLead[] } | null>(null);

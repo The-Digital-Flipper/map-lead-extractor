@@ -117,10 +117,22 @@ export type SocialScanPlatform = {
   lastActive?: string;    // e.g. "last post Nov 2025", "inactive ~8 months"
   note?: string;          // one concrete observation worth mentioning in a pitch
 };
+// Deeper business profile assembled from the lead's own public pages — every
+// field optional; only what the scan could actually verify gets filled in.
+export type SocialScanProfile = {
+  about?: string;          // what they do, specialties, how they position themselves
+  owner?: string;          // owner/decision-maker as the BUSINESS publishes it, e.g. 'Mike Smith (owner)'
+  founded?: string;        // e.g. "est. 2012", "serving the Gulf Coast 15+ years"
+  contentThemes?: string[];// what they actually post about (jobs done, promos, memes…)
+  engagement?: string;     // how their audience responds (likes/comments per post, quality)
+  reputation?: string;     // review sentiment highlights: what customers praise/complain about
+  hooks?: string[];        // concrete personalization hooks for outreach, each tied to a real finding
+};
 export type SocialScanReport = {
   platforms: SocialScanPlatform[]; // pages that exist
   missing: string[];               // platforms they have NO presence on
   grade: "none" | "weak" | "ok" | "strong";
+  profile?: SocialScanProfile;     // deep profile (added later — absent on old scans)
   pitch: string;                   // 2-3 sentences: how to sell them with this
   opener: string;                  // short first message referencing a real finding
   sources?: { title: string; url: string }[];

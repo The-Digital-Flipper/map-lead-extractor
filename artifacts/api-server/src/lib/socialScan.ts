@@ -1,8 +1,11 @@
 /**
- * Social page scan — analyzes a lead's ACTUAL social media pages to arm the
+ * Social profile scan — analyzes a lead's ACTUAL social media pages to arm the
  * pitch: which platforms they're on, followers, how recently they posted,
- * which platforms are missing entirely, and a ready-to-use angle built from
- * those findings.
+ * which platforms are missing entirely, plus a deeper business profile (what
+ * they do, who runs it as publicly listed, content themes, engagement,
+ * review reputation, outreach hooks) and a ready-to-use angle built from
+ * those findings. Profile facts come only from what the business itself
+ * publishes — no digging into personal accounts.
  *
  * Two layers, cheapest first:
  *  1. Direct probe: fetch the social URLs we already have on file. Public
@@ -12,7 +15,7 @@
  *     gaps, finds profiles we DON'T have on file, and judges recency. Strict
  *     accuracy rules — only claims backed by a search result or a probe fact.
  */
-import { db, leads, type Lead, type SocialScanReport, type SocialScanPlatform } from "@workspace/db";
+import { db, leads, type Lead, type SocialScanReport, type SocialScanPlatform, type SocialScanProfile } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 
@@ -86,10 +89,26 @@ function parseReport(text: string): SocialScanReport | null {
         })).filter((p) => p.platform)
       : [];
     const grade = (["none", "weak", "ok", "strong"] as const).find((g) => g === str(o.grade)) ?? (platforms.length ? "weak" : "none");
+    const strList = (v: unknown): string[] | undefined => {
+      const list = Array.isArray(v) ? v.map(str).filter(Boolean) : [];
+      return list.length ? list : undefined;
+    };
+    const p = (o.profile ?? {}) as SocialScanProfile;
+    const profile: SocialScanProfile = {
+      about: str(p.about) || undefined,
+      owner: str(p.owner) || undefined,
+      founded: str(p.founded) || undefined,
+      contentThemes: strList(p.contentThemes),
+      engagement: str(p.engagement) || undefined,
+      reputation: str(p.reputation) || undefined,
+      hooks: strList(p.hooks),
+    };
     return {
       platforms,
       missing: Array.isArray(o.missing) ? o.missing.map(str).filter(Boolean) : [],
       grade,
+      // Only attach the profile if the scan verified at least one field.
+      profile: Object.values(profile).some((v) => v !== undefined) ? profile : undefined,
       pitch: str(o.pitch),
       opener: str(o.opener),
     };
@@ -106,17 +125,27 @@ export async function socialScanLead(lead: Lead): Promise<SocialScanReport> {
   const onFile = PLATFORMS.filter((p) => (lead[p] ?? "").trim()).map((p) => `${p}: ${lead[p]}`);
   const probeLines = probes.map((p) => `- ${p.platform} (${p.url}): ${p.fact}`);
 
-  const input = `You're a sales scout analyzing a local business's SOCIAL MEDIA presence to arm a pitch for marketing services. Run a few web searches on their social pages (Facebook, Instagram, X/Twitter, LinkedIn, TikTok, YouTube).
+  const input = `You're a sales scout building a full SOCIAL PROFILE of a local business to arm a pitch for marketing services. Run several web searches on their social pages (Facebook, Instagram, X/Twitter, LinkedIn, TikTok, YouTube), their website, and their Google/Yelp reviews.
 
 Business: ${lead.name ?? "(unknown)"}${lead.category ? `, a ${lead.category}` : ""}${lead.address ? ` in ${lead.address}` : ""}.
 ${onFile.length ? `Profiles on file: ${onFile.join("; ")}` : "No social profiles on file — search for any."}
 ${probeLines.length ? `VERIFIED facts pulled from their own pages just now:\n${probeLines.join("\n")}` : ""}
 
-Find, for each platform where they exist: follower/like count, how recently they posted (recency is the #1 signal — a dead page is the strongest sales hook), and one concrete observation (e.g. "last post 9 months ago", "posts weekly but under 5 likes each", "no reviews answered"). Also determine which major platforms they are simply NOT on.
+PART 1 — platform audit. For each platform where they exist: follower/like count, how recently they posted (recency is the #1 signal — a dead page is the strongest sales hook), and one concrete observation (e.g. "last post 9 months ago", "posts weekly but under 5 likes each", "no reviews answered"). Also determine which major platforms they are simply NOT on.
+
+PART 2 — business profile. From what the business itself publishes (its pages, bios, about sections, website, review responses), pull:
+- about: what they actually do — services, specialties, how they position themselves (2-3 sentences)
+- owner: the owner/manager IF the business publishes it (page bio, "meet the owner" post, website about page, signed review replies), with role, e.g. "Mike Smith (owner)". Only from the business's own public materials — do not dig into anyone's personal accounts or personal life.
+- founded: how long they've been around, if stated (e.g. "est. 2012", "family-owned 20+ years")
+- contentThemes: 2-4 things they actually post about (finished jobs, promos, community events…)
+- engagement: how their audience responds (typical likes/comments, do they answer comments/reviews)
+- reputation: what customers praise or complain about in reviews — 1-2 sentences with specifics
+- hooks: 2-4 concrete conversation-starters for outreach, each tied to a real finding (e.g. "congratulate the shop's 10-year anniversary post from May", "their pinned post still advertises a 2023 promo")
 
 ACCURACY RULES — critical:
-- Only state what a search result or the VERIFIED facts above actually show. Never guess follower counts or dates.
+- Only state what a search result or the VERIFIED facts above actually show. Never guess follower counts, dates, names, or years.
 - If a platform can't be verified either way, leave it out of "platforms" AND out of "missing".
+- Omit any profile field you couldn't verify — leave it out entirely rather than filling it with "unknown".
 - It's better to report less than to invent.
 
 Return ONLY this JSON:
@@ -124,6 +153,15 @@ Return ONLY this JSON:
   "platforms": [{"platform": "facebook", "url": "...", "followers": "210", "lastActive": "last post March 2025", "note": "<one concrete observation>"}],
   "missing": ["instagram", "linkedin"],
   "grade": "<none|weak|ok|strong — overall social presence>",
+  "profile": {
+    "about": "...",
+    "owner": "Mike Smith (owner)",
+    "founded": "est. 2012",
+    "contentThemes": ["finished jobs", "promos"],
+    "engagement": "...",
+    "reputation": "...",
+    "hooks": ["...", "..."]
+  },
   "pitch": "<2-3 plain sentences: how to use these findings to sell them social media / marketing services. Reference the concrete facts.>",
   "opener": "<a short, friendly first message referencing ONE real finding, e.g. their dead Facebook page>"
 }`;
@@ -172,6 +210,8 @@ export function socialScanSummary(scan: SocialScanReport | null | undefined): st
     `Social: ${scan.grade}`,
     parts.length ? parts.join("; ") : "no active pages found",
     scan.missing.length ? `missing ${scan.missing.join(", ")}` : "",
+    scan.profile?.owner ? `owner: ${scan.profile.owner}` : "",
+    scan.profile?.reputation ? `reviews: ${scan.profile.reputation}` : "",
   ].filter(Boolean);
   return bits.join(" — ");
 }
