@@ -212,11 +212,18 @@ router.post("/", async (req, res) => {
     return;
   }
 
-  // No AI configured — still persist the message and let the owner reply live.
-  if (!apiKey) {
+  // The visitor's message is saved and the owner alerted, so even without a
+  // working AI the chat still "works": hold the visitor here and let the owner
+  // reply live from the admin Chats tab. Used when no key is set AND when the
+  // OpenAI call fails (bad key, no credit, outage) — never show an error.
+  const holdingReply = async () => {
     const fallback = "Thanks for your message! The owner has been notified and will reply right here shortly.";
     if (conv) await storeMessage(conv.id, "ai", fallback).catch(() => {});
     res.json({ reply: fallback });
+  };
+
+  if (!apiKey) {
+    await holdingReply();
     return;
   }
 
@@ -236,7 +243,7 @@ router.post("/", async (req, res) => {
     if (!r.ok) {
       const detail = await r.text().catch(() => "");
       req.log.error({ status: r.status, detail: detail.slice(0, 500) }, "OpenAI chat error");
-      res.status(502).json({ error: "The assistant is unavailable right now — please try again." });
+      await holdingReply();
       return;
     }
 
@@ -246,7 +253,7 @@ router.post("/", async (req, res) => {
     res.json({ reply });
   } catch (err) {
     req.log.error({ err }, "OpenAI chat request failed");
-    res.status(502).json({ error: "The assistant is unavailable right now — please try again." });
+    await holdingReply();
   }
 });
 

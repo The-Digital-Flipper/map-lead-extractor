@@ -7,13 +7,16 @@
  */
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "@clerk/express";
-import { db, leads, outreachEmails, outreachReplies } from "@workspace/db";
-import { and, desc, eq, isNull, isNotNull, sql } from "drizzle-orm";
+import { db, leads, outreachEmails, outreachReplies, type LeadOutreach, type LeadOutreachStep } from "@workspace/db";
+import { and, asc, desc, eq, gte, isNull, isNotNull, or, sql } from "drizzle-orm";
 import {
   getOutreachSettings, updateOutreachSettings, resendConfigured,
   gmailConfigured, gmailAddress, gmailSendReady, gmailSendAddress, anyProviderConfigured, providerReady,
   replitMailConfigured, enrollLeads, pauseLeads, markReplied, unsubscribeByToken, sentToday,
+  primaryEmail, renderEmail, sendGmailMail, sendReplitMail,
 } from "../lib/outreach-auto";
+import { connectorGmailAvailable } from "../lib/gmailConnector";
+import { generateOutreach } from "../lib/outreach";
 
 const router = Router();
 const ADMIN_SECRET = process.env.ADMIN_SECRET ?? "";
@@ -160,6 +163,215 @@ router.get("/replies", requireAuth, async (req, res) => {
   }).from(outreachReplies).leftJoin(leads, eq(leads.id, outreachReplies.leadId))
     .orderBy(desc(outreachReplies.createdAt)).limit(limit);
   res.json({ replies: rows });
+});
+
+// ---- GET /stats — dashboard analytics for the Email tab ---------------------
+router.get("/stats", requireAuth, async (_req, res) => {
+  const s = await getOutreachSettings();
+  const days = 14;
+  const since = new Date(Date.now() - days * 86_400_000);
+  // Per-day counts bucketed in the owner's local timezone, matching the send window.
+  const perDayRaw = await db.select({
+    day: sql<string>`to_char((${outreachEmails.createdAt} + make_interval(mins => ${s.tzOffsetMinutes}))::date, 'YYYY-MM-DD')`,
+    sent: sql<number>`(count(*) filter (where ${outreachEmails.status} = 'sent'))::int`,
+    failed: sql<number>`(count(*) filter (where ${outreachEmails.status} = 'failed'))::int`,
+  }).from(outreachEmails).where(gte(outreachEmails.createdAt, since)).groupBy(sql`1`).orderBy(sql`1`);
+  // Fill the gaps so the chart always shows a continuous 14-day axis.
+  const byDay = new Map(perDayRaw.map(r => [r.day, r]));
+  const perDay: { day: string; sent: number; failed: number }[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() + s.tzOffsetMinutes * 60_000 - i * 86_400_000).toISOString().slice(0, 10);
+    perDay.push(byDay.get(d) ?? { day: d, sent: 0, failed: 0 });
+  }
+
+  const [emailTotals] = await db.select({
+    sentAllTime: sql<number>`(count(*) filter (where ${outreachEmails.status} = 'sent'))::int`,
+    failedAllTime: sql<number>`(count(*) filter (where ${outreachEmails.status} = 'failed'))::int`,
+    sent7d: sql<number>`(count(*) filter (where ${outreachEmails.status} = 'sent' and ${outreachEmails.createdAt} > now() - interval '7 days'))::int`,
+    leadsEmailed: sql<number>`(count(distinct ${outreachEmails.leadId}) filter (where ${outreachEmails.status} = 'sent'))::int`,
+  }).from(outreachEmails);
+  const [leadTotals] = await db.select({
+    replied: sql<number>`(count(*) filter (where ${leads.repliedAt} is not null))::int`,
+    unsubscribed: sql<number>`(count(*) filter (where ${leads.unsubscribedAt} is not null))::int`,
+    bounced: sql<number>`(count(*) filter (where ${leads.emailHealth} is not null))::int`,
+  }).from(leads).where(isNull(leads.deletedAt));
+  const [replyTotals] = await db.select({
+    inbound: sql<number>`(count(*) filter (where ${outreachReplies.direction} = 'in'))::int`,
+    aiSent: sql<number>`(count(*) filter (where ${outreachReplies.direction} = 'out' and ${outreachReplies.aiGenerated} and ${outreachReplies.status} = 'sent'))::int`,
+  }).from(outreachReplies);
+
+  res.json({
+    perDay,
+    totals: {
+      ...emailTotals, ...leadTotals, ...replyTotals,
+      replyRate: emailTotals.leadsEmailed > 0 ? Math.round((leadTotals.replied / emailTotals.leadsEmailed) * 100) : 0,
+    },
+    providers: {
+      gmailSmtp: gmailConfigured(),
+      gmailConnector: connectorGmailAvailable(),
+      gmailAddress: gmailSendAddress(),
+      resend: resendConfigured(),
+      replitMail: replitMailConfigured(),
+      imapWatcher: gmailConfigured(), // reply-watching needs the app-password secrets
+    },
+  });
+});
+
+// ---- GET /queue — the next scheduled sends ----------------------------------
+router.get("/queue", requireAuth, async (_req, res) => {
+  const rows = await db.select().from(leads)
+    .where(and(eq(leads.autoOutreach, true), isNull(leads.deletedAt), isNotNull(leads.nextEmailAt)))
+    .orderBy(asc(leads.nextEmailAt)).limit(25);
+  res.json({
+    queue: rows.map(l => ({
+      id: l.id, name: l.name, toEmail: primaryEmail(l),
+      nextStep: (l.outreachStep ?? 0) + 1, nextEmailAt: l.nextEmailAt,
+      subject: (l.outreach as LeadOutreach | null)?.email?.subject ?? null,
+    })),
+  });
+});
+
+// ---- GET /draft/:id — a lead's AI email sequence (generate if missing) ------
+router.get("/draft/:id", requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [lead] = await db.select().from(leads).where(and(eq(leads.id, id), isNull(leads.deletedAt)));
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
+  const s = await getOutreachSettings();
+  let o = lead.outreach as LeadOutreach | null;
+  if (req.query.regen === "1" || !o?.email?.body) {
+    try {
+      o = await generateOutreach(lead, { name: s.fromName, offer: s.offer });
+      await db.update(leads).set({ outreach: o, updatedAt: new Date() }).where(eq(leads.id, id));
+    } catch (err) {
+      res.status(502).json({ error: `Couldn't write the draft: ${err instanceof Error ? err.message : "AI error"}` });
+      return;
+    }
+  }
+  res.json({
+    lead: { id: lead.id, name: lead.name, email: primaryEmail(lead), step: lead.outreachStep ?? 0, enrolled: !!lead.autoOutreach, nextEmailAt: lead.nextEmailAt },
+    draft: o,
+  });
+});
+
+// ---- PATCH /draft/:id — save the owner's edits to a sequence ----------------
+router.patch("/draft/:id", requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [lead] = await db.select().from(leads).where(and(eq(leads.id, id), isNull(leads.deletedAt)));
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
+  const o = lead.outreach as LeadOutreach | null;
+  if (!o?.email) { res.status(400).json({ error: "No draft to edit yet — open the preview first." }); return; }
+
+  const b = req.body as { email?: { subject?: unknown; body?: unknown }; followUps?: { day?: unknown; subject?: unknown; body?: unknown }[] };
+  const email = {
+    subject: String(b.email?.subject ?? o.email.subject).slice(0, 200),
+    body: String(b.email?.body ?? o.email.body).slice(0, 5000),
+  };
+  if (!email.subject.trim() || !email.body.trim()) { res.status(400).json({ error: "Subject and body can't be empty." }); return; }
+  const followUps: LeadOutreachStep[] = Array.isArray(b.followUps)
+    ? b.followUps.slice(0, 5).map((f, i) => ({
+        channel: "email" as const,
+        day: Math.min(60, Math.max(1, Math.trunc(Number(f.day)) || (i + 1) * 3)),
+        subject: f.subject == null ? undefined : String(f.subject).slice(0, 200),
+        body: String(f.body ?? "").slice(0, 5000),
+      })).filter(f => f.body.trim())
+    : (o.followUps ?? []);
+  const next: LeadOutreach = { ...o, email, followUps };
+  await db.update(leads).set({ outreach: next, updatedAt: new Date() }).where(eq(leads.id, id));
+  res.json({ ok: true, draft: next });
+});
+
+// ---- POST /test-send/:id — email the lead's step-1 draft to the OWNER -------
+router.post("/test-send/:id", requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [lead] = await db.select().from(leads).where(and(eq(leads.id, id), isNull(leads.deletedAt)));
+  const o = lead?.outreach as LeadOutreach | null;
+  if (!lead || !o?.email?.body) { res.status(400).json({ error: "No draft to test — open the preview first." }); return; }
+  const s = await getOutreachSettings();
+  const requested = String((req.body as { to?: unknown })?.to ?? "").trim();
+  const to = (/.+@.+\..+/.test(requested) ? requested : "") || gmailSendAddress() || s.replyTo || s.fromEmail || "";
+  if (!to) { res.status(400).json({ error: "Nowhere to send the test — connect Gmail or set a reply-to address first." }); return; }
+  const { text, html } = renderEmail(o.email.body, s);
+  const subject = `[TEST] ${o.email.subject}`;
+  try {
+    if (gmailSendReady()) await sendGmailMail({ fromName: s.fromName, to, subject, text, html });
+    else if (replitMailConfigured()) await sendReplitMail({ to, subject, text, html });
+    else { res.status(400).json({ error: "No email provider configured." }); return; }
+    res.json({ ok: true, to });
+  } catch (err) {
+    res.status(502).json({ error: `Test send failed: ${err instanceof Error ? err.message : "send error"}` });
+  }
+});
+
+// ---- GET /thread/:id — full conversation with one lead ----------------------
+router.get("/thread/:id", requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [lead] = await db.select().from(leads).where(eq(leads.id, id));
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
+  const [sent, replies] = await Promise.all([
+    db.select().from(outreachEmails).where(eq(outreachEmails.leadId, id)).orderBy(asc(outreachEmails.createdAt)),
+    db.select().from(outreachReplies).where(eq(outreachReplies.leadId, id)).orderBy(asc(outreachReplies.createdAt)),
+  ]);
+  const thread = [
+    ...sent.map(e => ({ kind: "email" as const, id: `e${e.id}`, direction: "out" as const, step: e.step, subject: e.subject, body: e.body, status: e.status, error: e.error, aiGenerated: true, createdAt: e.createdAt })),
+    ...replies.map(r => ({ kind: "reply" as const, id: `r${r.id}`, direction: r.direction as "in" | "out", step: null, subject: r.subject, body: r.body, status: r.status, error: r.error, aiGenerated: r.aiGenerated, createdAt: r.createdAt })),
+  ].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  res.json({
+    lead: { id: lead.id, name: lead.name, email: primaryEmail(lead), repliedAt: lead.repliedAt, unsubscribedAt: lead.unsubscribedAt, enrolled: !!lead.autoOutreach },
+    thread,
+  });
+});
+
+// ---- POST /manual-reply/:id — the owner answers a lead from the dashboard ---
+router.post("/manual-reply/:id", requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = String((req.body as { body?: unknown })?.body ?? "").trim().slice(0, 5000);
+  if (!body) { res.status(400).json({ error: "Write a message first." }); return; }
+  const [lead] = await db.select().from(leads).where(and(eq(leads.id, id), isNull(leads.deletedAt)));
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
+  if (!gmailSendReady()) { res.status(400).json({ error: "Connect Google Mail (Replit integrations panel) to reply from your inbox." }); return; }
+
+  const [lastIn] = await db.select().from(outreachReplies)
+    .where(and(eq(outreachReplies.leadId, id), eq(outreachReplies.direction, "in")))
+    .orderBy(desc(outreachReplies.createdAt)).limit(1);
+  const to = lastIn?.fromEmail || primaryEmail(lead);
+  if (!to) { res.status(400).json({ error: "This lead has no email address." }); return; }
+
+  const s = await getOutreachSettings();
+  const { text, html } = renderEmail(body, s);
+  const baseSubject = lastIn?.subject || (lead.outreach as LeadOutreach | null)?.email?.subject || "our conversation";
+  const subject = /^re:/i.test(baseSubject) ? baseSubject : `Re: ${baseSubject}`;
+  const fromAddr = gmailSendAddress() ?? "";
+  const domain = fromAddr.split("@")[1] || "mail.local";
+  const messageId = `<manual.${lead.id}.${Date.now()}@${domain}>`;
+  const inReplyTo = lastIn?.messageId ?? lead.threadMessageId ?? undefined;
+  try {
+    await sendGmailMail({ fromName: s.fromName, to, replyTo: s.replyTo || undefined, subject, text, html, messageId, inReplyTo });
+    await db.insert(outreachReplies).values({ leadId: lead.id, direction: "out", fromEmail: fromAddr, subject, body, messageId, status: "sent", aiGenerated: false });
+    res.json({ ok: true, to });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "send failed";
+    await db.insert(outreachReplies).values({ leadId: lead.id, direction: "out", fromEmail: fromAddr, subject, body, messageId, status: "failed", error: msg.slice(0, 500), aiGenerated: false }).catch(() => {});
+    res.status(502).json({ error: `Send failed: ${msg}` });
+  }
+});
+
+// ---- GET /suppressed — who we'll never email again --------------------------
+router.get("/suppressed", requireAuth, async (_req, res) => {
+  const rows = await db.select().from(leads)
+    .where(and(isNull(leads.deletedAt), or(isNotNull(leads.unsubscribedAt), isNotNull(leads.emailHealth))))
+    .orderBy(desc(leads.updatedAt)).limit(200);
+  res.json({
+    suppressed: rows.map(l => ({
+      id: l.id, name: l.name, email: primaryEmail(l),
+      reason: l.unsubscribedAt ? "unsubscribed" : (l.emailHealth ?? "bounced"),
+      at: l.unsubscribedAt ?? l.updatedAt,
+    })),
+  });
 });
 
 // ---- GET /u/:token — public one-click unsubscribe ---------------------------

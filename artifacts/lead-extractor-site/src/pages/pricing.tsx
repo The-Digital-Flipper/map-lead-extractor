@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { Zap, Star } from "lucide-react";
 import { useSeo } from "@/lib/seo";
 import LeadPackWidget from "@/components/site/lead-pack-widget";
-import { PlatformReviews } from "@/components/site/landing-sections";
+import { LeadStockLine } from "@/components/site/landing-sections";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -85,30 +85,11 @@ export default function Pricing() {
             </p>
           </motion.div>
 
-          {/* Rating badges — instant social proof */}
-          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.08 }} className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-12">
-            {/* Google */}
-            <div className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-xl px-5 py-3 shadow-sm">
-              <svg width="22" height="22" viewBox="0 0 48 48" fill="none"><path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/><path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/></svg>
-              <div className="text-left">
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-lg font-semibold text-[#202124] leading-none">4.9</span>
-                  <div className="flex items-center gap-px">{[1,2,3,4,5].map(s=><svg key={s} className="w-3 h-3 fill-[#f59e0b]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
-                </div>
-                <p className="text-[11px] text-[#70757a] mt-0.5">386 Google reviews</p>
-              </div>
-            </div>
-            {/* Trustpilot */}
-            <div className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-xl px-5 py-3 shadow-sm">
-              <svg width="22" height="22" viewBox="0 0 126.3 125.5"><path d="M126.3 48.2H78L63.2 2.5 48.3 48.2H0l40.5 29.1-15.4 47 38.1-27.5 38.2 27.5-15.5-47z" fill="#00b67a"/></svg>
-              <div className="text-left">
-                <div className="flex items-center gap-1.5">
-                  <div className="flex gap-0.5">{[1,2,3,4,5].map(s=><div key={s} className="w-4 h-4 bg-[#00b67a] flex items-center justify-center"><svg className="w-2.5 h-2.5 fill-white" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg></div>)}</div>
-                  <span className="text-sm font-bold text-[#191919] leading-none">4.8</span>
-                </div>
-                <p className="text-[11px] text-[#555] mt-0.5"><span className="font-bold text-[#191919]">Excellent</span> · 220 on Trustpilot</p>
-              </div>
-            </div>
+          {/* Live social proof — a real number, never invented review scores
+              (the old fake Google/Trustpilot badges here were removed
+              deliberately; see the testimonials note in replit.md). */}
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.08 }} className="mb-12">
+            <LeadStockLine className="text-center" />
           </motion.div>
 
           {/* The buy-leads widget (shared with the home page) */}

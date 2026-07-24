@@ -114,11 +114,10 @@ export default function SocialLanding({ params }: { params: { variant: string } 
                 </a>
                 {!lp.sampleFirst && (
                   <div className="flex items-baseline gap-2 text-sm text-muted-foreground">
-                    <span className="line-through">$99</span>
                     <span className="px-2 py-0.5 rounded-full bg-primary/15 border border-primary/30 text-primary text-xs font-bold">
-                      71% OFF today
+                      just 29¢ per verified lead
                     </span>
-                    <span>· that's 29¢ per lead</span>
+                    <span>· one-time payment</span>
                   </div>
                 )}
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

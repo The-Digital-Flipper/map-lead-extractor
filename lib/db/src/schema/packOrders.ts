@@ -43,6 +43,8 @@ export const packOrders = pgTable("pack_orders", {
   deadlineAt: timestamp("deadline_at", { withTimezone: true }).notNull(),
   paidAt: timestamp("paid_at", { withTimezone: true }),
   readyAt: timestamp("ready_at", { withTimezone: true }),
+  // When we emailed this buyer asking for a review (null = not asked yet).
+  reviewRequestedAt: timestamp("review_requested_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [

@@ -33,6 +33,7 @@ import { autoScrapeTick, autoScrapeStatus, setAutoScrapeEnabled, seedAutoTargets
 import {
   anyProviderConfigured, providerReady, getOutreachSettings,
   gmailSendReady, resendConfigured, replitMailConfigured, gmailSendAddress,
+  sendGmailMail, sendReplitMail,
 } from "../lib/outreach-auto";
 import { refreshGmailConnector } from "../lib/gmailConnector";
 
@@ -1940,6 +1941,71 @@ router.post("/chats/:id/release", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   await db.update(chatConversations).set({ adminJoined: false, updatedAt: new Date() }).where(eq(chatConversations.id, id));
   res.json({ ok: true });
+});
+
+// ---- Ask past buyers for a review --------------------------------------------
+// Emails every delivered buyer who hasn't been asked yet (and hasn't already
+// reviewed) their personal /review?token link. {dryRun:true} just counts.
+router.post("/orders/request-reviews", requireAuth, async (req, res) => {
+  const dryRun = !!(req.body as { dryRun?: unknown })?.dryRun;
+  const reviewedOrderIds = db.select({ id: testimonials.orderId }).from(testimonials);
+  const eligible = await db.select().from(packOrders)
+    .where(and(
+      inArray(packOrders.status, ["ready", "partial"]),
+      isNotNull(packOrders.email),
+      isNull(packOrders.reviewRequestedAt),
+      sql`${packOrders.id} not in (${reviewedOrderIds})`,
+    ))
+    .orderBy(desc(packOrders.readyAt)).limit(100);
+  if (dryRun) { res.json({ ok: true, eligible: eligible.length }); return; }
+  if (eligible.length === 0) { res.json({ ok: true, sent: 0, failed: 0, eligible: 0 }); return; }
+
+  const s = await getOutreachSettings();
+  const origin = process.env.PUBLIC_ORIGIN || "https://mapleadextractor.net";
+  const sig = s.fromName?.trim();
+  const addr = s.businessAddress?.trim();
+  let sent = 0, failed = 0;
+  for (const o of eligible) {
+    const what = [o.label || "local business", o.city, o.state].filter(Boolean).join(", ");
+    const link = `${origin}/review?token=${o.token}`;
+    const subject = `How's your ${o.label || "lead"} pack working out?`;
+    const lines = [
+      "Hi,",
+      "",
+      `Thanks again for ordering your ${o.delivered || o.requested}-lead pack (${what}).`,
+      "",
+      "If the list helped you land work, would you leave a quick review? It takes about 30 seconds and genuinely helps a small business:",
+      "",
+      `  → ${link}`,
+      "",
+      "And if anything was off with your pack, just reply to this email and we'll make it right.",
+    ];
+    if (sig) lines.push("", `— ${sig}`);
+    if (addr) lines.push("", addr);
+    const text = lines.join("\n");
+    const esc = (x: string) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#111">${esc(text).replace(new RegExp(esc(link), "g"), `<a href="${link}" style="color:#0a7d33;font-weight:600">${link}</a>`).replace(/\n/g, "<br>")}</div>`;
+    try {
+      if (gmailSendReady()) await sendGmailMail({ fromName: s.fromName, to: o.email!, subject, text, html });
+      else if (resendConfigured()) {
+        const from = s.fromEmail ? `${s.fromName || "MapLeadExtractor"} <${s.fromEmail}>` : "MapLeadExtractor <onboarding@resend.dev>";
+        const r = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ from, to: o.email, subject, text, html }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!r.ok) throw new Error(`Resend ${r.status}`);
+      } else if (replitMailConfigured()) await sendReplitMail({ to: o.email!, subject, text, html });
+      else { res.status(400).json({ error: "No email provider configured." }); return; }
+      await db.update(packOrders).set({ reviewRequestedAt: new Date(), updatedAt: new Date() }).where(eq(packOrders.id, o.id));
+      sent++;
+    } catch (err) {
+      req.log.error({ err, orderId: o.id }, "review request send failed");
+      failed++;
+    }
+  }
+  res.json({ ok: true, sent, failed, eligible: eligible.length });
 });
 
 // ---- Buyer testimonials: moderation queue ------------------------------------

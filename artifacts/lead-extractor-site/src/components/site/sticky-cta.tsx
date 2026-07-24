@@ -58,7 +58,7 @@ export default function StickyCta({
               <>
                 <div className="flex items-baseline gap-1.5">
                   <span className="text-xl font-display font-bold text-foreground">$29</span>
-                  <span className="text-sm text-muted-foreground line-through">$99</span>
+                  <span className="text-xs text-muted-foreground">100 leads · 29¢ each</span>
                 </div>
                 <p className="flex items-center gap-1 text-[11px] text-muted-foreground truncate">
                   <ShieldCheck className="w-3 h-3 text-primary shrink-0" /> Money-back guarantee

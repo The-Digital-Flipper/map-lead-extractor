@@ -29,7 +29,7 @@ const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const PACK_TIERS_UI = [
   { size: 500, qty: "500", price: "$99", per: "$0.20/lead", save: "Save $46", highlight: false },
   { size: 1000, qty: "1,000", price: "$179", per: "$0.18/lead", save: "Save $111", highlight: true },
-  { size: 5000, qty: "5,000", price: "$599", per: "$0.12/lead", save: "Save $856", highlight: false },
+  { size: 5000, qty: "5,000", price: "$599", per: "$0.12/lead", save: "Save $851", highlight: false },
 ] as const;
 
 // Business types for the lead-pack dropdown. `value` is the search term the
@@ -311,12 +311,11 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
 
   return (
     <div className="max-w-2xl mx-auto">
-      {/* Price + value header */}
+      {/* Price + value header — honest framing, no manufactured "was" price */}
       <div className="text-center mb-6">
         <div className="flex items-baseline justify-center gap-3 mb-2">
           <span className="text-5xl font-display font-bold text-foreground">$29</span>
-          <span className="text-xl text-muted-foreground line-through">$99</span>
-          <span className="px-2.5 py-1 rounded-full bg-primary/15 border border-primary/30 text-primary text-xs font-bold">71% OFF</span>
+          <span className="px-2.5 py-1 rounded-full bg-primary/15 border border-primary/30 text-primary text-xs font-bold">just 29¢ per verified lead</span>
         </div>
         <p className="text-muted-foreground">100 targeted local business leads — phone, email, website, ratings & more</p>
       </div>
@@ -330,7 +329,7 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
           </div>
           <div className="min-w-0">
             <p className="text-sm font-bold text-foreground">See 5 real leads free — before you pay</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Pick a type/state above or type a request, then preview real matching businesses. No card, no signup.</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Pick a type/state below — or just click — and preview real matching businesses. No card, no signup.</p>
           </div>
         </div>
 
@@ -498,11 +497,44 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
         )}
       </div>
 
-      {/* Main conversion card */}
+      {/* Main conversion card — ONE primary path (the picker, which always
+          returns valid results); the free-text request is the secondary path
+          below it so a typo'd query can't dead-end the visitor. */}
       <div className="bg-card/60 border border-primary/20 rounded-2xl p-6 shadow-lg shadow-primary/5 mb-4">
 
-        {/* Free-text request */}
-        <label className="block text-sm font-semibold text-foreground mb-2">Tell us what you're looking for</label>
+        <label className="block text-sm font-semibold text-foreground mb-2">Pick your leads</label>
+        <div className="flex flex-col sm:flex-row gap-3 mb-5">
+          <select
+            value={packCategory}
+            onChange={e => setPackCategory(e.target.value)}
+            data-testid="select-pack-category"
+            aria-label="Business type"
+            className="h-12 flex-1 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
+            <option value="">All business types</option>
+            {PACK_CATEGORIES.map(c => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+          <select
+            value={packState}
+            onChange={e => setPackState(e.target.value)}
+            data-testid="select-pack-state"
+            aria-label="State"
+            className="h-12 flex-1 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
+            <option value="">All states (nationwide)</option>
+            {US_STATES.map(s => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex-1 h-px bg-border" />
+          <span className="text-xs text-muted-foreground">or describe exactly what you need</span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+
+        {/* Free-text request — secondary path */}
         <div className="flex flex-col sm:flex-row gap-3 mb-5">
           <input
             type="text"
@@ -550,37 +582,6 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
           </div>
         )}
 
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex-1 h-px bg-border" />
-          <span className="text-xs text-muted-foreground">or pick from a list</span>
-          <div className="flex-1 h-px bg-border" />
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3 mb-5">
-          <select
-            value={packCategory}
-            onChange={e => setPackCategory(e.target.value)}
-            data-testid="select-pack-category"
-            aria-label="Business type"
-            className="h-12 flex-1 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
-            <option value="">All business types</option>
-            {PACK_CATEGORIES.map(c => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-          </select>
-          <select
-            value={packState}
-            onChange={e => setPackState(e.target.value)}
-            data-testid="select-pack-state"
-            aria-label="State"
-            className="h-12 flex-1 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
-            <option value="">All states (nationwide)</option>
-            {US_STATES.map(s => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
-        </div>
-
         {/* Every category/state is always orderable. If we have 100+ on hand it
             ships instantly; if not, it's built to order (queued for fulfillment,
             24h delivery, auto refund on any shortfall) — never blocked. */}
@@ -624,38 +625,35 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
       </div>
 
 
-      {/* Mini social proof — Google-style review cards */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        {/* Card 1 — Google */}
-        <div className="flex-1 bg-white rounded-2xl shadow-[0_1px_6px_rgba(32,33,36,0.18)] p-4 border border-[#e8eaed] flex flex-col">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ backgroundColor: "#4285F4" }}>J</div>
-              <div>
-                <div className="text-[12px] font-semibold text-[#202124] leading-tight">James O.</div>
-                <div className="text-[10px] text-[#70757a]">Local Guide · 2 weeks ago</div>
-              </div>
-            </div>
-            <svg width="16" height="16" viewBox="0 0 48 48" fill="none"><path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/><path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/></svg>
-          </div>
-          <div className="flex gap-0.5 mb-2">{[1,2,3,4,5].map(s=><svg key={s} className="w-3.5 h-3.5 fill-[#fbbc04]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
-          <p className="text-[12px] text-[#3c4043] leading-relaxed flex-1">"Bought a pack Friday afternoon, had the CSV in my inbox within the hour. Data was clean and ready to import."</p>
+      {/* What's actually in the file — honest product preview, no invented
+          customers. (The fabricated Google-review cards that used to sit here
+          were removed deliberately — never reintroduce fake reviews.) */}
+      <div className="rounded-2xl border border-border bg-card/40 p-4 overflow-hidden">
+        <p className="text-xs font-semibold text-foreground mb-2.5">Every row of your CSV includes:</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px] whitespace-nowrap">
+            <thead>
+              <tr className="text-left text-muted-foreground border-b border-border">
+                {["Business", "Phone", "Email", "Website", "Rating", "Reviews", "City / State", "Socials"].map(h => (
+                  <th key={h} className="px-2.5 py-1.5 font-semibold">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="text-muted-foreground">
+                <td className="px-2.5 py-1.5 font-mono text-foreground">Riverside Roofing Co.</td>
+                <td className="px-2.5 py-1.5 font-mono">(813) 555-0142</td>
+                <td className="px-2.5 py-1.5 font-mono">office@riversideroofing…</td>
+                <td className="px-2.5 py-1.5 font-mono">riversideroofing.com</td>
+                <td className="px-2.5 py-1.5 font-mono">4.8</td>
+                <td className="px-2.5 py-1.5 font-mono">214</td>
+                <td className="px-2.5 py-1.5 font-mono">Tampa, FL</td>
+                <td className="px-2.5 py-1.5 font-mono">FB · IG</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        {/* Card 2 — Google */}
-        <div className="flex-1 bg-white rounded-2xl shadow-[0_1px_6px_rgba(32,33,36,0.18)] p-4 border border-[#e8eaed] flex flex-col">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ backgroundColor: "#EA4335" }}>D</div>
-              <div>
-                <div className="text-[12px] font-semibold text-[#202124] leading-tight">Diego R.</div>
-                <div className="text-[10px] text-[#70757a]">Local Guide · a month ago</div>
-              </div>
-            </div>
-            <svg width="16" height="16" viewBox="0 0 48 48" fill="none"><path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/><path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/></svg>
-          </div>
-          <div className="flex gap-0.5 mb-2">{[1,2,3,4,5].map(s=><svg key={s} className="w-3.5 h-3.5 fill-[#fbbc04]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
-          <p className="text-[12px] text-[#3c4043] leading-relaxed flex-1">"Lead storage on this site is what sold me. Everything syncs to my account and CSV export is one click."</p>
-        </div>
+        <p className="text-[10px] text-muted-foreground mt-2">Example row — use the free 5-lead preview above to see real ones from your market.</p>
       </div>
 
       {/* Volume pricing */}

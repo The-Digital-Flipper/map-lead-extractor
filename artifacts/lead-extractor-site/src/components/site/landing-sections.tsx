@@ -521,181 +521,65 @@ export function FinalCta({
   );
 }
 
-/** Minimal footer — privacy/terms kept for ad-platform compliance. */
-// Google SVG mark
-const GoogleMark = () => (
-  <svg width="18" height="18" viewBox="0 0 48 48" fill="none">
-    <path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/>
-    <path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/>
-    <path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/>
-    <path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/>
-  </svg>
-);
+/** Live count of verified leads in stock — real number from the public
+ *  availability endpoint; renders nothing until it loads. */
+export function useLeadStock(): number | null {
+  const [stock, setStock] = useState<number | null>(null);
+  useEffect(() => {
+    fetch("/api/stripe/pack-availability")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (typeof d?.available === "number" && d.available > 0) setStock(d.available); })
+      .catch(() => {});
+  }, []);
+  return stock;
+}
 
-const AVATAR_COLORS = ["#4285F4","#EA4335","#34A853","#FBBC05","#9334E6","#00b67a","#F06292","#26C6DA","#FF7043","#AB47BC","#66BB6A","#FFA726"];
-
-const PLATFORM_REVIEWS = [
-  { platform: "google"     as const, name: "Sarah M.",    business: "Digital Marketing Agency",  date: "2 weeks ago",  quote: "Ordered 200 roofing leads for three different cities. Every single one had a working phone number. Closed four jobs in the first week — best $58 I've ever spent on marketing." },
-  { platform: "trustpilot" as const, name: "Marcus D.",   business: "Web Design Freelancer",      date: "a month ago",  quote: "I pitch website redesigns to local businesses. These lists tell me exactly which ones have no site or a broken one. My close rate went from 12% to 31%." },
-  { platform: "google"     as const, name: "Rachel T.",   business: "SEO Consultant",             date: "3 weeks ago",  quote: "The CSV drops straight into my CRM. No scrubbing, no deduplication headaches. The 'few reviews' filter is gold — those owners pick up fast." },
-  { platform: "trustpilot" as const, name: "Chen W.",     business: "Insurance Broker",           date: "2 months ago", quote: "Tried three other lead providers before this. None verified the data. Map Lead Extractor actually checks the numbers — I wasted half my day on dead lines elsewhere." },
-  { platform: "google"     as const, name: "Priya M.",    business: "Reputation Management",      date: "6 weeks ago",  quote: "I buy the 'low rating' filter every month. Restaurants and salons under 4 stars are my bread and butter — owners are motivated. Pack pays for itself in one call." },
-  { platform: "trustpilot" as const, name: "James O.",    business: "Solar Sales",                date: "a month ago",  quote: "Got 150 leads for small commercial properties in my region. Delivery was faster than promised and the refund for the handful of bad numbers was instant." },
-  { platform: "google"     as const, name: "Derek A.",    business: "HVAC Contractor",            date: "3 weeks ago",  quote: "Best lead source I've used in five years of running my own shop. Pulled 80 no-website HVAC leads in Dallas, booked 11 estimates in the first two days." },
-  { platform: "trustpilot" as const, name: "Monica L.",   business: "B2B SaaS Sales",             date: "5 weeks ago",  quote: "We target small retailers with outdated POS systems. The 'no website' filter hands us exactly that list. Saved our SDR team about 6 hours of research per week." },
-  { platform: "google"     as const, name: "Tyrone B.",   business: "Pressure Washing",           date: "2 months ago", quote: "Picked up 50 restaurant leads in my city. Called through them over a weekend, landed 4 recurring contracts. Paid for six months of leads on that one weekend." },
-  { platform: "trustpilot" as const, name: "Aisha K.",    business: "Social Media Agency",        date: "a month ago",  quote: "The 'few reviews' filter is perfect for selling review-generation packages. Every business I call already knows they have a problem — half of them ask how fast I can start." },
-  { platform: "google"     as const, name: "Luis R.",     business: "Commercial Cleaning",        date: "3 months ago", quote: "Downloaded a list of 100 gyms with low ratings in my metro area. Pitched a cleaning refresh program. Three contracts closed in two weeks. ROI is ridiculous." },
-  { platform: "trustpilot" as const, name: "Brittany H.", business: "Freelance Copywriter",       date: "6 weeks ago",  quote: "I target local businesses with no website copy. This tool finds businesses that literally have no site — I cold-email them a rewrite sample and the response rate is insane." },
-];
-
-function GoogleReviewCard({ review, idx }: { review: typeof PLATFORM_REVIEWS[0]; idx: number }) {
-  const bg = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+/** One-line live social proof for hero sections — real inventory, no invented
+ *  review counts. Renders nothing while the number is unknown. */
+export function LeadStockLine({ className = "" }: { className?: string }) {
+  const stock = useLeadStock();
+  if (stock === null) return null;
   return (
-    <motion.figure initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn}
-      className="flex flex-col bg-white rounded-2xl shadow-[0_1px_6px_rgba(32,33,36,0.18)] p-5 border border-[#e8eaed]">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0" style={{ backgroundColor: bg }}>
-            {review.name[0]}
-          </div>
-          <div>
-            <div className="text-[13px] font-semibold text-[#202124] leading-tight">{review.name}</div>
-            <div className="text-[11px] text-[#70757a]">Local Guide · {review.date}</div>
-          </div>
-        </div>
-        <GoogleMark />
-      </div>
-      <div className="flex gap-0.5 mb-2">
-        {[1,2,3,4,5].map(s => <svg key={s} className="w-4 h-4 fill-[#fbbc04]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}
-      </div>
-      <blockquote className="text-[13px] text-[#3c4043] leading-relaxed flex-1">"{review.quote}"</blockquote>
-    </motion.figure>
+    <p className={`text-sm text-muted-foreground ${className}`}>
+      <span className="inline-block w-2 h-2 rounded-full bg-primary mr-2 align-middle animate-pulse" />
+      <span className="text-foreground font-semibold">{stock.toLocaleString()}</span> verified leads in stock right now
+    </p>
   );
 }
 
-function TrustpilotReviewCard({ review }: { review: typeof PLATFORM_REVIEWS[0] }) {
-  return (
-    <motion.figure initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn}
-      className="flex flex-col bg-white rounded-2xl shadow-[0_1px_6px_rgba(32,33,36,0.13)] p-5 border border-[#e8eaed]">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex gap-0.5">
-          {[1,2,3,4,5].map(s => (
-            <div key={s} className="w-[22px] h-[22px] bg-[#00b67a] flex items-center justify-center">
-              <svg className="w-3.5 h-3.5 fill-white" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center gap-1">
-          <svg width="14" height="14" viewBox="0 0 126.3 125.5"><path d="M126.3 48.2H78L63.2 2.5 48.3 48.2H0l40.5 29.1-15.4 47 38.1-27.5 38.2 27.5-15.5-47z" fill="#00b67a"/></svg>
-          <span className="text-[11px] font-bold text-[#191919]">Trustpilot</span>
-        </div>
-      </div>
-      <div className="inline-flex items-center gap-1 mb-2">
-        <svg className="w-3 h-3 fill-[#00b67a]" viewBox="0 0 20 20"><path d="M10 0C4.477 0 0 4.477 0 10s4.477 10 10 10 10-4.477 10-10S15.523 0 10 0zm-1 14.414l-3.707-3.707 1.414-1.414L9 11.586l4.293-4.293 1.414 1.414L9 14.414z"/></svg>
-        <span className="text-[10px] text-[#00b67a] font-semibold">Verified</span>
-      </div>
-      <blockquote className="text-[13px] text-[#3c4043] leading-relaxed flex-1">"{review.quote}"</blockquote>
-      <figcaption className="mt-3 pt-3 border-t border-[#e8eaed]">
-        <div className="text-[12px] font-bold text-[#191919]">{review.name}</div>
-        <div className="text-[11px] text-[#697482]">{review.business} · {review.date}</div>
-      </figcaption>
-    </motion.figure>
-  );
-}
-
+/**
+ * Honest trust band shown where the old review widgets used to be. The
+ * fabricated Google/Trustpilot/Chrome/BBB reviews and scores that once lived
+ * here were removed deliberately — NEVER reintroduce invented reviews, star
+ * ratings, review counts, or accreditation badges (FTC fake-review rule; see
+ * replit.md). Real buyer reviews render via <BuyerReviews /> once approved.
+ */
 export function PlatformReviews() {
-  const [showAll, setShowAll] = useState(false);
-  const visible = showAll ? PLATFORM_REVIEWS : PLATFORM_REVIEWS.slice(0, 3);
-
+  const stock = useLeadStock();
+  const items = [
+    { big: stock !== null ? stock.toLocaleString() : "Thousands", small: "verified leads in stock right now" },
+    { big: "100%", small: "human-reviewed before your CSV ships" },
+    { big: "< 24h", small: "delivery, usually within a few hours" },
+    { big: "Auto", small: "refunds on any shortfall — no asking" },
+  ];
   return (
-    <section className="py-16 border-t border-border">
+    <section className="py-12">
       <div className="container mx-auto px-6 max-w-5xl">
-        {/* Score badges */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-12">
-          {/* Google */}
-          <div className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-xl px-5 py-3 shadow-sm">
-            <svg width="22" height="22" viewBox="0 0 48 48" fill="none"><path d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/><path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"/><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.311 0-9.821-3.317-11.387-7.93l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"/><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"/></svg>
-            <div className="text-left">
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-lg font-semibold text-[#202124] leading-none">4.9</span>
-                <div className="flex gap-px">{[1,2,3,4,5].map(s=><svg key={s} className="w-3 h-3 fill-[#fbbc04]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
-              </div>
-              <p className="text-[11px] text-[#70757a] mt-0.5">386 Google reviews</p>
-            </div>
-          </div>
-          {/* Trustpilot */}
-          <div className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-xl px-5 py-3 shadow-sm">
-            <svg width="22" height="22" viewBox="0 0 126.3 125.5"><path d="M126.3 48.2H78L63.2 2.5 48.3 48.2H0l40.5 29.1-15.4 47 38.1-27.5 38.2 27.5-15.5-47z" fill="#00b67a"/></svg>
-            <div className="text-left">
-              <div className="flex items-center gap-1.5">
-                <div className="flex gap-0.5">{[1,2,3,4,5].map(s=><div key={s} className="w-4 h-4 bg-[#00b67a] flex items-center justify-center"><svg className="w-2.5 h-2.5 fill-white" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg></div>)}</div>
-                <span className="text-sm font-bold text-[#191919] leading-none">4.8</span>
-              </div>
-              <p className="text-[11px] text-[#555] mt-0.5"><span className="font-bold text-[#191919]">Excellent</span> · 220 on Trustpilot</p>
-            </div>
-          </div>
-          {/* Chrome Web Store */}
-          <div className="flex items-center gap-3 bg-white border border-[#e8eaed] rounded-xl px-5 py-3 shadow-sm">
-            <svg width="22" height="22" viewBox="0 0 100 100"><circle cx="50" cy="50" r="30" fill="#4285F4"/><circle cx="50" cy="50" r="12" fill="white"/><path d="M50 20 A30 30 0 0 1 76 35 L61 35 A15 15 0 0 0 50 20z" fill="#EA4335"/><path d="M76 35 A30 30 0 0 1 76 65 L63.5 57.5 A15 15 0 0 0 65 35z" fill="#FBBC05"/><path d="M76 65 A30 30 0 0 1 24 65 L36.5 57.5 A15 15 0 0 0 63.5 57.5z" fill="#34A853"/></svg>
-            <div className="text-left">
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-lg font-semibold text-[#202124] leading-none">4.9</span>
-                <div className="flex gap-px">{[1,2,3,4,5].map(s=><svg key={s} className="w-3 h-3 fill-[#fbbc04]" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>)}</div>
-              </div>
-              <p className="text-[11px] text-[#70757a] mt-0.5">850+ Chrome ratings</p>
-            </div>
-          </div>
-          {/* BBB A+ — compact badge matching the height of the other trust badges */}
-          <div className="flex items-center gap-3 bg-[#003f87] border border-[#003f87] rounded-xl px-4 py-3 shadow-sm">
-            {/* Torch + BBB wordmark */}
-            <svg width="32" height="40" viewBox="0 0 32 40" fill="none">
-              {/* Flame */}
-              <path d="M16 22 C10 16 9 8 16 2 C17 6 18 10 16 14 C19 10 20 6 18 2 C23 6 24 12 21 18 C22 14 22 9 20 5 C25 10 25 18 21 24 C20 27 18 28 16 28 L12 28 C10 27 8 25 8 22 C5 16 6 8 10 4 C9 8 9 13 11 17 C9 12 10 6 13 2 C13 6 14 10 12 14 C14 10 15 6 16 2Z" fill="white" opacity="0.95"/>
-              {/* Handle */}
-              <rect x="11" y="28" width="10" height="10" rx="1.5" fill="white" opacity="0.9"/>
-              <rect x="12" y="30" width="8" height="1.5" rx="0.75" fill="#003f87"/>
-              <rect x="12" y="33" width="8" height="1.5" rx="0.75" fill="#003f87"/>
-              <rect x="12" y="36" width="8" height="1.5" rx="0.75" fill="#003f87"/>
-            </svg>
-            <div className="text-left">
-              <div className="text-[15px] font-black text-white leading-none tracking-wide">BBB</div>
-              <div className="text-[9px] text-blue-200 font-semibold uppercase tracking-widest leading-tight">Accredited</div>
-              <div className="text-[9px] text-blue-200 uppercase tracking-widest leading-tight">Business</div>
-            </div>
-            <div className="border-l border-blue-400 pl-3 ml-1">
-              <div className="text-[9px] text-blue-300 uppercase tracking-widest leading-none">Rating</div>
-              <div className="text-[26px] font-black text-white leading-tight">A+</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Review cards */}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {visible.map((r, i) =>
-            r.platform === "google"
-              ? <GoogleReviewCard key={r.name} review={r} idx={i} />
-              : <TrustpilotReviewCard key={r.name} review={r} />
-          )}
-        </div>
-
-        {/* Expand / collapse */}
-        <div className="flex justify-center mt-8">
-          <button
-            onClick={() => setShowAll(v => !v)}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-border text-sm font-medium hover:bg-card transition-colors"
-          >
-            {showAll
-              ? <>Show less <ChevronDown className="w-4 h-4 rotate-180 transition-transform" /></>
-              : <>Read all {PLATFORM_REVIEWS.length} reviews <ChevronDown className="w-4 h-4 transition-transform" /></>
-            }
-          </button>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {items.map((it) => (
+            <motion.div key={it.small} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeIn}
+              className="rounded-2xl border border-border bg-gradient-to-b from-card to-card/30 px-5 py-6 text-center">
+              <div className="text-2xl md:text-3xl font-display font-bold text-primary mb-1">{it.big}</div>
+              <div className="text-xs text-muted-foreground leading-snug">{it.small}</div>
+            </motion.div>
+          ))}
         </div>
       </div>
     </section>
   );
 }
 
+/** Minimal footer — privacy/terms kept for ad-platform compliance. */
 export function LpFooter() {
   return (
     <footer className="bg-card border-t border-border py-8">

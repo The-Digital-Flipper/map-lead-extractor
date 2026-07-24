@@ -104,11 +104,10 @@ export default function FbLeads() {
                     Get My Lead Pack — $29 <ArrowRight className="w-5 h-5" />
                   </a>
                   <div className="flex items-baseline gap-2 text-sm text-muted-foreground">
-                    <span className="line-through">$99</span>
                     <span className="px-2 py-0.5 rounded-full bg-primary/15 border border-primary/30 text-primary text-xs font-bold">
-                      71% OFF today
+                      just 29¢ per verified lead
                     </span>
-                    <span>· that's 29¢ per lead</span>
+                    <span>· one-time payment</span>
                   </div>
                 </motion.div>
 

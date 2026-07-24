@@ -230,6 +230,56 @@ function GeoHeatmap({ byState, selected, onSelect }: {
   );
 }
 
+// 14-day send-history bar chart for the Email tab. Single series (sent/day) in
+// the theme's primary hue; failed sends stack as a red cap with a 2px surface
+// gap. Hover shows the exact numbers; only the busiest day is direct-labeled.
+function SendHistoryChart({ perDay }: { perDay: { day: string; sent: number; failed: number }[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 560, H = 96, PAD_BOTTOM = 16, GAP = 4;
+  const max = Math.max(1, ...perDay.map(d => d.sent + d.failed));
+  const bw = (W - GAP * (perDay.length - 1)) / perDay.length;
+  const plotH = H - PAD_BOTTOM;
+  const maxIdx = perDay.reduce((best, d, i) => (d.sent + d.failed > perDay[best].sent + perDay[best].failed ? i : best), 0);
+  const fmtDay = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+  return (
+    <div className="relative">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-24" role="img" aria-label="Emails sent per day, last 14 days">
+        <line x1="0" y1={plotH + 0.5} x2={W} y2={plotH + 0.5} stroke="currentColor" strokeOpacity="0.15" />
+        {perDay.map((d, i) => {
+          const x = i * (bw + GAP);
+          const total = d.sent + d.failed;
+          const sentH = Math.round((d.sent / max) * (plotH - 8));
+          const failH = Math.round((d.failed / max) * (plotH - 8));
+          const dim = hover !== null && hover !== i;
+          return (
+            <g key={d.day} opacity={dim ? 0.45 : 1}
+              onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
+              {/* full-height invisible hit target, wider than the mark */}
+              <rect x={x - GAP / 2} y="0" width={bw + GAP} height={H} fill="transparent" />
+              {total === 0 && <rect x={x} y={plotH - 2} width={bw} height="2" rx="1" className="fill-muted-foreground/25" />}
+              {d.sent > 0 && <rect x={x} y={plotH - sentH} width={bw} height={sentH} rx="2" className="fill-primary" />}
+              {d.failed > 0 && <rect x={x} y={plotH - sentH - 2 - failH} width={bw} height={failH} rx="2" className="fill-red-400" />}
+              {(i === maxIdx && total > 0 && hover === null) && (
+                <text x={x + bw / 2} y={plotH - sentH - failH - (d.failed > 0 ? 8 : 6)} textAnchor="middle" className="fill-foreground" fontSize="10" fontWeight="700">{total}</text>
+              )}
+              {(i === 0 || i === perDay.length - 1 || i === Math.floor(perDay.length / 2)) && (
+                <text x={x + bw / 2} y={H - 4} textAnchor="middle" className="fill-muted-foreground" fontSize="9">{fmtDay(d.day)}</text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+      {hover !== null && perDay[hover] && (
+        <div className="pointer-events-none absolute -top-1 left-1/2 -translate-x-1/2 rounded-lg border border-border bg-popover px-2.5 py-1 text-[11px] text-foreground shadow-lg whitespace-nowrap">
+          <span className="font-semibold">{fmtDay(perDay[hover].day)}</span>
+          <span className="text-muted-foreground"> — </span>{perDay[hover].sent} sent
+          {perDay[hover].failed > 0 && <span className="text-red-400">, {perDay[hover].failed} failed</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Admin() {
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
@@ -513,6 +563,30 @@ export default function Admin() {
     } catch { /* ignore */ }
   }, []);
   useEffect(() => { if (activeTab === "orders") loadTestimonials(); }, [activeTab, loadTestimonials]);
+  // "Ask past buyers for a review" — dry-run count + send action.
+  const [reviewAskEligible, setReviewAskEligible] = useState<number | null>(null);
+  const [reviewAskBusy, setReviewAskBusy] = useState(false);
+  const [reviewAskMsg, setReviewAskMsg] = useState("");
+  useEffect(() => {
+    if (activeTab !== "orders") return;
+    adminFetch(`${basePath}/api/admin/orders/request-reviews`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dryRun: true }),
+    }).then(async r => { if (r.ok) setReviewAskEligible((await r.json()).eligible ?? 0); }).catch(() => {});
+  }, [activeTab]);
+  const askBuyersForReviews = async () => {
+    setReviewAskBusy(true); setReviewAskMsg("");
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/orders/request-reviews`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setReviewAskMsg(`Sent ${d.sent} review request${d.sent === 1 ? "" : "s"}${d.failed ? ` (${d.failed} failed)` : ""} — replies land in the queue below as buyers respond.`);
+        setReviewAskEligible(0);
+      } else setReviewAskMsg(d.error ?? "Couldn't send review requests.");
+    } catch { setReviewAskMsg("Could not reach the server."); }
+    setReviewAskBusy(false);
+  };
   const setTestimonialStatus = async (id: number, status: string) => {
     setTestimonialBusyId(id);
     try {
@@ -1060,12 +1134,34 @@ export default function Admin() {
   // ── Email tab: the AI outreach engine selling packs to scraped companies ───
   interface OutreachSettingsRow {
     enabled: boolean; autopilot: boolean; provider: string; fromName: string; fromEmail: string | null;
+    replyTo: string | null; signature: string | null; businessAddress: string | null;
     offer: string | null; dailyCap: number; windowStartHour: number; windowEndHour: number;
+    tzOffsetMinutes: number; sendOnWeekends: boolean; minGapMinutes: number; maxGapMinutes: number;
+    autoReply: boolean; autoEnrollOnContact: boolean;
   }
   interface OutreachInfo {
     settings: OutreachSettingsRow; resendConfigured: boolean; gmailConfigured: boolean; gmailAddress: string | null;
     enrolled: number; pending: number; replied: number; sentToday: number;
   }
+  interface OutreachStats {
+    perDay: { day: string; sent: number; failed: number }[];
+    totals: {
+      sentAllTime: number; failedAllTime: number; sent7d: number; leadsEmailed: number;
+      replied: number; unsubscribed: number; bounced: number; inbound: number; aiSent: number; replyRate: number;
+    };
+    providers: { gmailSmtp: boolean; gmailConnector: boolean; gmailAddress: string | null; resend: boolean; replitMail: boolean; imapWatcher: boolean };
+  }
+  interface OutreachQueueRow { id: number; name: string; toEmail: string | null; nextStep: number; nextEmailAt: string | null; subject: string | null }
+  interface OutreachDraft {
+    angle?: string;
+    email: { subject: string; body: string };
+    followUps: { day: number; channel: string; subject?: string; body: string }[];
+  }
+  interface OutreachThreadItem {
+    id: string; kind: "email" | "reply"; direction: "in" | "out"; step: number | null;
+    subject: string | null; body: string; status: string; error: string | null; aiGenerated: boolean; createdAt: string;
+  }
+  interface SuppressedRow { id: number; name: string; email: string | null; reason: string; at: string }
   interface OutreachActivityRow { id: number; leadId: number; step: number; toEmail: string; subject: string; status: string; error: string | null; createdAt: string; leadName: string | null }
   interface OutreachReplyRow { id: number; leadId: number; direction: string; fromEmail: string | null; subject: string | null; body: string | null; aiGenerated: boolean; createdAt: string; leadName: string | null }
   interface EmailLeadRow {
@@ -1074,7 +1170,11 @@ export default function Admin() {
     repliedAt: string | null; nextEmailAt: string | null;
   }
   const [emailInfo, setEmailInfo] = useState<OutreachInfo | null>(null);
-  const [emailDraft, setEmailDraft] = useState<{ fromName: string; fromEmail: string; offer: string; dailyCap: number; windowStartHour: number; windowEndHour: number } | null>(null);
+  const [emailDraft, setEmailDraft] = useState<{
+    fromName: string; fromEmail: string; replyTo: string; signature: string; businessAddress: string;
+    offer: string; dailyCap: number; windowStartHour: number; windowEndHour: number;
+    tzOffsetMinutes: number; sendOnWeekends: boolean; minGapMinutes: number; maxGapMinutes: number; provider: string;
+  } | null>(null);
   const [emailMsg, setEmailMsg] = useState("");
   const [emailErr, setEmailErr] = useState("");
   const [emailBusy, setEmailBusy] = useState<"" | "toggle" | "save" | "enroll" | "pause">("");
@@ -1084,26 +1184,130 @@ export default function Admin() {
   const [emailCandidatesLoading, setEmailCandidatesLoading] = useState(false);
   const [emailCategoryFilter, setEmailCategoryFilter] = useState("");
   const [emailSelected, setEmailSelected] = useState<Set<number>>(new Set());
+  const [emailStats, setEmailStats] = useState<OutreachStats | null>(null);
+  const [emailQueue, setEmailQueue] = useState<OutreachQueueRow[]>([]);
+  const [emailActivityFilter, setEmailActivityFilter] = useState<"all" | "sent" | "failed">("all");
+  const [emailSearch, setEmailSearch] = useState("");
+  const [emailHideEnrolled, setEmailHideEnrolled] = useState(false);
+  const [emailShowAdvanced, setEmailShowAdvanced] = useState(false);
+  const [emailSuppressed, setEmailSuppressed] = useState<SuppressedRow[] | null>(null);
+  const [emailShowSuppressed, setEmailShowSuppressed] = useState(false);
+  // Draft preview/editor modal
+  const [draftLead, setDraftLead] = useState<{ id: number; name: string } | null>(null);
+  const [draftData, setDraftData] = useState<{ lead: { id: number; name: string; email: string | null; step: number; enrolled: boolean; nextEmailAt: string | null }; draft: OutreachDraft } | null>(null);
+  const [draftBusy, setDraftBusy] = useState<"" | "load" | "save" | "regen" | "test">("");
+  const [draftMsg, setDraftMsg] = useState("");
+  const [draftErr, setDraftErr] = useState("");
+  // Conversation thread modal
+  const [threadLead, setThreadLead] = useState<{ id: number; name: string } | null>(null);
+  const [threadData, setThreadData] = useState<{ lead: { id: number; name: string; email: string | null; repliedAt: string | null; unsubscribedAt: string | null; enrolled: boolean }; thread: OutreachThreadItem[] } | null>(null);
+  const [threadReply, setThreadReply] = useState("");
+  const [threadBusy, setThreadBusy] = useState<"" | "load" | "send">("");
+  const [threadMsg, setThreadMsg] = useState("");
+  const [threadErr, setThreadErr] = useState("");
 
   const loadEmailTab = useCallback(async () => {
     try {
-      const [sR, aR, rR] = await Promise.all([
+      const [sR, aR, rR, stR, qR] = await Promise.all([
         adminFetch(`${basePath}/api/outreach/settings`),
-        adminFetch(`${basePath}/api/outreach/activity?limit=25`),
-        adminFetch(`${basePath}/api/outreach/replies?limit=25`),
+        adminFetch(`${basePath}/api/outreach/activity?limit=100`),
+        adminFetch(`${basePath}/api/outreach/replies?limit=50`),
+        adminFetch(`${basePath}/api/outreach/stats`),
+        adminFetch(`${basePath}/api/outreach/queue`),
       ]);
       if (sR.ok) {
         const d: OutreachInfo = await sR.json();
         setEmailInfo(d);
         setEmailDraft(prev => prev ?? {
-          fromName: d.settings.fromName ?? "", fromEmail: d.settings.fromEmail ?? "", offer: d.settings.offer ?? "",
-          dailyCap: d.settings.dailyCap, windowStartHour: d.settings.windowStartHour, windowEndHour: d.settings.windowEndHour,
+          fromName: d.settings.fromName ?? "", fromEmail: d.settings.fromEmail ?? "",
+          replyTo: d.settings.replyTo ?? "", signature: d.settings.signature ?? "", businessAddress: d.settings.businessAddress ?? "",
+          offer: d.settings.offer ?? "", dailyCap: d.settings.dailyCap,
+          windowStartHour: d.settings.windowStartHour, windowEndHour: d.settings.windowEndHour,
+          tzOffsetMinutes: d.settings.tzOffsetMinutes, sendOnWeekends: d.settings.sendOnWeekends,
+          minGapMinutes: d.settings.minGapMinutes, maxGapMinutes: d.settings.maxGapMinutes, provider: d.settings.provider,
         });
       }
       if (aR.ok) setEmailActivity((await aR.json()).activity ?? []);
       if (rR.ok) setEmailReplies((await rR.json()).replies ?? []);
+      if (stR.ok) setEmailStats(await stR.json());
+      if (qR.ok) setEmailQueue((await qR.json()).queue ?? []);
     } catch { /* keep whatever was already loaded */ }
   }, []);
+
+  const loadEmailSuppressed = useCallback(async () => {
+    try {
+      const r = await adminFetch(`${basePath}/api/outreach/suppressed`);
+      if (r.ok) setEmailSuppressed((await r.json()).suppressed ?? []);
+    } catch { /* leave as-is */ }
+  }, []);
+
+  // Draft preview modal: load (generating if missing), save edits, regenerate, test-send.
+  const openEmailDraft = useCallback(async (id: number, name: string, regen = false) => {
+    setDraftLead({ id, name }); setDraftErr(""); setDraftMsg(""); setDraftBusy("load");
+    if (regen) setDraftData(null);
+    try {
+      const r = await adminFetch(`${basePath}/api/outreach/draft/${id}${regen ? "?regen=1" : ""}`);
+      const d = await r.json();
+      if (r.ok) setDraftData(d);
+      else setDraftErr(d.error ?? "Couldn't load the draft");
+    } catch { setDraftErr("Could not reach the server"); }
+    setDraftBusy("");
+  }, []);
+
+  const saveEmailDraft = async () => {
+    if (!draftData || !draftLead) return;
+    setDraftBusy("save"); setDraftErr(""); setDraftMsg("");
+    try {
+      const r = await adminFetch(`${basePath}/api/outreach/draft/${draftLead.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: draftData.draft.email, followUps: draftData.draft.followUps }),
+      });
+      const d = await r.json();
+      if (r.ok) setDraftMsg("Draft saved — this exact copy is what sends");
+      else setDraftErr(d.error ?? "Save failed");
+    } catch { setDraftErr("Could not reach the server"); }
+    setDraftBusy("");
+  };
+
+  const testSendEmailDraft = async () => {
+    if (!draftLead) return;
+    setDraftBusy("test"); setDraftErr(""); setDraftMsg("");
+    try {
+      const r = await adminFetch(`${basePath}/api/outreach/test-send/${draftLead.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const d = await r.json();
+      if (r.ok) setDraftMsg(`Test sent to ${d.to} — check your inbox`);
+      else setDraftErr(d.error ?? "Test send failed");
+    } catch { setDraftErr("Could not reach the server"); }
+    setDraftBusy("");
+  };
+
+  // Conversation modal: full history with one lead + manual reply.
+  const openEmailThread = useCallback(async (id: number, name: string) => {
+    setThreadLead({ id, name }); setThreadErr(""); setThreadMsg(""); setThreadReply(""); setThreadBusy("load");
+    try {
+      const r = await adminFetch(`${basePath}/api/outreach/thread/${id}`);
+      const d = await r.json();
+      if (r.ok) setThreadData(d);
+      else setThreadErr(d.error ?? "Couldn't load the conversation");
+    } catch { setThreadErr("Could not reach the server"); }
+    setThreadBusy("");
+  }, []);
+
+  const sendEmailThreadReply = async () => {
+    if (!threadLead || !threadReply.trim()) return;
+    setThreadBusy("send"); setThreadErr(""); setThreadMsg("");
+    try {
+      const r = await adminFetch(`${basePath}/api/outreach/manual-reply/${threadLead.id}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: threadReply }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setThreadMsg(`Sent to ${d.to}`); setThreadReply("");
+        openEmailThread(threadLead.id, threadLead.name);
+      } else setThreadErr(d.error ?? "Send failed");
+    } catch { setThreadErr("Could not reach the server"); }
+    setThreadBusy("");
+  };
 
   // Candidate companies to pitch: top-value leads matching the category filter;
   // rows without an email address or opted out are filtered client-side.
@@ -1884,10 +2088,18 @@ export default function Admin() {
 
               {/* Buyer reviews — moderation queue for the home-page testimonials */}
               <div className="rounded-2xl border border-border bg-card p-5">
-                <div className="mb-4">
-                  <h2 className="font-display font-bold text-lg flex items-center gap-2"><Star className="w-5 h-5 text-primary" /> Buyer Reviews</h2>
-                  <p className="text-sm text-muted-foreground">Real reviews from delivered orders (buyers get a review link in their delivery email). Approve to show on the home page — nothing appears without your OK.</p>
+                <div className="mb-4 flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <h2 className="font-display font-bold text-lg flex items-center gap-2"><Star className="w-5 h-5 text-primary" /> Buyer Reviews</h2>
+                    <p className="text-sm text-muted-foreground">Real reviews from delivered orders (buyers get a review link in their delivery email). Approve to show on the home page — nothing appears without your OK.</p>
+                  </div>
+                  <button onClick={askBuyersForReviews} disabled={reviewAskBusy || reviewAskEligible === 0}
+                    title="Emails every delivered buyer who hasn't been asked yet their personal review link — each buyer is only ever asked once"
+                    className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 disabled:opacity-50 whitespace-nowrap">
+                    {reviewAskBusy ? "Sending…" : reviewAskEligible === 0 ? "All buyers asked ✓" : `✉️ Ask past buyers${reviewAskEligible ? ` (${reviewAskEligible})` : ""}`}
+                  </button>
                 </div>
+                {reviewAskMsg && <p className="text-xs text-primary mb-3">✓ {reviewAskMsg}</p>}
                 {testimonialsList.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-6 text-center">No reviews yet — they arrive after buyers receive their packs.</p>
                 ) : (
@@ -2035,19 +2247,63 @@ export default function Admin() {
                 )}
                 {emailMsg && <p className="text-xs text-primary mb-2">✓ {emailMsg}</p>}
                 {emailErr && <p className="text-xs text-red-400 mb-2">⚠ {emailErr}</p>}
-                {emailInfo && (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+
+                {/* Provider / plumbing health */}
+                {emailStats && (
+                  <div className="flex flex-wrap items-center gap-1.5 mb-3">
                     {[
-                      { label: "Sent today", value: `${emailInfo.sentToday}/${emailInfo.settings.dailyCap}` },
+                      { label: emailStats.providers.gmailAddress ? `Gmail · ${emailStats.providers.gmailAddress}` : "Gmail", ok: emailStats.providers.gmailSmtp || emailStats.providers.gmailConnector, hint: "Sends from your real inbox (Replit Google Mail connector or app-password secrets)" },
+                      { label: "Resend", ok: emailStats.providers.resend, hint: "RESEND_API_KEY + verified domain — scales past Gmail's ~500/day" },
+                      { label: "Replit Mail backstop", ok: emailStats.providers.replitMail, hint: "Zero-setup fallback so sending always has a way out" },
+                      { label: "Reply watcher", ok: emailStats.providers.imapWatcher, hint: "IMAP inbox watching for replies — needs GMAIL_USER + GMAIL_APP_PASSWORD secrets" },
+                    ].map(c => (
+                      <span key={c.label} title={c.hint}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${c.ok ? "bg-primary/10 text-primary border-primary/30" : "bg-muted text-muted-foreground border-border"}`}>
+                        {c.ok ? "●" : "○"} {c.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {emailInfo && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+                    <div className="rounded-xl border border-border bg-background/40 px-3 py-2">
+                      <div className="text-lg font-display font-bold text-foreground">{emailInfo.sentToday}<span className="text-xs text-muted-foreground font-normal">/{emailInfo.settings.dailyCap}</span></div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Sent today</div>
+                      <div className="mt-1 h-1 rounded-full bg-muted overflow-hidden">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, Math.round((emailInfo.sentToday / Math.max(1, emailInfo.settings.dailyCap)) * 100))}%` }} />
+                      </div>
+                    </div>
+                    {[
+                      { label: "This week", value: String(emailStats?.totals.sent7d ?? "—") },
+                      { label: "All time", value: String(emailStats?.totals.sentAllTime ?? "—") },
                       { label: "Enrolled", value: String(emailInfo.enrolled) },
                       { label: "Awaiting send", value: String(emailInfo.pending) },
-                      { label: "Replies", value: String(emailInfo.replied) },
+                      { label: "Reply rate", value: emailStats ? `${emailStats.totals.replyRate}%` : "—", title: emailStats ? `${emailStats.totals.replied} of ${emailStats.totals.leadsEmailed} companies emailed wrote back` : undefined },
+                      { label: "Bounces", value: String(emailStats?.totals.bounced ?? "—") },
+                      { label: "Unsubs", value: String(emailStats?.totals.unsubscribed ?? "—") },
                     ].map(s => (
-                      <div key={s.label} className="rounded-xl border border-border bg-background/40 px-3 py-2">
+                      <div key={s.label} title={s.title} className="rounded-xl border border-border bg-background/40 px-3 py-2">
                         <div className="text-lg font-display font-bold text-foreground">{s.value}</div>
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{s.label}</div>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* Send history */}
+                {emailStats && emailStats.totals.sentAllTime + emailStats.totals.failedAllTime > 0 && (
+                  <div className="mt-3">
+                    <div className="flex items-center gap-3 mb-1">
+                      <h4 className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground">Send history — last 14 days</h4>
+                      {emailStats.totals.failedAllTime > 0 && (
+                        <span className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-primary inline-block" /> sent</span>
+                          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-400 inline-block" /> failed</span>
+                        </span>
+                      )}
+                    </div>
+                    <SendHistoryChart perDay={emailStats.perDay} />
                   </div>
                 )}
               </div>
@@ -2055,7 +2311,12 @@ export default function Admin() {
               {/* Pitch + sending settings */}
               {emailDraft && (
                 <div className="rounded-2xl border border-border bg-card p-5">
-                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide mb-3">Your pitch &amp; sending rules</h3>
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide">Your pitch &amp; sending rules</h3>
+                    <button onClick={() => setEmailShowAdvanced(v => !v)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
+                      {emailShowAdvanced ? "▾ Hide advanced" : "▸ Advanced settings"}
+                    </button>
+                  </div>
                   <div className="flex flex-col gap-3">
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-muted-foreground">What you're selling (the AI writes every email around this)</label>
@@ -2092,6 +2353,83 @@ export default function Admin() {
                             className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-20 focus:border-primary/50 outline-none" />
                         </div>
                       </div>
+                    </div>
+
+                    {emailShowAdvanced && (
+                      <div className="rounded-xl border border-border bg-background/30 p-4 flex flex-col gap-3">
+                        <div className="flex flex-wrap items-end gap-3">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-semibold text-muted-foreground">Provider</label>
+                            <select value={emailDraft.provider} onChange={e => setEmailDraft({ ...emailDraft, provider: e.target.value })}
+                              className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-40 focus:border-primary/50 outline-none">
+                              <option value="gmail">Gmail (personal)</option>
+                              <option value="resend">Resend (scale)</option>
+                            </select>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-semibold text-muted-foreground">Reply-to (optional)</label>
+                            <input value={emailDraft.replyTo} onChange={e => setEmailDraft({ ...emailDraft, replyTo: e.target.value })} placeholder="Defaults to the from address"
+                              className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-56 focus:border-primary/50 outline-none" />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-semibold text-muted-foreground">Timezone</label>
+                            <select value={emailDraft.tzOffsetMinutes} onChange={e => setEmailDraft({ ...emailDraft, tzOffsetMinutes: Number(e.target.value) })}
+                              className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-44 focus:border-primary/50 outline-none">
+                              {[{ v: -240, l: "US Eastern (UTC-4)" }, { v: -300, l: "US Central (UTC-5)" }, { v: -360, l: "US Mountain (UTC-6)" }, { v: -420, l: "US Pacific (UTC-7)" }]
+                                .concat([-240, -300, -360, -420].includes(emailDraft.tzOffsetMinutes) ? [] : [{ v: emailDraft.tzOffsetMinutes, l: `Custom (UTC${emailDraft.tzOffsetMinutes >= 0 ? "+" : ""}${emailDraft.tzOffsetMinutes / 60})` }])
+                                .map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+                            </select>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-semibold text-muted-foreground" title="A fresh random wait between every send keeps the rhythm human">Gap between sends (min)</label>
+                            <div className="flex items-center gap-1">
+                              <input type="number" min={1} max={240} value={emailDraft.minGapMinutes}
+                                onChange={e => setEmailDraft({ ...emailDraft, minGapMinutes: Math.min(240, Math.max(1, Number(e.target.value) || 1)) })}
+                                className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-20 focus:border-primary/50 outline-none" />
+                              <span className="text-xs text-muted-foreground">to</span>
+                              <input type="number" min={1} max={480} value={emailDraft.maxGapMinutes}
+                                onChange={e => setEmailDraft({ ...emailDraft, maxGapMinutes: Math.min(480, Math.max(1, Number(e.target.value) || 1)) })}
+                                className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-20 focus:border-primary/50 outline-none" />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-end gap-3">
+                          <div className="flex flex-col gap-1 flex-1 min-w-[220px]">
+                            <label className="text-xs font-semibold text-muted-foreground">Signature (under every email)</label>
+                            <textarea value={emailDraft.signature} onChange={e => setEmailDraft({ ...emailDraft, signature: e.target.value })} rows={2}
+                              placeholder={"— Josh\nGulf Coast Leads · (228) 555-0100"}
+                              className="px-3 py-2 rounded-lg bg-background border border-border text-sm focus:border-primary/50 outline-none resize-y" />
+                          </div>
+                          <div className="flex flex-col gap-1 flex-1 min-w-[220px]">
+                            <label className="text-xs font-semibold text-muted-foreground" title="Required for compliant bulk email — also keeps you out of spam">Business address (email footer)</label>
+                            <input value={emailDraft.businessAddress} onChange={e => setEmailDraft({ ...emailDraft, businessAddress: e.target.value })} placeholder="123 Main St, Biloxi, MS 39530"
+                              className="px-3 py-2 rounded-lg bg-background border border-border text-sm focus:border-primary/50 outline-none" />
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-4">
+                          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                            <input type="checkbox" checked={emailDraft.sendOnWeekends} onChange={e => setEmailDraft({ ...emailDraft, sendOnWeekends: e.target.checked })} />
+                            Send on weekends
+                          </label>
+                          {emailInfo && (
+                            <>
+                              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer" title="The AI answers replies for you (needs Gmail app-password secrets — that's the inbox it watches)">
+                                <input type="checkbox" checked={emailInfo.settings.autoReply}
+                                  onChange={e => patchEmailSettings({ autoReply: e.target.checked }, "toggle")} disabled={!!emailBusy} />
+                                🤖 AI answers replies for me
+                              </label>
+                              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer" title="When you mark a lead contacted by hand, the engine takes over its follow-ups automatically">
+                                <input type="checkbox" checked={emailInfo.settings.autoEnrollOnContact}
+                                  onChange={e => patchEmailSettings({ autoEnrollOnContact: e.target.checked }, "toggle")} disabled={!!emailBusy} />
+                                Auto-continue follow-ups after manual contact
+                              </label>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
                       <button onClick={() => patchEmailSettings(emailDraft, "save")} disabled={!!emailBusy}
                         className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 disabled:opacity-50">
                         {emailBusy === "save" ? "Saving…" : "Save settings"}
@@ -2102,16 +2440,33 @@ export default function Admin() {
               )}
 
               {/* Company picker — who gets pitched */}
+              {(() => {
+                const visibleCandidates = emailCandidates.filter(l => {
+                  if (emailHideEnrolled && (l.autoOutreach || (l.outreachStep ?? 0) > 0)) return false;
+                  const q = emailSearch.trim().toLowerCase();
+                  if (!q) return true;
+                  return l.name.toLowerCase().includes(q) || (l.emails ?? "").toLowerCase().includes(q) || (l.address ?? "").toLowerCase().includes(q);
+                });
+                return (
               <div className="rounded-2xl border border-border bg-card p-5">
                 <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide">Companies to pitch</h3>
-                  <div className="flex items-center gap-2">
-                    <input value={emailCategoryFilter} onChange={e => setEmailCategoryFilter(e.target.value)} placeholder="Filter by category (e.g. roof)"
+                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide">
+                    Companies to pitch
+                    <span className="ml-2 normal-case font-normal text-muted-foreground/70">{visibleCandidates.length} shown{emailSelected.size > 0 ? ` · ${emailSelected.size} selected` : ""}</span>
+                  </h3>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <input value={emailSearch} onChange={e => setEmailSearch(e.target.value)} placeholder="Search name / email / city"
+                      className="px-3 py-1.5 rounded-lg bg-background border border-border text-xs w-44 focus:border-primary/50 outline-none" />
+                    <input value={emailCategoryFilter} onChange={e => setEmailCategoryFilter(e.target.value)} placeholder="Category (e.g. roof)"
                       onKeyDown={e => { if (e.key === "Enter") loadEmailCandidates(emailCategoryFilter); }}
-                      className="px-3 py-1.5 rounded-lg bg-background border border-border text-xs w-56 focus:border-primary/50 outline-none" />
+                      className="px-3 py-1.5 rounded-lg bg-background border border-border text-xs w-40 focus:border-primary/50 outline-none" />
                     <button onClick={() => loadEmailCandidates(emailCategoryFilter)} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-foreground hover:opacity-80">
                       {emailCandidatesLoading ? "Loading…" : "Search"}
                     </button>
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap">
+                      <input type="checkbox" checked={emailHideEnrolled} onChange={e => setEmailHideEnrolled(e.target.checked)} />
+                      Hide already pitched
+                    </label>
                     <button onClick={() => enrollEmailSelected("enroll")} disabled={emailSelected.size === 0 || !!emailBusy}
                       className="px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
                       {emailBusy === "enroll" ? "Enrolling…" : `Enroll ${emailSelected.size || ""}`}
@@ -2122,25 +2477,26 @@ export default function Admin() {
                     </button>
                   </div>
                 </div>
-                {emailCandidates.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">{emailCandidatesLoading ? "Loading…" : "No companies with an email address match — scrape more leads or loosen the filter."}</p>
+                {visibleCandidates.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{emailCandidatesLoading ? "Loading…" : "No companies with an email address match — scrape more leads or loosen the filters."}</p>
                 ) : (
                   <div className="overflow-x-auto -mx-1 max-h-96 overflow-y-auto">
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-card">
                         <tr className="text-left text-muted-foreground border-b border-border">
                           <th className="px-2 py-1.5">
-                            <input type="checkbox" checked={emailSelected.size > 0 && emailSelected.size === emailCandidates.length}
-                              onChange={e => setEmailSelected(e.target.checked ? new Set(emailCandidates.map(l => l.id)) : new Set())} />
+                            <input type="checkbox" checked={emailSelected.size > 0 && emailSelected.size === visibleCandidates.length}
+                              onChange={e => setEmailSelected(e.target.checked ? new Set(visibleCandidates.map(l => l.id)) : new Set())} />
                           </th>
                           <th className="px-2 py-1.5 font-semibold">Company</th>
                           <th className="px-2 py-1.5 font-semibold">Category</th>
                           <th className="px-2 py-1.5 font-semibold">Email</th>
                           <th className="px-2 py-1.5 font-semibold">Outreach</th>
+                          <th className="px-2 py-1.5 font-semibold">Draft</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {emailCandidates.map(l => (
+                        {visibleCandidates.map(l => (
                           <tr key={l.id} className="border-b border-border/50">
                             <td className="px-2 py-1.5">
                               <input type="checkbox" checked={emailSelected.has(l.id)}
@@ -2150,10 +2506,17 @@ export default function Admin() {
                             <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[140px]">{l.category ?? "—"}</td>
                             <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[200px]">{(l.emails ?? "").split(/[,;\s]+/).find(s => s.includes("@")) ?? "—"}</td>
                             <td className="px-2 py-1.5 whitespace-nowrap">
-                              {l.repliedAt ? <span className="text-primary font-semibold">replied</span>
-                                : l.autoOutreach ? <span className="text-blue-400">enrolled · step {l.outreachStep ?? 0}</span>
+                              {l.repliedAt ? (
+                                <button onClick={() => openEmailThread(l.id, l.name)} className="text-primary font-semibold hover:underline">replied →</button>
+                              ) : l.autoOutreach ? <span className="text-blue-400">enrolled · step {l.outreachStep ?? 0}</span>
                                 : (l.outreachStep ?? 0) > 0 ? <span className="text-muted-foreground">emailed ×{l.outreachStep}</span>
                                 : <span className="text-muted-foreground">—</span>}
+                            </td>
+                            <td className="px-2 py-1.5 whitespace-nowrap">
+                              <button onClick={() => openEmailDraft(l.id, l.name)} title="Preview & edit the exact emails the AI will send this company"
+                                className="px-2 py-0.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 font-semibold">
+                                ✉️ Preview
+                              </button>
                             </td>
                           </tr>
                         ))}
@@ -2162,47 +2525,120 @@ export default function Admin() {
                   </div>
                 )}
               </div>
+                );
+              })()}
+
+              {/* Up next — the scheduled send queue */}
+              {emailQueue.length > 0 && (
+                <div className="rounded-2xl border border-border bg-card p-5">
+                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide mb-3">Up next <span className="normal-case font-normal text-muted-foreground/70">— what the engine sends, in order</span></h3>
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {emailQueue.slice(0, 9).map(q => (
+                      <div key={q.id} className="rounded-lg border border-border bg-background/40 px-3 py-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="px-1.5 py-0.5 rounded-full border border-blue-500/40 bg-blue-500/15 text-blue-400 text-[9px] font-bold uppercase">step {q.nextStep}</span>
+                          <span className="font-semibold text-foreground truncate">{q.name}</span>
+                        </div>
+                        <div className="text-muted-foreground truncate mt-0.5">{q.subject ?? q.toEmail ?? ""}</div>
+                        <div className="text-muted-foreground/70 mt-0.5">{q.nextEmailAt ? new Date(q.nextEmailAt).toLocaleString() : "—"}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {emailQueue.length > 9 && <p className="text-[11px] text-muted-foreground mt-2">+ {emailQueue.length - 9} more scheduled</p>}
+                </div>
+              )}
 
               {/* Sent + replies feeds */}
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="rounded-2xl border border-border bg-card p-5">
-                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide mb-3">Recent sends</h3>
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide">Recent sends</h3>
+                    <div className="flex items-center gap-1">
+                      {(["all", "sent", "failed"] as const).map(f => (
+                        <button key={f} onClick={() => setEmailActivityFilter(f)}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${emailActivityFilter === f ? "bg-primary/15 text-primary border border-primary/40" : "text-muted-foreground hover:text-foreground border border-transparent"}`}>
+                          {f}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   {emailActivity.length === 0 ? (
                     <p className="text-xs text-muted-foreground">Nothing sent yet — enroll companies above and turn the engine on.</p>
                   ) : (
-                    <div className="space-y-1.5">
-                      {emailActivity.map(a => (
-                        <div key={a.id} className="rounded-lg border border-border bg-background/40 px-3 py-2 text-xs">
+                    <div className="space-y-1.5 max-h-[420px] overflow-y-auto pr-1">
+                      {emailActivity.filter(a => emailActivityFilter === "all" || a.status === emailActivityFilter).slice(0, 60).map(a => (
+                        <button key={a.id} onClick={() => openEmailThread(a.leadId, a.leadName ?? a.toEmail)}
+                          className="w-full text-left rounded-lg border border-border bg-background/40 px-3 py-2 text-xs hover:border-primary/40 transition-colors">
                           <div className="flex items-center gap-2">
                             <span className={`px-1.5 py-0.5 rounded-full border text-[9px] font-bold uppercase ${a.status === "sent" ? "bg-primary/15 text-primary border-primary/40" : "bg-red-500/15 text-red-400 border-red-500/40"}`}>{a.status}</span>
                             <span className="font-semibold text-foreground truncate">{a.leadName ?? a.toEmail}</span>
                             <span className="ml-auto text-muted-foreground whitespace-nowrap">step {a.step} · {new Date(a.createdAt).toLocaleString()}</span>
                           </div>
                           <div className="text-muted-foreground truncate mt-0.5">{a.status === "failed" ? (a.error ?? "failed") : a.subject}</div>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   )}
                 </div>
                 <div className="rounded-2xl border border-border bg-card p-5">
-                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide mb-3">Replies</h3>
+                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide mb-3">Replies <span className="normal-case font-normal text-muted-foreground/70">— click one to read the thread &amp; answer</span></h3>
                   {emailReplies.length === 0 ? (
                     <p className="text-xs text-muted-foreground">No replies yet.</p>
                   ) : (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 max-h-[420px] overflow-y-auto pr-1">
                       {emailReplies.map(r => (
-                        <div key={r.id} className="rounded-lg border border-border bg-background/40 px-3 py-2 text-xs">
+                        <button key={r.id} onClick={() => openEmailThread(r.leadId, r.leadName ?? r.fromEmail ?? `Lead #${r.leadId}`)}
+                          className="w-full text-left rounded-lg border border-border bg-background/40 px-3 py-2 text-xs hover:border-primary/40 transition-colors">
                           <div className="flex items-center gap-2">
                             <span className={`px-1.5 py-0.5 rounded-full border text-[9px] font-bold uppercase ${r.direction === "in" ? "bg-blue-500/15 text-blue-400 border-blue-500/40" : "bg-primary/15 text-primary border-primary/40"}`}>{r.direction === "in" ? "in" : r.aiGenerated ? "AI out" : "out"}</span>
                             <span className="font-semibold text-foreground truncate">{r.leadName ?? r.fromEmail ?? "—"}</span>
                             <span className="ml-auto text-muted-foreground whitespace-nowrap">{new Date(r.createdAt).toLocaleString()}</span>
                           </div>
                           {r.body && <div className="text-muted-foreground mt-0.5 line-clamp-2">{r.body}</div>}
-                        </div>
+                        </button>
                       ))}
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Suppression list — who we'll never email again */}
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide">Suppression list <span className="normal-case font-normal text-muted-foreground/70">— unsubscribes &amp; bounces, honored forever</span></h3>
+                  <button onClick={() => { const next = !emailShowSuppressed; setEmailShowSuppressed(next); if (next && emailSuppressed === null) loadEmailSuppressed(); }}
+                    className="text-xs font-semibold text-muted-foreground hover:text-foreground">
+                    {emailShowSuppressed ? "▾ Hide" : `▸ Show${emailStats ? ` (${emailStats.totals.unsubscribed + emailStats.totals.bounced})` : ""}`}
+                  </button>
+                </div>
+                {emailShowSuppressed && (
+                  emailSuppressed === null ? <p className="text-xs text-muted-foreground mt-3">Loading…</p>
+                  : emailSuppressed.length === 0 ? <p className="text-xs text-muted-foreground mt-3">Nobody has unsubscribed or bounced. 🎉</p>
+                  : (
+                    <div className="overflow-x-auto mt-3 max-h-72 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-card">
+                          <tr className="text-left text-muted-foreground border-b border-border">
+                            <th className="px-2 py-1.5 font-semibold">Company</th>
+                            <th className="px-2 py-1.5 font-semibold">Email</th>
+                            <th className="px-2 py-1.5 font-semibold">Reason</th>
+                            <th className="px-2 py-1.5 font-semibold">When</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {emailSuppressed.map(s => (
+                            <tr key={s.id} className="border-b border-border/50">
+                              <td className="px-2 py-1.5 text-foreground truncate max-w-[220px]">{s.name}</td>
+                              <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[200px]">{s.email ?? "—"}</td>
+                              <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded-full border text-[9px] font-bold uppercase ${s.reason === "unsubscribed" ? "bg-amber-500/15 text-amber-400 border-amber-500/40" : "bg-red-500/15 text-red-400 border-red-500/40"}`}>{s.reason}</span></td>
+                              <td className="px-2 py-1.5 text-muted-foreground whitespace-nowrap">{new Date(s.at).toLocaleDateString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                )}
               </div>
             </motion.div>
           )}
@@ -4626,6 +5062,130 @@ export default function Admin() {
 
         </div>
       </main>
+
+      {/* Outreach draft preview/editor modal */}
+      {draftLead && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => { setDraftLead(null); setDraftData(null); }}>
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-1">
+              <Send className="w-4 h-4 text-primary" />
+              <h3 className="font-display font-bold truncate">Email sequence — {draftLead.name}</h3>
+              <button onClick={() => { setDraftLead(null); setDraftData(null); }} className="ml-auto text-muted-foreground hover:text-foreground">✕</button>
+            </div>
+            {draftData && (
+              <p className="text-xs text-muted-foreground mb-3">
+                To <span className="text-foreground">{draftData.lead.email ?? "no email"}</span>
+                {draftData.lead.enrolled && <> · <span className="text-blue-400">enrolled, step {draftData.lead.step}</span></>}
+                {draftData.lead.nextEmailAt && <> · next send {new Date(draftData.lead.nextEmailAt).toLocaleString()}</>}
+                {draftData.draft.angle && <> · <span className="italic">angle: {draftData.draft.angle}</span></>}
+              </p>
+            )}
+            {draftMsg && <p className="text-xs text-primary mb-2">✓ {draftMsg}</p>}
+            {draftErr && <p className="text-xs text-red-400 mb-2">⚠ {draftErr}</p>}
+            {draftBusy === "load" ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">Writing the draft…</p>
+            ) : draftData ? (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-border bg-background/30 p-4">
+                  <div className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground mb-2">Email #1 — the opener</div>
+                  <input value={draftData.draft.email.subject}
+                    onChange={e => setDraftData({ ...draftData, draft: { ...draftData.draft, email: { ...draftData.draft.email, subject: e.target.value } } })}
+                    className="w-full px-3 py-2 mb-2 rounded-lg bg-background border border-border text-sm font-semibold focus:border-primary/50 outline-none" />
+                  <textarea value={draftData.draft.email.body} rows={7}
+                    onChange={e => setDraftData({ ...draftData, draft: { ...draftData.draft, email: { ...draftData.draft.email, body: e.target.value } } })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:border-primary/50 outline-none resize-y" />
+                </div>
+                {(draftData.draft.followUps ?? []).filter(f => f.channel === "email").map((f, i) => {
+                  const idx = draftData.draft.followUps.indexOf(f);
+                  return (
+                    <div key={idx} className="rounded-xl border border-border bg-background/30 p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground">Follow-up {i + 1} — day</span>
+                        <input type="number" min={1} max={60} value={f.day}
+                          onChange={e => { const fu = [...draftData.draft.followUps]; fu[idx] = { ...f, day: Math.min(60, Math.max(1, Number(e.target.value) || 1)) }; setDraftData({ ...draftData, draft: { ...draftData.draft, followUps: fu } }); }}
+                          className="w-16 px-2 py-1 rounded-md bg-background border border-border text-xs focus:border-primary/50 outline-none" />
+                        <span className="text-[10px] text-muted-foreground">after email #1 · threads as a reply</span>
+                      </div>
+                      <textarea value={f.body} rows={4}
+                        onChange={e => { const fu = [...draftData.draft.followUps]; fu[idx] = { ...f, body: e.target.value }; setDraftData({ ...draftData, draft: { ...draftData.draft, followUps: fu } }); }}
+                        className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:border-primary/50 outline-none resize-y" />
+                    </div>
+                  );
+                })}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button onClick={saveEmailDraft} disabled={!!draftBusy}
+                    className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 disabled:opacity-50">
+                    {draftBusy === "save" ? "Saving…" : "Save draft"}
+                  </button>
+                  <button onClick={testSendEmailDraft} disabled={!!draftBusy}
+                    className="px-4 py-2 rounded-lg bg-muted text-foreground text-sm font-semibold hover:opacity-80 disabled:opacity-50"
+                    title="Emails YOU a copy of email #1 so you can see exactly what lands in their inbox">
+                    {draftBusy === "test" ? "Sending…" : "📬 Send test to me"}
+                  </button>
+                  <button onClick={() => openEmailDraft(draftLead.id, draftLead.name, true)} disabled={!!draftBusy}
+                    className="px-4 py-2 rounded-lg bg-muted text-foreground text-sm font-semibold hover:opacity-80 disabled:opacity-50"
+                    title="Throw this draft away and have the AI write a fresh one">
+                    {draftBusy === "regen" ? "Rewriting…" : "↻ Rewrite with AI"}
+                  </button>
+                </div>
+                <p className="text-[11px] text-muted-foreground/70">Your edits are exactly what sends — the AI won't touch a saved draft. The signature and business-address footer from your settings are added automatically.</p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* Outreach conversation thread modal */}
+      {threadLead && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => { setThreadLead(null); setThreadData(null); }}>
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-primary">💬</span>
+              <h3 className="font-display font-bold truncate">{threadLead.name}</h3>
+              {threadData?.lead.unsubscribedAt && <span className="px-1.5 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/15 text-amber-400 text-[9px] font-bold uppercase">unsubscribed</span>}
+              {threadData?.lead.repliedAt && !threadData.lead.unsubscribedAt && <span className="px-1.5 py-0.5 rounded-full border border-primary/40 bg-primary/15 text-primary text-[9px] font-bold uppercase">replied</span>}
+              <button onClick={() => { setThreadLead(null); setThreadData(null); }} className="ml-auto text-muted-foreground hover:text-foreground">✕</button>
+            </div>
+            {threadData?.lead.email && <p className="text-xs text-muted-foreground mb-3">{threadData.lead.email}</p>}
+            {threadErr && <p className="text-xs text-red-400 mb-2">⚠ {threadErr}</p>}
+            {threadMsg && <p className="text-xs text-primary mb-2">✓ {threadMsg}</p>}
+            <div className="flex-1 overflow-y-auto space-y-2 min-h-[120px]">
+              {threadBusy === "load" ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">Loading conversation…</p>
+              ) : threadData && threadData.thread.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">Nothing sent to this company yet.</p>
+              ) : threadData?.thread.map(t => (
+                <div key={t.id} className={`rounded-xl border px-3 py-2 text-xs ${t.direction === "in" ? "border-blue-500/30 bg-blue-500/5 mr-8" : "border-border bg-background/40 ml-8"}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`px-1.5 py-0.5 rounded-full border text-[9px] font-bold uppercase ${t.direction === "in" ? "bg-blue-500/15 text-blue-400 border-blue-500/40" : t.status === "failed" ? "bg-red-500/15 text-red-400 border-red-500/40" : "bg-primary/15 text-primary border-primary/40"}`}>
+                      {t.direction === "in" ? "them" : t.kind === "email" ? `you · step ${t.step}` : t.aiGenerated ? "you · AI" : "you"}
+                    </span>
+                    {t.status === "failed" && <span className="text-red-400">{t.error ?? "failed"}</span>}
+                    <span className="ml-auto text-muted-foreground whitespace-nowrap">{new Date(t.createdAt).toLocaleString()}</span>
+                  </div>
+                  {t.subject && <div className="font-semibold text-foreground mb-0.5">{t.subject}</div>}
+                  <div className="text-muted-foreground whitespace-pre-wrap">{t.body}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 pt-3 border-t border-border">
+              {emailInfo?.gmailConfigured ? (
+                <div className="flex items-end gap-2">
+                  <textarea value={threadReply} onChange={e => setThreadReply(e.target.value)} rows={2}
+                    placeholder={`Reply to ${threadLead.name} — sends from your Gmail, threaded into the conversation`}
+                    className="flex-1 px-3 py-2 rounded-lg bg-background border border-border text-sm focus:border-primary/50 outline-none resize-y" />
+                  <button onClick={sendEmailThreadReply} disabled={!threadReply.trim() || threadBusy === "send"}
+                    className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 disabled:opacity-50">
+                    {threadBusy === "send" ? "Sending…" : "Send"}
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">Connect Google Mail (Replit → Integrations) to reply straight from here.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sell-pack modal */}
       {sellPack && (
