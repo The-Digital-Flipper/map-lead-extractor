@@ -15,6 +15,7 @@ import { resolveSiteDir } from "../serveSite";
 import { eq, desc, asc, and, gte, lt, or, isNull, isNotNull, inArray, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { tiktokConnected, publishTikTokPhoto, signPublicImageId } from "./tiktok";
+import { postpeerConfigured, postpeerPostImageAll } from "./postpeer";
 
 const SITE_ORIGIN = process.env.PUBLIC_ORIGIN || "https://mapleadextractor.net";
 
@@ -904,16 +905,49 @@ async function tiktokImageUrl(post: SocialPost): Promise<string | null> {
   return null;
 }
 
-/** Publish `source`'s content to TikTok, recorded as its own platform="tiktok"
- * history row. Never throws — a TikTok failure must not break the FB flow. */
+/** Publish `source`'s content to TikTok — and, when PostPeer is configured, to
+ * every other account linked there too (each recorded as its own platform row).
+ * Never throws — a cross-post failure must not break the FB flow. Returns the
+ * TikTok history row (or the first successful one). */
 export async function crossPostToTikTok(source: SocialPost): Promise<SocialPost | null> {
   try {
-    if (!(await tiktokConnected())) return null;
+    // PostPeer (no TikTok dev app, posts public immediately) takes priority;
+    // the official Content Posting API is the fallback when only it is set up.
+    const viaService = postpeerConfigured();
+    if (!viaService && !(await tiktokConnected())) return null;
     const imageUrl = await tiktokImageUrl(source);
     if (!imageUrl) {
       logger.warn({ postId: source.id }, "TikTok cross-post skipped — no public image available");
       return null;
     }
+
+    if (viaService) {
+      const { postId, results } = await postpeerPostImageAll({ caption: source.body, imageUrl });
+      const now = new Date();
+      const rows = await db
+        .insert(socialPosts)
+        .values(results.map((r) => ({
+          platform: r.platform,
+          campaign: source.campaign,
+          body: source.body,
+          note: source.note,
+          status: r.success ? ("posted" as const) : ("failed" as const),
+          externalId: postId,
+          externalUrl: r.postUrl,
+          error: r.error ? r.error.slice(0, 500) : null,
+          attemptedAt: now,
+          postedAt: r.success ? now : null,
+        })))
+        .returning();
+      logger.info(
+        { postId: source.id, platforms: results.map((r) => `${r.platform}:${r.success ? "ok" : "fail"}`) },
+        "Cross-posted via PostPeer",
+      );
+      const best = rows.find((r) => r.platform === "tiktok" && r.status === "posted")
+        ?? rows.find((r) => r.status === "posted");
+      return best ?? rows[0] ?? null;
+    }
+
     const r = await publishTikTokPhoto({ caption: source.body, imageUrls: [imageUrl] });
     const note = r.restricted
       ? "⚠️ TikTok app not audited yet — posted as PRIVATE (Self only). Submit the app for review in the TikTok developer portal to go public."
@@ -1002,7 +1036,7 @@ export async function socialTick(): Promise<void> {
     }
 
     const fb = await facebookCreds();
-    const tiktokOn = await tiktokConnected();
+    const tiktokOn = postpeerConfigured() || (await tiktokConnected());
     if (!fb && !tiktokOn) return;
 
     // Keep engagement numbers fresh in the background (a few posts per tick;

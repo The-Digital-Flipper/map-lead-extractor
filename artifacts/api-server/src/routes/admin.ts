@@ -31,6 +31,7 @@ import {
   tiktokConnectUrl, tiktokHandleCallback, tiktokDisconnect, tiktokConnected, tiktokAccountName,
   tiktokAppConfigured, TIKTOK_REDIRECT_URI,
 } from "../lib/tiktok";
+import { postpeerConfigured, postpeerTikTokAccount } from "../lib/postpeer";
 import { sendBuyerFollowup } from "../lib/buyer-followup";
 import { sendCapturedDigest } from "../lib/captured-digest";
 import { listCustomers, inAudience, startBlast, blastStatus, sendTestEmail, type Audience } from "../lib/customer-blast";
@@ -1543,9 +1544,10 @@ router.get("/social", requireAuth, async (_req, res) => {
     pageLikes: followers?.likes ?? null,
     appConfigured,
     redirectUri: FB_REDIRECT_URI,
-    tiktokConnected: tkConnected,
-    tiktokAccountName: tkName,
-    tiktokAppConfigured: tkAppConfigured,
+    tiktokConnected: tkConnected || postpeerConfigured(),
+    tiktokAccountName: tkName ?? (postpeerConfigured() ? (await postpeerTikTokAccount().catch(() => null))?.username ?? "Connected via PostPeer" : null),
+    tiktokAppConfigured: tkAppConfigured || postpeerConfigured(),
+    tiktokViaService: postpeerConfigured(),
     tiktokRedirectUri: TIKTOK_REDIRECT_URI,
     aiConfigured: Boolean(process.env.OPENAI_API_KEY || process.env.CHAT_GPT_API),
     queue,
@@ -1803,7 +1805,7 @@ router.post("/social/tiktok/disconnect", requireAuth, async (_req, res) => {
 // ---- POST /social/:id/tiktok-now — cross-post one post to TikTok right now ---
 router.post("/social/:id/tiktok-now", requireAuth, async (req, res) => {
   try {
-    if (!(await tiktokConnected())) { res.status(400).json({ error: "TikTok not connected — use the Connect TikTok button first." }); return; }
+    if (!postpeerConfigured() && !(await tiktokConnected())) { res.status(400).json({ error: "TikTok not connected — use the Connect TikTok button first." }); return; }
     const rows = await db.select().from(socialPosts).where(eq(socialPosts.id, Number(req.params.id)));
     if (!rows[0]) { res.status(404).json({ error: "Post not found" }); return; }
     const result = await crossPostToTikTok(rows[0]);
