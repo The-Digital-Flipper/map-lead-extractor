@@ -27,8 +27,13 @@ import {
   socialChat, type SocialChatMessage,
 } from "../lib/social";
 import { sendBuyerFollowup } from "../lib/buyer-followup";
+import { listCustomers, inAudience, startBlast, blastStatus, sendTestEmail, type Audience } from "../lib/customer-blast";
 import { autoScrapeTick, autoScrapeStatus, setAutoScrapeEnabled, seedAutoTargets, listAutoCandidates } from "../lib/autoScrape";
-import { anyProviderConfigured, providerReady, getOutreachSettings } from "../lib/outreach-auto";
+import {
+  anyProviderConfigured, providerReady, getOutreachSettings,
+  gmailSendReady, resendConfigured, replitMailConfigured, gmailSendAddress,
+} from "../lib/outreach-auto";
+import { refreshGmailConnector } from "../lib/gmailConnector";
 
 const router = Router();
 
@@ -67,9 +72,31 @@ router.get("/traffic", requireAuth, async (req, res) => {
   const days = Math.min(90, Math.max(1, parseInt(String(req.query.days ?? "30"), 10) || 30));
   const windowSql = sql`created_at >= NOW() - make_interval(days => ${days})`;
 
+  // Classify a session's acquisition channel from its entry pageview — the
+  // link tag (utm_source) wins, then the referrer domain, then Direct.
+  const channelCase = sql`CASE
+    WHEN COALESCE(utm_source,'') ILIKE '%facebook%' OR COALESCE(utm_source,'') IN ('fb','fb-ad') OR referrer ILIKE '%facebook.%' OR referrer ILIKE '%fb.me%' OR referrer ILIKE '%l.messenger%' THEN 'Facebook'
+    WHEN COALESCE(utm_source,'') ILIKE '%instagram%' OR referrer ILIKE '%instagram.%' OR COALESCE(utm_source,'') = 'ig' THEN 'Instagram'
+    WHEN COALESCE(utm_source,'') ILIKE '%tiktok%' OR referrer ILIKE '%tiktok.%' THEN 'TikTok'
+    WHEN COALESCE(utm_source,'') = 'google-ads' THEN 'Google Ads'
+    WHEN referrer ILIKE '%google.%' OR COALESCE(utm_source,'') ILIKE '%google%' THEN 'Google search'
+    WHEN referrer ILIKE '%bing.%' THEN 'Bing search'
+    WHEN referrer ILIKE '%duckduckgo%' THEN 'DuckDuckGo'
+    WHEN referrer ILIKE '%youtube%' OR COALESCE(utm_source,'') ILIKE '%youtube%' THEN 'YouTube'
+    WHEN referrer ILIKE '%reddit%' OR COALESCE(utm_source,'') ILIKE '%reddit%' THEN 'Reddit'
+    WHEN referrer ILIKE '%twitter%' OR referrer ILIKE '%//t.co%' OR COALESCE(utm_source,'') IN ('x','twitter') THEN 'X / Twitter'
+    WHEN referrer ILIKE '%linkedin%' OR referrer ILIKE '%lnkd.in%' THEN 'LinkedIn'
+    WHEN utm_medium = 'email' OR COALESCE(utm_source,'') ILIKE '%mail%' THEN 'Email'
+    WHEN COALESCE(utm_source,'') = 'social' THEN 'Shared link'
+    WHEN utm_source IS NOT NULL THEN 'Tagged: ' || utm_source
+    WHEN referrer IS NULL OR referrer = '' OR referrer ILIKE '%mapleadextractor.net%' THEN 'Direct'
+    ELSE 'Other sites'
+  END`;
+
   const [
     summaryRows, liveRows, dailyRows, pageRows, refRows, deviceRows, sourceRows,
     newRetRows, entryRows, exitRows, heatRows, countryRows, engageRows,
+    channelRows, recentRows,
   ] = await Promise.all([
     db.execute(sql`
       SELECT
@@ -175,6 +202,36 @@ router.get("/traffic", requireAuth, async (req, res) => {
         COALESCE(SUM(views), 0)::int AS total_views
       FROM s
     `),
+    // Acquisition channels — classified from each session's entry pageview.
+    db.execute(sql`
+      WITH entries AS (
+        SELECT DISTINCT ON (session_id) session_id, visitor_id, referrer, utm_source, utm_medium
+        FROM site_visits WHERE ${windowSql} AND session_id IS NOT NULL
+        ORDER BY session_id, created_at ASC
+      )
+      SELECT ${channelCase} AS channel,
+             COUNT(*)::int AS sessions,
+             COUNT(DISTINCT visitor_id)::int AS visitors
+      FROM entries GROUP BY 1 ORDER BY sessions DESC LIMIT 12
+    `),
+    // Recent visitor sessions — the live "who's on my site" feed.
+    db.execute(sql`
+      WITH s AS (
+        SELECT session_id,
+               MIN(created_at) AS started,
+               MAX(created_at) AS ended,
+               COUNT(*)::int AS views,
+               (ARRAY_AGG(path ORDER BY created_at ASC))[1:8] AS paths,
+               (ARRAY_REMOVE(ARRAY_AGG(referrer ORDER BY created_at ASC), NULL))[1] AS referrer,
+               (ARRAY_REMOVE(ARRAY_AGG(utm_source ORDER BY created_at ASC), NULL))[1] AS utm_source,
+               (ARRAY_REMOVE(ARRAY_AGG(utm_medium ORDER BY created_at ASC), NULL))[1] AS utm_medium,
+               (ARRAY_REMOVE(ARRAY_AGG(device ORDER BY created_at ASC), NULL))[1] AS device,
+               (ARRAY_REMOVE(ARRAY_AGG(country ORDER BY created_at ASC), NULL))[1] AS country
+        FROM site_visits WHERE ${windowSql} AND session_id IS NOT NULL
+        GROUP BY session_id
+      )
+      SELECT *, ${channelCase} AS channel FROM s ORDER BY started DESC LIMIT 30
+    `),
   ]);
 
   type SumRow = {
@@ -229,6 +286,23 @@ router.get("/traffic", requireAuth, async (req, res) => {
         pagesPerSession: sessions ? totalViews / sessions : 0,
       };
     })(),
+    channels: (channelRows.rows as { channel: string; sessions: number; visitors: number }[])
+      .map(r => ({ channel: r.channel, sessions: Number(r.sessions), visitors: Number(r.visitors) })),
+    recentSessions: (recentRows.rows as {
+      started: string | Date; ended: string | Date; views: number; paths: string[];
+      referrer: string | null; utm_source: string | null; device: string | null;
+      country: string | null; channel: string;
+    }[]).map(r => ({
+      startedAt: r.started instanceof Date ? r.started.toISOString() : String(r.started),
+      minutes: Math.max(0, Math.round((new Date(r.ended).getTime() - new Date(r.started).getTime()) / 60_000)),
+      views: Number(r.views),
+      paths: Array.isArray(r.paths) ? r.paths : [],
+      referrer: r.referrer,
+      source: r.utm_source,
+      device: r.device,
+      country: r.country,
+      channel: r.channel,
+    })),
   });
 });
 
@@ -1834,6 +1908,7 @@ router.post("/pack-orders/:id/send", requireAuth, async (req, res) => {
 
 /** GET /api/admin/captured-leads — the captured email list + funnel stats. */
 router.get("/captured-leads", requireAuth, async (_req, res) => {
+  if (!anyProviderConfigured()) await refreshGmailConnector().catch(() => false);
   const rows = await db.select().from(sampleRequests)
     .where(isNotNull(sampleRequests.email))
     .orderBy(desc(sampleRequests.id))
@@ -1910,6 +1985,77 @@ router.post("/captured-leads/:id/follow-up", requireAuth, async (req, res) => {
     : r.reason === "no_email" ? "No email on this capture."
     : `Send failed: ${r.reason}`;
   res.status(status).json({ error: msg });
+});
+
+// ── Customer email blasts (Email customers about buying leads) ───────────────
+// Recipients are CUSTOMERS — captured sample emails + paid pack buyers — not
+// the scraped `leads` the outreach engine pitches.
+
+/** GET /api/admin/customers — merged customer list + audience counts. */
+router.get("/customers", requireAuth, async (_req, res) => {
+  // If nothing looks configured, re-check the Google Mail connector live so
+  // the owner's Connect click shows up on the next refresh, not in 5 minutes.
+  if (!anyProviderConfigured()) await refreshGmailConnector().catch(() => false);
+  const customers = await listCustomers();
+  const s = await getOutreachSettings();
+  const sendable = customers.filter(c => !c.optedOut);
+  // Which provider a send would actually go through (mirrors the fallback
+  // chain in customer-blast sendOne), so the UI can say so.
+  const sendVia = s.provider === "gmail" && gmailSendReady() ? "gmail"
+    : resendConfigured() ? "resend"
+    : gmailSendReady() ? "gmail"
+    : replitMailConfigured() ? "replit" : null;
+  res.json({
+    customers,
+    counts: {
+      all: sendable.length,
+      prospects: sendable.filter(c => inAudience(c, "prospects")).length,
+      buyers: sendable.filter(c => inAudience(c, "buyers")).length,
+      optedOut: customers.length - sendable.length,
+    },
+    ready: anyProviderConfigured() && providerReady(s),
+    sendVia,
+    gmailAddress: gmailSendAddress(),
+  });
+});
+
+const parseAudience = (v: unknown): Audience | null =>
+  v === "all" || v === "prospects" || v === "buyers" ? v : null;
+
+/** POST /api/admin/customers/blast — start sending {subject, body} to an audience. */
+router.post("/customers/blast", requireAuth, async (req, res) => {
+  const subject = String(req.body?.subject ?? "").trim();
+  const body = String(req.body?.body ?? "").trim();
+  const audience = parseAudience(req.body?.audience);
+  const skipRecentDays = Number(req.body?.skipRecentDays);
+  if (!subject || !body) { res.status(400).json({ error: "Subject and message are both required." }); return; }
+  if (!audience) { res.status(400).json({ error: "Pick an audience." }); return; }
+  const r = await startBlast({
+    subject, body, audience,
+    skipRecentDays: Number.isFinite(skipRecentDays) ? skipRecentDays : undefined,
+  });
+  if (!r.ok) { res.status(409).json({ error: r.error }); return; }
+  res.json({ ok: true, total: r.total });
+});
+
+/** GET /api/admin/customers/blast-status — progress of the running/last blast. */
+router.get("/customers/blast-status", requireAuth, (_req, res) => {
+  res.json(blastStatus());
+});
+
+/** POST /api/admin/customers/blast-test — send the draft to one address (yours). */
+router.post("/customers/blast-test", requireAuth, async (req, res) => {
+  const to = String(req.body?.to ?? "").trim();
+  const subject = String(req.body?.subject ?? "").trim();
+  const body = String(req.body?.body ?? "").trim();
+  if (!/.+@.+\..+/.test(to)) { res.status(400).json({ error: "Enter a valid test address." }); return; }
+  if (!subject || !body) { res.status(400).json({ error: "Subject and message are both required." }); return; }
+  try {
+    await sendTestEmail(to, subject, body);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(409).json({ error: err instanceof Error ? err.message : "Test send failed." });
+  }
 });
 
 export default router;

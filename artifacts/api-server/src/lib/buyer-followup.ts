@@ -25,6 +25,7 @@ import { logger } from "./logger";
 import {
   getOutreachSettings, sendGmailMail, gmailSendAddress,
   anyProviderConfigured, providerReady,
+  gmailSendReady, resendConfigured, sendReplitMail,
 } from "./outreach-auto";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
@@ -151,9 +152,9 @@ export async function sendBuyerFollowup(sampleId: number): Promise<FollowupResul
   };
 
   try {
-    if (s.provider === "gmail") {
+    if (s.provider === "gmail" && gmailSendReady()) {
       await sendGmailMail({ fromName: s.fromName, to: row.email, replyTo, subject, text, html, headers });
-    } else {
+    } else if (resendConfigured()) {
       const res = await fetch(RESEND_ENDPOINT, {
         method: "POST",
         headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
@@ -164,6 +165,11 @@ export async function sendBuyerFollowup(sampleId: number): Promise<FollowupResul
         const data = (await res.json().catch(() => ({}))) as { message?: string };
         throw new Error(data.message || `Resend ${res.status}`);
       }
+    } else if (gmailSendReady()) {
+      await sendGmailMail({ fromName: s.fromName, to: row.email, replyTo, subject, text, html, headers });
+    } else {
+      // Replit Mail fallback — the body already carries the unsubscribe link.
+      await sendReplitMail({ to: row.email, subject, text, html });
     }
     await db.update(sampleRequests).set({ followedUpAt: new Date() }).where(eq(sampleRequests.id, sampleId));
     logger.info({ sampleId, to: row.email }, "buyer follow-up sent");

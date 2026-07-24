@@ -32,12 +32,22 @@ export function trackPageview(path: string): void {
 
   try {
     const params = new URLSearchParams(window.location.search);
+    // Source attribution beyond utm_source: a bare ?src= tag, and the click
+    // ids Facebook/Google append to ad/share links (present even when the
+    // app strips the referrer — common on mobile).
+    const source =
+      params.get("utm_source") ||
+      params.get("src") ||
+      params.get("ref") ||
+      (params.get("fbclid") ? "facebook" : null) ||
+      (params.get("gclid") ? "google-ads" : null) ||
+      (params.get("ttclid") ? "tiktok" : null);
     const payload = JSON.stringify({
       path,
       referrer: document.referrer || null,
       visitorId: storedId(localStorage, "mle_visitor_id"),
       sessionId: storedId(sessionStorage, "mle_session_id"),
-      utmSource: params.get("utm_source"),
+      utmSource: source,
       utmMedium: params.get("utm_medium"),
       utmCampaign: params.get("utm_campaign"),
       screenWidth: window.screen?.width ?? null,

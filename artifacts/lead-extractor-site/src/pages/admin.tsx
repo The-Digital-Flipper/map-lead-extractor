@@ -7,7 +7,7 @@ import {
   MapPin, ChevronLeft, ChevronRight, DollarSign, CreditCard,
   UserCheck, UserX, Crown, BarChart2, RefreshCw,
   Flame, Globe, Target, Sparkles, Package, Phone, Trash2, RotateCcw,
-  Activity, Eye, Copy, ExternalLink, Search, Share2, MessageSquare, Send,
+  Activity, Eye, Copy, ExternalLink, Search, Share2, MessageSquare, Send, Mail,
 } from "lucide-react";
 import {
   ComposableMap, Geographies, Geography, ZoomableGroup, Marker,
@@ -96,6 +96,12 @@ interface TrafficData {
   heatmap: { dow: number; hour: number; views: number }[];
   countries: { country: string; visitors: number }[];
   engagement: { sessions: number; bounceRate: number; pagesPerSession: number };
+  channels: { channel: string; sessions: number; visitors: number }[];
+  recentSessions: {
+    startedAt: string; minutes: number; views: number; paths: string[];
+    referrer: string | null; source: string | null; device: string | null;
+    country: string | null; channel: string;
+  }[];
 }
 
 interface SocialPostRow {
@@ -328,6 +334,76 @@ export default function Admin() {
     } catch { setCapturedMsg("Export failed."); }
   }, []);
 
+  // ── Customer email blast (email your customers about buying leads) ────────
+  type BlastCounts = { all: number; prospects: number; buyers: number; optedOut: number };
+  type BlastJob = {
+    running: boolean; total: number; sent: number; failed: number;
+    lastError: string | null; finishedAt: string | null;
+  };
+  const [blastCounts, setBlastCounts] = useState<BlastCounts | null>(null);
+  const [blastReady, setBlastReady] = useState(false);
+  const [blastVia, setBlastVia] = useState<"gmail" | "resend" | "replit" | null>(null);
+  const [blastGmailAddr, setBlastGmailAddr] = useState<string | null>(null);
+  const [blastAudience, setBlastAudience] = useState<"all" | "prospects" | "buyers">("prospects");
+  const [blastSubject, setBlastSubject] = useState("Fresh lead packs are ready — 100 leads for $29");
+  const [blastBody, setBlastBody] = useState(
+    "Hi,\n\nQuick heads up — we've got fresh, hand-reviewed local business leads ready to go. Every lead comes with the business name, phone, email, website and Google rating, checked by a real person before it ships.\n\n100 leads in any city + industry you want is $29, usually delivered within a few hours:\n\nhttps://mapleadextractor.net/#leads-for-sale\n\nReply to this email if you want a custom city or industry — happy to put a pack together for you.",
+  );
+  const [blastSkipRecent, setBlastSkipRecent] = useState(true);
+  const [blastTestTo, setBlastTestTo] = useState("");
+  const [blastMsg, setBlastMsg] = useState<string | null>(null);
+  const [blastJob, setBlastJob] = useState<BlastJob | null>(null);
+  const [blastBusy, setBlastBusy] = useState(false);
+  const loadBlast = useCallback(async () => {
+    try {
+      const [r, st] = await Promise.all([
+        adminFetch(`${basePath}/api/admin/customers`),
+        adminFetch(`${basePath}/api/admin/customers/blast-status`),
+      ]);
+      if (r.ok) { const d = await r.json(); setBlastCounts(d.counts); setBlastReady(d.ready); setBlastVia(d.sendVia ?? null); setBlastGmailAddr(d.gmailAddress ?? null); }
+      if (st.ok) setBlastJob(await st.json());
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => { if (activeTab === "captured") loadBlast(); }, [activeTab, loadBlast]);
+  // While a blast is sending, poll its progress every few seconds.
+  useEffect(() => {
+    if (!blastJob?.running) return;
+    const t = setInterval(async () => {
+      try {
+        const r = await adminFetch(`${basePath}/api/admin/customers/blast-status`);
+        if (r.ok) setBlastJob(await r.json());
+      } catch { /* ignore */ }
+    }, 2500);
+    return () => clearInterval(t);
+  }, [blastJob?.running]);
+  const sendBlastTest = useCallback(async () => {
+    setBlastBusy(true); setBlastMsg(null);
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/customers/blast-test`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: blastTestTo, subject: blastSubject, body: blastBody }),
+      });
+      const d = await r.json().catch(() => ({}));
+      setBlastMsg(r.ok ? `Test sent to ${blastTestTo} — check your inbox.` : (d.error ?? "Test send failed."));
+    } catch { setBlastMsg("Test send failed."); }
+    setBlastBusy(false);
+  }, [blastTestTo, blastSubject, blastBody]);
+  const startCustomerBlast = useCallback(async () => {
+    const n = blastCounts ? blastCounts[blastAudience] : 0;
+    if (!window.confirm(`Send "${blastSubject}" to up to ${n} ${blastAudience === "buyers" ? "past buyers" : blastAudience === "prospects" ? "prospects (haven't bought yet)" : "customers"}?`)) return;
+    setBlastBusy(true); setBlastMsg(null);
+    try {
+      const r = await adminFetch(`${basePath}/api/admin/customers/blast`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject: blastSubject, body: blastBody, audience: blastAudience, skipRecentDays: blastSkipRecent ? 3 : 0 }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { setBlastMsg(`Sending to ${d.total} people — you can leave this page, it keeps going.`); await loadBlast(); }
+      else setBlastMsg(d.error ?? "Couldn't start the blast.");
+    } catch { setBlastMsg("Couldn't start the blast."); }
+    setBlastBusy(false);
+  }, [blastCounts, blastAudience, blastSubject, blastBody, blastSkipRecent, loadBlast]);
+
   // ── Pack orders (Orders tab): the review-and-send queue ───────────────────
   const [packOrdersList, setPackOrdersList] = useState<PackOrderRow[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
@@ -461,8 +537,10 @@ export default function Admin() {
   const [socialMsg, setSocialMsg] = useState<string | null>(null);
   // Landing-page link sharing: which copy button just fired ("slug", "slug-cap-0", …)
   const [lpCopied, setLpCopied] = useState<string | null>(null);
+  // Each copy gets a fresh &v= so social apps re-scrape the link instead of
+  // showing a cached old preview — that's what makes the ad picture show up.
   const lpUrl = (slug: string, source = "social") =>
-    `${window.location.origin}${basePath}/go/${slug}?utm_source=${source}&utm_medium=social&utm_campaign=lp-${slug}`;
+    `${window.location.origin}${basePath}/go/${slug}?utm_source=${source}&utm_medium=social&utm_campaign=lp-${slug}&v=${Date.now().toString(36)}`;
   const lpCopy = (key: string, text: string) => {
     navigator.clipboard.writeText(text).catch(() => {});
     setLpCopied(key);
@@ -1540,6 +1618,75 @@ export default function Admin() {
           {/* ── CAPTURED LEADS TAB (free-sample email capture) ───────────── */}
           {activeTab === "captured" && (
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
+              {/* ── Email customers composer ──────────────────────────────── */}
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <h2 className="font-display font-bold text-lg flex items-center gap-2 mb-1"><Mail className="w-5 h-5 text-primary" /> Email Customers</h2>
+                <p className="text-sm text-muted-foreground mb-4">Write one email and send it to your customers — the people who grabbed free samples or bought a pack. Great for "fresh packs are in" pitches. Unsubscribes are handled automatically.</p>
+
+                {!blastReady && (
+                  <p className="text-xs text-amber-400 mb-3">⚠ No email provider configured — connect Gmail or set up Resend in the ⚡ Automate settings first.</p>
+                )}
+                {blastReady && blastVia === "replit" && (
+                  <p className="text-xs text-muted-foreground mb-3">📮 Sending via <span className="text-foreground font-semibold">Replit Mail</span> (built-in — works right now). Connect <span className="text-foreground font-semibold">Google Mail</span> in Replit's Integrations panel any time to send from your own Gmail address instead.</p>
+                )}
+                {blastReady && blastVia === "gmail" && blastGmailAddr && (
+                  <p className="text-xs text-muted-foreground mb-3">📮 Sending from <span className="text-foreground font-semibold">{blastGmailAddr}</span> via Gmail.</p>
+                )}
+
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {([
+                    { key: "prospects" as const, label: "Haven't bought yet" },
+                    { key: "buyers" as const, label: "Past buyers" },
+                    { key: "all" as const, label: "Everyone" },
+                  ]).map(a => (
+                    <button key={a.key} onClick={() => setBlastAudience(a.key)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${blastAudience === a.key ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-muted"}`}>
+                      {a.label}{blastCounts ? ` (${blastCounts[a.key]})` : ""}
+                    </button>
+                  ))}
+                  {blastCounts && blastCounts.optedOut > 0 && (
+                    <span className="px-3 py-1.5 text-xs text-muted-foreground">{blastCounts.optedOut} opted out (always skipped)</span>
+                  )}
+                </div>
+
+                <input value={blastSubject} onChange={e => setBlastSubject(e.target.value)} placeholder="Subject"
+                  className="w-full mb-2 px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:border-primary" />
+                <textarea value={blastBody} onChange={e => setBlastBody(e.target.value)} rows={8} placeholder="Your message — plain text; links become clickable. Your signature, address and an unsubscribe link are added automatically."
+                  className="w-full mb-2 px-3 py-2 rounded-lg bg-background border border-border text-sm leading-relaxed focus:outline-none focus:border-primary resize-y" />
+
+                <label className="flex items-center gap-2 text-xs text-muted-foreground mb-3 cursor-pointer">
+                  <input type="checkbox" checked={blastSkipRecent} onChange={e => setBlastSkipRecent(e.target.checked)} className="accent-[#00E676]" />
+                  Skip anyone already emailed in the last 3 days
+                </label>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <input value={blastTestTo} onChange={e => setBlastTestTo(e.target.value)} placeholder="you@email.com"
+                    className="px-3 py-2 rounded-lg bg-background border border-border text-sm w-52 focus:outline-none focus:border-primary" />
+                  <button onClick={sendBlastTest} disabled={blastBusy || !blastReady || !blastTestTo || !blastSubject.trim() || !blastBody.trim()}
+                    className="px-3 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-colors disabled:opacity-50">
+                    Send test to me
+                  </button>
+                  <div className="flex-1" />
+                  <button onClick={startCustomerBlast}
+                    disabled={blastBusy || !blastReady || !!blastJob?.running || !blastSubject.trim() || !blastBody.trim() || !blastCounts || blastCounts[blastAudience] === 0}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
+                    <Send className="w-4 h-4" /> {blastJob?.running ? "Sending…" : `Send to ${blastCounts ? blastCounts[blastAudience] : "…"} people`}
+                  </button>
+                </div>
+
+                {blastJob?.running && (
+                  <p className="text-xs text-primary mt-3 animate-pulse">
+                    Sending… {blastJob.sent + blastJob.failed}/{blastJob.total} done{blastJob.failed ? ` (${blastJob.failed} failed)` : ""} — emails go out a couple seconds apart so they land in inboxes, not spam.
+                  </p>
+                )}
+                {!blastJob?.running && blastJob?.finishedAt && (
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Last blast: {blastJob.sent} sent{blastJob.failed ? `, ${blastJob.failed} failed${blastJob.lastError ? ` (${blastJob.lastError})` : ""}` : ""}.
+                  </p>
+                )}
+                {blastMsg && <p className="text-xs text-primary mt-3">{blastMsg}</p>}
+              </div>
+
               <div className="rounded-2xl border border-border bg-card p-5">
                 <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
                   <div>
@@ -2284,6 +2431,36 @@ export default function Admin() {
                 )}
               </div>
 
+              {/* Acquisition channels — the "where is my traffic from" answer */}
+              <div className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <Share2 className="w-4 h-4 text-primary" />
+                  <h3 className="text-lg font-display font-bold">Where your traffic comes from</h3>
+                  <span className="text-xs text-muted-foreground">every visit, sorted into channels</span>
+                </div>
+                {traffic && (traffic.channels?.length ?? 0) > 0 ? (() => {
+                  const total = Math.max(1, traffic.channels.reduce((s, c) => s + c.sessions, 0));
+                  return (
+                    <div className="space-y-3">
+                      {traffic.channels.map((c, i) => (
+                        <div key={i}>
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="text-sm text-foreground font-semibold">{c.channel}</span>
+                            <span className="text-xs shrink-0">
+                              <span className="font-bold text-primary">{c.sessions.toLocaleString()} visit{c.sessions === 1 ? "" : "s"}</span>
+                              <span className="text-muted-foreground"> · {c.visitors.toLocaleString()} {c.visitors === 1 ? "person" : "people"} · {Math.round((c.sessions / total) * 100)}%</span>
+                            </span>
+                          </div>
+                          <div className="h-2 bg-muted rounded-full overflow-hidden">
+                            <div className="h-full bg-primary rounded-full" style={{ width: `${Math.max(2, (c.sessions / total) * 100)}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })() : <p className="text-sm text-muted-foreground">No visits yet — this fills in as traffic arrives.</p>}
+              </div>
+
               {/* Pages / referrers / audience */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="bg-card border border-border rounded-2xl p-6">
@@ -2410,7 +2587,7 @@ export default function Admin() {
                   {(() => {
                     const rows = (traffic?.countries ?? []).filter(c => c.country && c.country !== "—");
                     if (rows.length === 0) {
-                      return <p className="text-sm text-muted-foreground">Location shows once the site runs behind a CDN that adds a geo header.</p>;
+                      return <p className="text-sm text-muted-foreground">Locations fill in as new visits arrive (looked up automatically from the visitor's IP).</p>;
                     }
                     const flag = (cc: string) => /^[a-z]{2}$/i.test(cc)
                       ? cc.toUpperCase().replace(/./g, ch => String.fromCodePoint(127397 + ch.charCodeAt(0)))
@@ -2468,6 +2645,61 @@ export default function Admin() {
                 ) : (
                   <p className="text-sm text-muted-foreground">No visits recorded yet — this fills in as traffic arrives.</p>
                 )}
+              </div>
+
+              {/* Recent visitors — one row per session, newest first */}
+              <div className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <Users className="w-4 h-4 text-primary" />
+                  <h3 className="text-lg font-display font-bold">Recent visitors</h3>
+                  <span className="text-xs text-muted-foreground">the last 30 visits — where they came from and what they looked at</span>
+                </div>
+                {traffic && (traffic.recentSessions?.length ?? 0) > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-muted-foreground border-b border-border">
+                          <th className="py-2 pr-3">When</th><th className="py-2 pr-3">Came from</th>
+                          <th className="py-2 pr-3">Landed on</th><th className="py-2 pr-3">Pages</th>
+                          <th className="py-2 pr-3">Stayed</th><th className="py-2 pr-3">Device</th><th className="py-2">Where</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {traffic.recentSessions.map((v, i) => {
+                          const flag = (cc: string) => /^[a-z]{2}$/i.test(cc)
+                            ? cc.toUpperCase().replace(/./g, ch => String.fromCodePoint(127397 + ch.charCodeAt(0)))
+                            : "🌐";
+                          const detail = v.referrer
+                            ? v.referrer.replace(/^https?:\/\/(www\.)?/, "").split("/")[0]
+                            : v.source;
+                          return (
+                            <tr key={i} className="border-b border-border/50">
+                              <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
+                                {new Date(v.startedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                              </td>
+                              <td className="py-2 pr-3">
+                                <span className="font-semibold text-foreground">{v.channel}</span>
+                                {detail && detail.toLowerCase() !== v.channel.toLowerCase() && (
+                                  <span className="text-xs text-muted-foreground"> · {detail}</span>
+                                )}
+                              </td>
+                              <td className="py-2 pr-3 font-mono text-xs max-w-[220px] truncate" title={v.paths.join("  →  ")}>
+                                {v.paths[0] ?? "—"}
+                              </td>
+                              <td className="py-2 pr-3">
+                                <span className="font-bold text-primary">{v.views}</span>
+                                {v.paths.length > 1 && <span className="text-xs text-muted-foreground" title={v.paths.join("  →  ")}> · {v.paths.slice(1, 3).join(", ")}{v.paths.length > 3 ? "…" : ""}</span>}
+                              </td>
+                              <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">{v.minutes >= 1 ? `${v.minutes} min` : "<1 min"}</td>
+                              <td className="py-2 pr-3 capitalize text-muted-foreground">{v.device ?? "—"}</td>
+                              <td className="py-2">{v.country ? `${flag(v.country)} ${v.country}` : "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : <p className="text-sm text-muted-foreground">No visits yet — every visitor will show up here with their source, pages and location.</p>}
               </div>
             </motion.div>
           )}

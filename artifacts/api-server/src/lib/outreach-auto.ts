@@ -55,13 +55,44 @@ export function gmailSendAddress(): string | null {
   return process.env.GMAIL_USER || connectorGmailAddress();
 }
 
-// Is the provider the owner selected actually ready to send?
-export function providerReady(s: OutreachSettings): boolean {
-  return s.provider === "gmail" ? gmailSendReady() : resendConfigured();
+// Replit Mail — Replit's built-in mailer. Works with ZERO setup inside any
+// Repl or deployment (auth comes from the environment identity token), so
+// email always has a way out even before Gmail/Resend are connected. Sends
+// come from Replit's own domain and don't support custom headers/reply-to,
+// so it's the fallback, never the preferred path.
+export function replitMailConfigured(): boolean {
+  return !!(process.env.REPL_IDENTITY || process.env.WEB_REPL_RENEWAL);
 }
-// Either provider configured at all → the feature is available in the UI.
+
+export async function sendReplitMail(opts: {
+  to: string;
+  subject: string;
+  text?: string;
+  html: string;
+}): Promise<string | null> {
+  const token = process.env.REPL_IDENTITY
+    ? `repl ${process.env.REPL_IDENTITY}`
+    : `depl ${process.env.WEB_REPL_RENEWAL}`;
+  const res = await fetch("https://connectors.replit.com/api/v2/mailer/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", X_REPLIT_TOKEN: token },
+    body: JSON.stringify({ to: opts.to, subject: opts.subject, text: opts.text, html: opts.html }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const data = (await res.json().catch(() => ({}))) as { messageId?: string; message?: string };
+  if (!res.ok) throw new Error(data.message || `Replit Mail ${res.status}`);
+  return data.messageId ?? null;
+}
+
+// Is the provider the owner selected actually ready to send? Replit Mail
+// backstops both choices, so sending is possible as long as we're on Replit.
+export function providerReady(s: OutreachSettings): boolean {
+  const primary = s.provider === "gmail" ? gmailSendReady() : resendConfigured();
+  return primary || replitMailConfigured();
+}
+// Any way to send at all → the feature is available in the UI.
 export function anyProviderConfigured(): boolean {
-  return gmailSendReady() || resendConfigured();
+  return gmailSendReady() || resendConfigured() || replitMailConfigured();
 }
 
 /** Send one Gmail message via whichever credential exists — SMTP app password
@@ -299,13 +330,13 @@ async function sendStep(lead: Lead, s: OutreachSettings, step: number): Promise<
 
   try {
     let providerId: string | null = null;
-    if (s.provider === "gmail") {
+    if (s.provider === "gmail" && gmailSendReady()) {
       providerId = await sendGmailMail({
         fromName: s.fromName, to, replyTo, subject: content.subject, text, html,
         messageId, headers,
         inReplyTo: step > 1 && lead.threadMessageId ? lead.threadMessageId : undefined,
       });
-    } else {
+    } else if (resendConfigured()) {
       const res = await fetch(RESEND_ENDPOINT, {
         method: "POST",
         headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
@@ -318,6 +349,26 @@ async function sendStep(lead: Lead, s: OutreachSettings, step: number): Promise<
       const data = (await res.json().catch(() => ({}))) as { id?: string; message?: string };
       if (!res.ok) throw new Error(data.message || `Resend ${res.status}`);
       providerId = data.id ?? null;
+    } else if (gmailSendReady()) {
+      providerId = await sendGmailMail({
+        fromName: s.fromName, to, replyTo, subject: content.subject, text, html,
+        messageId, headers,
+        inReplyTo: step > 1 && lead.threadMessageId ? lead.threadMessageId : undefined,
+      });
+    } else {
+      // Replit Mail fallback carries no List-Unsubscribe headers, so put a
+      // visible opt-out line in the body instead (the other providers signal
+      // it via headers and keep the body header-free).
+      const opt = unsubUrl(token);
+      providerId = await sendReplitMail({
+        to,
+        subject: content.subject,
+        text: `${text}\n\nIf you'd rather not hear from us, unsubscribe here: ${opt}`,
+        html: html.replace(
+          /<\/div>\s*$/,
+          `<br><br><span style="color:#999;font-size:12px"><a href="${opt}" style="color:#999">Unsubscribe</a></span></div>`,
+        ),
+      });
     }
 
     await db.insert(outreachEmails).values({

@@ -38,7 +38,7 @@ function buildPrompt(brief: CreativeBrief): string {
   ].join("\n");
 }
 
-async function callImagesApi(
+export async function callImagesApi(
   key: string,
   body: Record<string, unknown>,
 ): Promise<{ mime: string; bytes: Buffer }> {

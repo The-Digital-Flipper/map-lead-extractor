@@ -10,6 +10,7 @@ import {
 } from "../lib/packs";
 import { newOrderToken } from "../lib/packWorker";
 import { unsubscribeSample } from "../lib/buyer-followup";
+import { unsubscribeCustomerByToken } from "../lib/customer-blast";
 
 const router = Router();
 
@@ -490,6 +491,16 @@ const sampleUnsub = async (req: import("express").Request, res: import("express"
 };
 router.get("/sample-unsub/:token", sampleUnsub);
 router.post("/sample-unsub/:token", sampleUnsub);
+
+/** GET|POST /api/stripe/customer-unsub/:token — one-click unsubscribe from
+ *  customer email blasts (backs the List-Unsubscribe header + footer link). */
+const customerUnsub = async (req: import("express").Request, res: import("express").Response) => {
+  await unsubscribeCustomerByToken(String(req.params.token ?? ""));
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unsubscribed</title><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0d1117;color:#e6edf3;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0"><div style="text-align:center;max-width:420px;padding:2rem"><h1 style="font-size:1.25rem;margin:0 0 .5rem">You're unsubscribed</h1><p style="color:#94a3b8;line-height:1.5">You won't get any more emails from us. You can still buy leads any time at <a href="https://mapleadextractor.net/" style="color:#00E676">mapleadextractor.net</a>.</p></div></body>`);
+};
+router.get("/customer-unsub/:token", customerUnsub);
+router.post("/customer-unsub/:token", customerUnsub);
 
 /** POST /api/stripe/portal — customer billing portal */
 router.post("/portal", async (req, res) => {

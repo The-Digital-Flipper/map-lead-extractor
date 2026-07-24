@@ -506,6 +506,12 @@ function buildHtml(template, route, post, landing, tool) {
   html = replaceMeta(html, "og:url", "content", canonicalUrl);
   html = replaceMeta(html, "og:image", "content", route.image ?? OG_IMAGE);
   html = replaceMeta(html, "og:image:alt", "content", route.imageAlt ?? OG_IMAGE_ALT);
+  // Pages with their own creative (the /go/<slug>.jpg cards) are 3:2, not the
+  // template's 1200x630 — wrong hints make some apps mis-crop the preview.
+  if (route.image) {
+    html = replaceMeta(html, "og:image:width", "content", "1536");
+    html = replaceMeta(html, "og:image:height", "content", "1024");
+  }
   html = replaceMeta(html, "twitter:title", "content", route.title);
   html = replaceMeta(html, "twitter:description", "content", route.description);
   html = replaceMeta(html, "twitter:image", "content", route.image ?? OG_IMAGE);

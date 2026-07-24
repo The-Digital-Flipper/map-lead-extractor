@@ -41,6 +41,38 @@ const clean = (v: unknown, max: number): string | null => {
   return s || null;
 };
 
+// ── IP → country (best-effort) ────────────────────────────────────────────────
+// Replit's proxy doesn't set a geo header, so visits had country = null. We
+// look the IP up once via a free geo API and cache it in memory; failures just
+// leave country null. Runs after the 204 is sent — never slows the beacon.
+const geoCache = new Map<string, string | null>();
+
+function clientIp(req: import("express").Request): string | null {
+  const fwd = String(req.headers["x-forwarded-for"] ?? "").split(",")[0]?.trim();
+  const ip = fwd || req.socket.remoteAddress || "";
+  // Skip local/private ranges — nothing to geolocate.
+  if (!ip || /^(::1|::ffff:)?(10\.|127\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|fc|fd)/i.test(ip)) return null;
+  return ip.replace(/^::ffff:/i, "");
+}
+
+async function lookupCountry(ip: string | null): Promise<string | null> {
+  if (!ip) return null;
+  if (geoCache.has(ip)) return geoCache.get(ip) ?? null;
+  if (geoCache.size > 10_000) geoCache.clear();
+  let country: string | null = null;
+  try {
+    const res = await fetch(`https://api.country.is/${encodeURIComponent(ip)}`, {
+      signal: AbortSignal.timeout(4000),
+    });
+    if (res.ok) {
+      const d = (await res.json()) as { country?: string };
+      country = typeof d.country === "string" && /^[A-Z]{2}$/.test(d.country) ? d.country : null;
+    }
+  } catch { /* stay null */ }
+  geoCache.set(ip, country);
+  return country;
+}
+
 // ---- POST /track — public pageview beacon (fired by the site on every route
 // change via navigator.sendBeacon). Fire-and-forget: always answers 204 fast
 // and never errors to the client — analytics must not break the site.
@@ -60,8 +92,10 @@ router.post("/track", async (req, res) => {
     const visitorId = clean(b.visitorId, 64);
     if (!path || !visitorId || !path.startsWith("/")) return;
 
-    // Country if the proxy in front of us provides it (best-effort).
-    const country = clean(req.headers["cf-ipcountry"] ?? req.headers["x-vercel-ip-country"], 8);
+    // Country: proxy geo header when present, otherwise a cached IP lookup.
+    const country =
+      clean(req.headers["cf-ipcountry"] ?? req.headers["x-vercel-ip-country"], 8) ??
+      (await lookupCountry(clientIp(req)));
     const screenWidth = Number(b.screenWidth);
 
     await db.insert(siteVisits).values({

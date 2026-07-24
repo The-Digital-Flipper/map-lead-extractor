@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { posts, type Post } from "@/data/posts";
 import { useSeo } from "@/lib/seo";
 import { MobileNav } from "@/components/site/mobile-nav";
+import { BlogPhoto } from "@/components/site/blog-photo";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -97,11 +98,18 @@ export default function Blog() {
           <motion.div initial="hidden" animate="visible" variants={fadeIn} className="mb-12">
             <a href={`/blog/${featured.slug}`} className="group block bg-card border border-border rounded-3xl overflow-hidden hover:border-primary/40 transition-all duration-300">
               <div className="grid md:grid-cols-2 gap-0">
-                <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-12 flex items-center justify-center min-h-[280px]">
+                <div className="relative bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-12 flex items-center justify-center min-h-[280px]">
                   <div className="text-center">
                     <div className="text-7xl font-display font-black text-primary/20 leading-none mb-4">01</div>
                     <div className="text-primary font-mono text-sm uppercase tracking-widest">Featured</div>
                   </div>
+                  {/* Photo overlays the placeholder when the post has one */}
+                  <BlogPhoto
+                    slug={featured.slug}
+                    alt={featured.title}
+                    className="absolute inset-0"
+                    imgClassName="w-full h-full object-cover"
+                  />
                 </div>
                 <div className="p-10 flex flex-col justify-center gap-4">
                   <div className="flex items-center gap-3">
@@ -137,7 +145,13 @@ export default function Blog() {
                 viewport={{ once: true }}
                 variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4, delay: i * 0.07 } } }}
               >
-                <a href={`/blog/${post.slug}`} className="group h-full flex flex-col bg-card border border-border rounded-2xl p-7 hover:border-primary/40 transition-all duration-300">
+                <a href={`/blog/${post.slug}`} className="group h-full flex flex-col bg-card border border-border rounded-2xl p-7 overflow-hidden hover:border-primary/40 transition-all duration-300">
+                  <BlogPhoto
+                    slug={post.slug}
+                    alt={post.title}
+                    className="-mx-7 -mt-7 mb-6 aspect-[3/2] overflow-hidden border-b border-border"
+                    imgClassName="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500"
+                  />
                   <div className="flex items-center gap-2 mb-5">
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${categoryColors[post.category] ?? ""}`}>
                       {post.category}

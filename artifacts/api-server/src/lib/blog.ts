@@ -12,6 +12,7 @@
 import { db, pool, blogPosts, blogSettings, type BlogPost, type BlogSettings, type BlogSection } from "@workspace/db";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 import { logger } from "./logger";
+import { ensureHeroFor, backfillBlogHeroes } from "./blogImages";
 
 function openAiKey(): string {
   return process.env.OPENAI_API_KEY || process.env.CHAT_GPT_API || "";
@@ -228,6 +229,12 @@ export async function generateBlogPost(): Promise<BlogPost> {
 
   const rows = await db.insert(blogPosts).values({ slug, title, description, category, readTime, content, status: "published" }).returning();
   logger.info({ slug, title }, "Auto-generated blog post published");
+
+  // Give the post its hero photo. Non-fatal: the article is already live, and
+  // the startup backfill will retry any miss.
+  try { await ensureHeroFor(slug, title, category); }
+  catch (err) { logger.warn({ err, slug }, "Blog hero generation failed — backfill will retry"); }
+
   return rows[0]!;
 }
 
@@ -271,5 +278,8 @@ export function startBlogScheduler(): void {
   void ensureBlogSchema().catch((err) => logger.error({ err }, "Blog schema init failed"));
   setTimeout(() => void blogTick(), 30_000);
   setInterval(() => void blogTick(), TICK_MS);
+  // Quietly give any post without a photo its hero image (existing posts get
+  // theirs on the first boot after this feature ships; later it's a no-op).
+  setTimeout(() => void backfillBlogHeroes().catch((err) => logger.warn({ err }, "Blog hero backfill failed")), 60_000);
   logger.info("Blog auto-writer scheduler started");
 }

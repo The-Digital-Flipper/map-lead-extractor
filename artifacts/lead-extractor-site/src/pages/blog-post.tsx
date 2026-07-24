@@ -6,6 +6,7 @@ import { posts, type Post } from "@/data/posts";
 import NotFound from "@/pages/not-found";
 import { useSeo } from "@/lib/seo";
 import { MobileNav } from "@/components/site/mobile-nav";
+import { BlogPhoto } from "@/components/site/blog-photo";
 
 const SITE = "https://mapleadextractor.net";
 const DEFAULT_IMAGE = `${SITE}/opengraph.jpg`;
@@ -143,7 +144,7 @@ export default function BlogPost() {
         url: SITE,
       },
       mainEntityOfPage: `${SITE}/blog/${post.slug}`,
-      image: DEFAULT_IMAGE,
+      image: post.image ? `${SITE}${post.image}` : DEFAULT_IMAGE,
       articleSection: post.category,
       url: `${SITE}/blog/${post.slug}`,
     };
@@ -224,6 +225,14 @@ export default function BlogPost() {
               {post.description}
             </p>
           </motion.div>
+
+          {/* Hero photo (hidden automatically if this post has none yet) */}
+          <BlogPhoto
+            slug={post.slug}
+            alt={post.title}
+            className="rounded-2xl overflow-hidden border border-border mb-10"
+            imgClassName="w-full h-auto"
+          />
 
           <hr className="border-border mb-10" />
 

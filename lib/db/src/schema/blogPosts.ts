@@ -45,6 +45,17 @@ export const blogSettings = pgTable("blog_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// Hero photos for blog posts (one per slug, AI-generated; served at
+// /api/blog/hero/<slug>.jpg). Also created idempotently in lib/blogImages.ts —
+// declared here so drizzle-kit push knows the table and leaves it alone.
+export const blogImages = pgTable("blog_images", {
+  slug: text("slug").primaryKey(),
+  mime: text("mime").notNull(),
+  data: text("data").notNull(), // base64
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type BlogPost = typeof blogPosts.$inferSelect;
 export type InsertBlogPost = typeof blogPosts.$inferInsert;
 export type BlogSettings = typeof blogSettings.$inferSelect;
+export type BlogImage = typeof blogImages.$inferSelect;

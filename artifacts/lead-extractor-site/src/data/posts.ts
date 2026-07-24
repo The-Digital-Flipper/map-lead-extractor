@@ -28,6 +28,8 @@ export interface Post {
   readTime: string;
   category: string;
   authorName: string;
+  // Path to the hero photo (e.g. /api/blog/hero/<slug>.jpg) when one exists.
+  image?: string;
   content: Section[];
 }
 

@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import type { BlogPost, BlogSection, BlogPart } from "@workspace/db";
 import { getPublishedPostBySlug, listPublishedPosts } from "./lib/blog";
+import { heroSlugSet } from "./lib/blogImages";
 import { logger } from "./lib/logger";
 
 /**
@@ -70,7 +71,7 @@ function isoDate(d: Date | string): string {
   return (d instanceof Date ? d : new Date(d)).toISOString().slice(0, 10);
 }
 
-function blogPostJsonLd(post: BlogPost): string {
+function blogPostJsonLd(post: BlogPost, heroUrl: string | null): string {
   const url = `${SITE}/blog/${post.slug}`;
   const published = isoDate(post.datePublished);
   const data = {
@@ -80,6 +81,7 @@ function blogPostJsonLd(post: BlogPost): string {
         "@type": "BlogPosting",
         headline: post.title,
         description: post.description,
+        image: heroUrl ?? OG_IMAGE,
         datePublished: published,
         dateModified: post.dateModified ? isoDate(post.dateModified) : published,
         author: { "@type": "Organization", name: "Map Lead Extractor" },
@@ -101,18 +103,22 @@ function blogPostJsonLd(post: BlogPost): string {
   return `<script type="application/ld+json">\n${JSON.stringify(data, null, 2)}\n</script>`;
 }
 
-function postBodyHtml(post: BlogPost, related: BlogPost[]): string {
+function postBodyHtml(post: BlogPost, related: BlogPost[], heroUrl: string | null): string {
   const relatedHtml = related
     .filter((p) => p.slug !== post.slug)
     .slice(0, 3)
     .map((p) => `<li><a href="/blog/${p.slug}">${escHtml(p.title)}</a></li>`)
     .join("");
+  const heroHtml = heroUrl
+    ? `<img src="${escAttr(heroUrl)}" alt="${escAttr(post.title)}" width="1536" height="1024" style="width:100%;height:auto;border-radius:12px;margin:0 0 1.5rem" />`
+    : "";
   return `
     ${navHtml}
     <main>
       <nav aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/blog">Blog</a> / <span>${escHtml(post.title)}</span></nav>
       <article>
         <h1>${escHtml(post.title)}</h1>
+        ${heroHtml}
         <p>${escHtml(post.description)}</p>
         ${renderSections(post.content)}
         <p><a href="/blog">&larr; Back to all guides</a></p>
@@ -123,24 +129,30 @@ function postBodyHtml(post: BlogPost, related: BlogPost[]): string {
   `;
 }
 
-export function renderPostHtml(template: string, post: BlogPost, related: BlogPost[]): string {
+export function renderPostHtml(template: string, post: BlogPost, related: BlogPost[], hasHero = false): string {
   const title = `${post.title} | Map Lead Extractor`;
   const canonical = `${SITE}/blog/${post.slug}`;
+  const heroPath = hasHero ? `/api/blog/hero/${post.slug}.jpg` : null;
+  const heroAbs = heroPath ? `${SITE}${heroPath}` : null;
   let html = template;
   html = replaceTitle(html, title);
   html = replaceMeta(html, "description", post.description);
   html = replaceMeta(html, "og:title", title);
   html = replaceMeta(html, "og:description", post.description);
   html = replaceMeta(html, "og:url", canonical);
-  html = replaceMeta(html, "og:image", OG_IMAGE);
-  html = replaceMeta(html, "og:image:alt", OG_IMAGE_ALT);
+  html = replaceMeta(html, "og:image", heroAbs ?? OG_IMAGE);
+  html = replaceMeta(html, "og:image:alt", hasHero ? post.title : OG_IMAGE_ALT);
+  if (hasHero) {
+    html = replaceMeta(html, "og:image:width", "1536");
+    html = replaceMeta(html, "og:image:height", "1024");
+  }
   html = replaceMeta(html, "og:type", "article");
   html = replaceMeta(html, "twitter:title", title);
   html = replaceMeta(html, "twitter:description", post.description);
-  html = replaceMeta(html, "twitter:image", OG_IMAGE);
+  html = replaceMeta(html, "twitter:image", heroAbs ?? OG_IMAGE);
   html = replaceCanonical(html, canonical);
-  html = html.replace("</head>", () => `${blogPostJsonLd(post)}\n</head>`);
-  const body = postBodyHtml(post, related);
+  html = html.replace("</head>", () => `${blogPostJsonLd(post, heroAbs)}\n</head>`);
+  const body = postBodyHtml(post, related, heroPath);
   html = html.replace(
     /<div id="root"><\/div>/,
     () => `<div id="root"><div id="seo-prerender" style="min-height:100vh;background:#0d1117;color:#c9d1d9;font-family:Inter,system-ui,sans-serif;max-width:880px;margin:0 auto;padding:6rem 1.5rem;line-height:1.6">${escRep(body)}</div></div>`,
@@ -170,8 +182,9 @@ export function mountBlog(app: Express, siteDir: string): void {
       const template = shell();
       if (!post || !template) return next();
       const related = (await listPublishedPosts()).filter((p) => p.slug !== slug);
+      const hasHero = await heroSlugSet().then((s) => s.has(slug)).catch(() => false);
       res.setHeader("Cache-Control", "no-cache");
-      return res.type("html").send(renderPostHtml(template, post, related));
+      return res.type("html").send(renderPostHtml(template, post, related, hasHero));
     } catch (err) {
       logger.warn({ err, slug }, "Blog post render failed — falling through to SPA");
       return next();
