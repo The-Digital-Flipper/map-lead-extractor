@@ -27,6 +27,7 @@ import {
   socialChat, type SocialChatMessage, fbPageFollowers,
 } from "../lib/social";
 import { sendBuyerFollowup } from "../lib/buyer-followup";
+import { sendCapturedDigest } from "../lib/captured-digest";
 import { listCustomers, inAudience, startBlast, blastStatus, sendTestEmail, type Audience } from "../lib/customer-blast";
 import { autoScrapeTick, autoScrapeStatus, setAutoScrapeEnabled, seedAutoTargets, listAutoCandidates } from "../lib/autoScrape";
 import {
@@ -2099,6 +2100,17 @@ router.post("/captured-leads/:id/follow-up", requireAuth, async (req, res) => {
     : r.reason === "no_email" ? "No email on this capture."
     : `Send failed: ${r.reason}`;
   res.status(status).json({ error: msg });
+});
+
+/** POST /api/admin/captured-leads/digest-now — email the owner the digest of
+ *  captures since the last one (same email the twice-daily scheduler sends). */
+router.post("/captured-leads/digest-now", requireAuth, async (_req, res) => {
+  const r = await sendCapturedDigest();
+  if (r.sent) { res.json({ ok: true, count: r.count }); return; }
+  res.status(r.count ? 500 : 200).json({
+    ok: false, count: r.count,
+    message: r.count ? "Send failed — check the email provider setup." : "No new captured leads since the last digest.",
+  });
 });
 
 // ── Customer email blasts (Email customers about buying leads) ───────────────
