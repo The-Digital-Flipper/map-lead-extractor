@@ -18,7 +18,7 @@
  */
 import crypto from "node:crypto";
 import { db, packOrders, leads, type PackOrder } from "@workspace/db";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { getUncachableStripeClient } from "../stripeClient";
 import { acquireScrapeLock, releaseScrapeLock } from "./scrapeLock";
@@ -55,12 +55,50 @@ async function promotePaidOrder(order: PackOrder): Promise<void> {
       status: "building", paidAt: new Date(), email, stripePaymentIntentId: pi, updatedAt: new Date(),
     }).where(eq(packOrders.id, order.id));
     logger.info({ orderId: order.id, email }, "pack order paid — building");
+    if (order.referrerToken) await creditReferral(order).catch((err) => logger.error({ err, orderId: order.id }, "referral credit failed"));
   } else if (session.status === "expired") {
     await db.update(packOrders).set({ status: "failed", lastError: "checkout expired", updatedAt: new Date() })
       .where(eq(packOrders.id, order.id));
     logger.info({ orderId: order.id }, "pack order checkout expired");
   }
   // else: still open — leave awaiting_payment, re-check next tick.
+}
+
+// ── Referral credit ──────────────────────────────────────────────────────────
+// "Give $5, get $5": when an order that arrived through a ?ref= link is paid,
+// send $5 back to the referrer's card as a partial refund. Guards: referrer's
+// order must itself be paid, total money returned can never exceed what the
+// referrer paid, and each referred order credits at most once.
+
+const REFERRAL_CREDIT_CENTS = 500;
+
+async function creditReferral(order: PackOrder): Promise<void> {
+  if (!order.referrerToken || order.referralCreditedAt) return;
+  const [referrer] = await db.select().from(packOrders).where(eq(packOrders.token, order.referrerToken));
+  if (!referrer?.paidAt || !referrer.stripePaymentIntentId || referrer.id === order.id) return;
+
+  // Total already returned to this referrer (shortfall refunds + prior credits).
+  const [{ credited }] = await db.select({ credited: sql<number>`count(*)::int` }).from(packOrders)
+    .where(and(eq(packOrders.referrerToken, order.referrerToken), isNotNull(packOrders.referralCreditedAt)));
+  const alreadyOut = referrer.refundedCents + credited * REFERRAL_CREDIT_CENTS;
+  if (alreadyOut + REFERRAL_CREDIT_CENTS > referrer.amountCents) {
+    logger.info({ orderId: order.id, referrerId: referrer.id }, "referral credit skipped — referrer fully refunded");
+    return;
+  }
+
+  const stripe = await getUncachableStripeClient();
+  await stripe.refunds.create({ payment_intent: referrer.stripePaymentIntentId, amount: REFERRAL_CREDIT_CENTS });
+  await db.update(packOrders).set({ referralCreditedAt: new Date(), updatedAt: new Date() }).where(eq(packOrders.id, order.id));
+  logger.info({ orderId: order.id, referrerId: referrer.id }, "referral $5 credited");
+
+  if (referrer.email) {
+    const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111">
+<p>🎉 Someone just bought a lead pack through your referral link — thank you!</p>
+<p>We've sent <strong>$5.00</strong> back to your card (it usually appears in 5–10 business days).</p>
+<p style="color:#666;font-size:13px">Keep sharing: ${PUBLIC_ORIGIN}/?ref=${referrer.token}</p>
+</div>`;
+    await deliverEmail(referrer.email, "You earned $5 — referral credit on its way", html, referrer.id).catch(() => {});
+  }
 }
 
 // ── Gathering ────────────────────────────────────────────────────────────────
@@ -269,6 +307,7 @@ ${refundLine}
 <p style="color:#666;font-size:13px">Or copy this link: ${link}</p>
 <p style="color:#666;font-size:13px">Keep this email — the link lets you re-download anytime.</p>
 <p style="margin-top:20px">Happy with your list? <a href="${PUBLIC_ORIGIN}/review?token=${order.token}" style="color:#00a844;font-weight:600">Leave a quick review</a> — it takes 30 seconds and genuinely helps a new business. If anything's off, just reply to this email and we'll make it right.</p>
+<p style="margin-top:16px;padding:12px 16px;background:#f0faf4;border-radius:8px">🎁 <strong>Give $5, get $5:</strong> share your link — anyone who buys through it saves $5, and we send $5 back to your card as a thank-you.<br><a href="${PUBLIC_ORIGIN}/?ref=${order.token}" style="color:#00a844;font-weight:600">${PUBLIC_ORIGIN}/?ref=${order.token}</a></p>
 </div>`;
   try {
     const ok = await deliverEmail(order.email, subject, html, order.id);

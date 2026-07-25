@@ -375,6 +375,35 @@ router.get("/suppressed", requireAuth, async (_req, res) => {
   });
 });
 
+// ---- GET /pipeline — funnel counts + warmest leads for the pipeline board ---
+router.get("/pipeline", requireAuth, async (_req, res) => {
+  const [funnel] = await db.select({
+    queued: sql<number>`(count(*) filter (where ${leads.autoOutreach} = true and ${leads.nextEmailAt} is not null))::int`,
+    contacted: sql<number>`(count(*) filter (where coalesce(${leads.outreachStep},0) >= 1 and ${leads.repliedAt} is null and ${leads.unsubscribedAt} is null and ${leads.emailHealth} is null))::int`,
+    opened: sql<number>`(count(*) filter (where ${leads.repliedAt} is null and exists (select 1 from outreach_emails oe where oe.lead_id = ${leads.id} and oe.opened_at is not null)))::int`,
+    clicked: sql<number>`(count(*) filter (where ${leads.repliedAt} is null and exists (select 1 from outreach_emails oe where oe.lead_id = ${leads.id} and oe.clicked_at is not null)))::int`,
+    replied: sql<number>`(count(*) filter (where ${leads.repliedAt} is not null))::int`,
+    customers: sql<number>`(count(*) filter (where ${leads.status} = 'converted'))::int`,
+  }).from(leads).where(isNull(leads.deletedAt));
+
+  // Warmest first: clicked > opened, most recent activity on top. These are
+  // the "call these people today" rows.
+  const warm = await db.execute(sql`
+    SELECT l.id, l.name, l.phone, l.emails, l.status,
+           MAX(oe.opened_at) AS last_open, MAX(oe.clicked_at) AS last_click
+    FROM leads l
+    JOIN outreach_emails oe ON oe.lead_id = l.id
+    WHERE l.deleted_at IS NULL AND l.replied_at IS NULL
+      AND l.unsubscribed_at IS NULL AND l.email_health IS NULL
+      AND (oe.opened_at IS NOT NULL OR oe.clicked_at IS NOT NULL)
+    GROUP BY l.id
+    ORDER BY (MAX(oe.clicked_at) IS NOT NULL) DESC,
+             GREATEST(COALESCE(MAX(oe.clicked_at), 'epoch'), COALESCE(MAX(oe.opened_at), 'epoch')) DESC
+    LIMIT 20
+  `);
+  res.json({ funnel, warm: warm.rows });
+});
+
 // ---- GET /u/:token — public one-click unsubscribe ---------------------------
 // GET (link click) and POST (RFC 8058 List-Unsubscribe-Post) both opt out.
 async function handleUnsub(req: Request, res: Response) {

@@ -281,6 +281,32 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
     setPackLoading(false);
   };
 
+  // Monthly subscription checkout — same filters, recurring price.
+  const [subLoading, setSubLoading] = useState(false);
+  const handleSubscribe = async () => {
+    if (subLoading) return;
+    setSubLoading(true);
+    setPackError(null);
+    const req = packRequest.trim();
+    const payload = req.length >= 3 ? { request: req } : { category: packCategory, state: packState };
+    try {
+      const res = await fetch(`${basePath}/api/stripe/pack-subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      setPackError(data.error ?? "Checkout is unavailable right now — please try again.");
+    } catch {
+      setPackError("Checkout is unavailable right now — please try again.");
+    }
+    setSubLoading(false);
+  };
+
   // Volume-tier checkout (the pricing grid). Clicking a tier opens a picker
   // so the buyer chooses WHAT kind of leads fill the pack; the picker shares
   // packCategory/packState with the main dropdowns, so selections carry over.
@@ -610,6 +636,21 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
             </>
           )}
         </button>
+        <button
+          onClick={handleSubscribe}
+          disabled={subLoading}
+          data-testid="btn-subscribe-lead-pack"
+          className="w-full flex items-center justify-center gap-2 px-7 py-3 mt-3 rounded-xl border-2 border-primary/60 text-primary font-bold hover:bg-primary/10 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+          {subLoading ? (
+            <>
+              <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              Redirecting to checkout…
+            </>
+          ) : (
+            <>🔁 100 fresh leads every month — $24/mo (save 17%)</>
+          )}
+        </button>
+        <p className="text-[11px] text-muted-foreground mt-1.5 text-center">Cancel anytime — just reply to any delivery email.</p>
         {packError && <p className="text-sm text-red-400 mt-3">{packError}</p>}
 
         {/* Point-of-payment reassurance */}

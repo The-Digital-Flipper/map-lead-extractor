@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { createHash } from "node:crypto";
-import { db, leads, leadNotes, packOrders, computeScore, computeOpportunity, computeDemand, computeValue } from "@workspace/db";
+import { db, leads, leadNotes, packOrders, packSubscriptions, computeScore, computeOpportunity, computeDemand, computeValue } from "@workspace/db";
 import { sql, ilike, or, gte, and, count, eq, ne, inArray, isNull, type SQL } from "drizzle-orm";
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
@@ -790,8 +790,28 @@ router.get("/pack-download", async (req, res) => {
 // this just confirms the order and tells them to watch their email.
 router.get("/pack-order-received", async (req, res) => {
   const token = String(req.query.token ?? "");
-  const [order] = token ? await db.select().from(packOrders).where(eq(packOrders.token, token)) : [];
   res.setHeader("Content-Type", "text/html");
+
+  // Subscription checkout (?sub=1): the token belongs to pack_subscriptions,
+  // not pack_orders. The first pack is minted by the subscription worker once
+  // Stripe confirms the payment, so just confirm the recurring signup here.
+  if (req.query.sub) {
+    const [sub] = token ? await db.select().from(packSubscriptions).where(eq(packSubscriptions.token, token)) : [];
+    if (!sub) { res.status(404).send("<p>Subscription not found.</p>"); return; }
+    const where = sub.city || sub.state ? ` in ${[sub.city, sub.state].filter(Boolean).join(", ")}` : "";
+    res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Subscription confirmed</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{background:#0b0f14;color:#e6edf3;font-family:system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
+.card{background:#111722;border:1px solid #21262d;border-radius:16px;padding:40px;text-align:center;max-width:440px}
+h1{font-size:22px}p{color:#8b949e;line-height:1.6}</style></head>
+<body><div class="card"><div style="font-size:42px">🔁</div>
+<h1>You're subscribed — thank you!</h1>
+<p>Every month we'll build you a fresh pack of <strong>${sub.leadCount} ${sub.label || "local business"} leads</strong>${where} and email the CSV download link${sub.email ? ` to <strong>${sub.email}</strong>` : ""}. Your first pack is being put together now.</p>
+<p style="font-size:12px;margin-top:18px">Cancel anytime — just reply to any delivery email. Sub ref: ${sub.token.slice(0, 8)}</p></div></body></html>`);
+    return;
+  }
+
+  const [order] = token ? await db.select().from(packOrders).where(eq(packOrders.token, token)) : [];
   if (!order) { res.status(404).send("<p>Order not found.</p>"); return; }
   const ready = order.status === "ready" || order.status === "partial";
   const dl = `/api/leads/pack-order-download?token=${encodeURIComponent(token)}`;

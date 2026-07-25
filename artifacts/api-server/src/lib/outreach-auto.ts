@@ -277,18 +277,50 @@ export function renderEmail(rawBody: string, s: OutreachSettings): { text: strin
   const sig = s.signature?.trim();
   const addr = s.businessAddress?.trim();
 
+  // Plain-text alternative — a genuine text part renders cleanly everywhere and
+  // is itself a positive deliverability signal (a real person's client sends one).
   const textParts = [rawBody.trim()];
   if (sig) textParts.push("", sig);
   if (addr) textParts.push("", addr);
   const text = textParts.filter((p, i) => !(p === "" && textParts[i - 1] === "")).join("\n");
 
   const esc = (x: string) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const bodyHtml = esc(rawBody.trim()).replace(/\n/g, "<br>");
-  const sigHtml = sig ? `<br><br>${esc(sig).replace(/\n/g, "<br>")}` : "";
+  // Bare email addresses → mailto links (URLs are linked later by instrumentHtml).
+  // Runs on already-escaped text, so it can't inject markup.
+  const linkEmails = (html: string) =>
+    html.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+      (m) => `<a href="mailto:${m}" style="color:#1a73e8;text-decoration:none">${m}</a>`);
+
+  // Body → real paragraphs (a blank line starts a new one, a single break stays
+  // a line break) so it reads like an email a person actually typed, not one
+  // dense block of text.
+  const bodyHtml = esc(rawBody.trim())
+    .split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
+    .map((p) => `<p style="margin:0 0 14px">${p.replace(/\n/g, "<br>")}</p>`)
+    .join("");
+
+  // Signature → a tidy block set slightly apart. The sender's name is
+  // emphasized (the first line, unless it's a "Thanks,"-style closer, in which
+  // case the name is the line after it); the rest reads as muted contact
+  // details — the shape of a normal professional email signature.
+  let sigHtml = "";
+  if (sig) {
+    const lines = esc(sig).split("\n").map((l) => l.trim()).filter(Boolean);
+    const closer = /^(thanks?|thank you|best|regards|best regards|kind regards|warm regards|cheers|sincerely|warmly|talk soon|all the best)[,.!]?$/i;
+    const nameIdx = lines.length > 1 && closer.test(lines[0]) ? 1 : 0;
+    const rendered = lines
+      .map((l, i) => i === nameIdx
+        ? `<div style="font-weight:600;color:#222">${linkEmails(l)}</div>`
+        : `<div>${linkEmails(l)}</div>`)
+      .join("");
+    sigHtml = `<div style="margin:20px 0 0;padding-top:14px;border-top:1px solid #ececec;font-size:13px;line-height:1.55;color:#555">${rendered}</div>`;
+  }
+
   const footHtml = addr
-    ? `<br><br><span style="color:#999;font-size:12px">${esc(addr)}</span>`
+    ? `<div style="margin-top:16px;color:#9aa0a6;font-size:11px;line-height:1.4">${esc(addr).replace(/\n/g, "<br>")}</div>`
     : "";
-  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#111">${bodyHtml}${sigHtml}${footHtml}</div>`;
+
+  const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#222;max-width:600px">${bodyHtml}${sigHtml}${footHtml}</div>`;
   return { text, html };
 }
 
@@ -509,6 +541,154 @@ export async function unsubscribeByToken(token: string): Promise<Lead | null> {
   return lead;
 }
 
+// ── Warm-lead re-engagement ──────────────────────────────────────────────────
+// A lead who opened or clicked but never replied is the warmest non-responder
+// there is. Once their sequence has gone quiet for a couple of days, they get
+// ONE extra nudge — threaded under the original conversation, tracked, and
+// never repeated (reengaged_at). Sent through the same tick as everything
+// else, so it obeys the window, daily cap and human pacing automatically.
+
+export const REENGAGE_STEP = 99; // step value marking re-engagement emails
+const REENGAGE_QUIET_MS = 2 * 86_400_000; // wait ≥2 days after the last send
+
+// Two subject styles, A/B rotated by lead id; open rates per subject surface
+// in the daily briefing so the winner is visible.
+function reengageContent(lead: Lead, s: OutreachSettings): { subject: string; body: string } {
+  const name = (lead.name ?? "").trim() || "there";
+  const variantB = lead.id % 2 === 1;
+  const subject = variantB ? "worth a second look?" : `quick one for ${name}`;
+  const body = [
+    `Hi ${name},`,
+    "",
+    "Wanted to float this back to the top of your inbox — I know things get busy.",
+    "",
+    `If landing more customers is on the list this month, grab a lead pack at https://mapleadextractor.net — 100 fresh local business leads (phone, email, website, ratings) for $29, delivered as a CSV in minutes.`,
+    "",
+    `Or just reply "sure" and I'll send a small free sample for your area so you can check the quality first.`,
+  ].join("\n");
+  void s;
+  return { subject, body };
+}
+
+async function findReengageCandidate(now: Date): Promise<Lead | null> {
+  const [lead] = await db.select().from(leads).where(and(
+    isNull(leads.deletedAt),
+    isNull(leads.repliedAt),
+    isNull(leads.unsubscribedAt),
+    isNull(leads.emailHealth),
+    isNull(leads.reengagedAt),
+    isNull(leads.nextEmailAt),          // sequence idle (finished or paused by completion)
+    sql`COALESCE(${leads.outreachStep}, 0) >= 1`,
+    lte(leads.lastEmailedAt, new Date(now.getTime() - REENGAGE_QUIET_MS)),
+    sql`EXISTS (SELECT 1 FROM outreach_emails oe WHERE oe.lead_id = ${leads.id} AND (oe.opened_at IS NOT NULL OR oe.clicked_at IS NOT NULL))`,
+  )).orderBy(asc(leads.lastEmailedAt)).limit(1);
+  return lead ?? null;
+}
+
+async function sendReengage(lead: Lead, s: OutreachSettings): Promise<boolean> {
+  const to = primaryEmail(lead);
+  if (!to) return false;
+  const { subject, body } = reengageContent(lead, s);
+  const token = lead.unsubToken ?? crypto.randomUUID();
+  const trackToken = crypto.randomUUID();
+  const { text, html: baseHtml } = renderEmail(body, s);
+  const html = instrumentHtml(baseHtml, trackToken);
+  const fromAddr = fromEmailFor(s);
+  const domain = fromAddr.split("@")[1] || "mail.local";
+  const messageId = `<${token}.re.${Date.now()}@${domain}>`;
+  const headers: Record<string, string> = {
+    "List-Unsubscribe": `<${unsubUrl(token)}>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
+  if (lead.threadMessageId) {
+    headers["In-Reply-To"] = lead.threadMessageId;
+    headers["References"] = lead.threadMessageId;
+  }
+  try {
+    if (s.provider === "gmail" && gmailSendReady()) {
+      await sendGmailMail({
+        fromName: s.fromName, to, replyTo: s.replyTo || fromAddr || undefined, subject, text, html,
+        messageId, headers, inReplyTo: lead.threadMessageId ?? undefined,
+      });
+    } else if (resendConfigured()) {
+      const res = await fetch(RESEND_ENDPOINT, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: `${s.fromName} <${fromAddr}>`, to, reply_to: s.replyTo || fromAddr, subject, text, html,
+          headers: { "Message-ID": messageId, ...headers },
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) throw new Error(`Resend ${res.status}`);
+    } else {
+      await sendReplitMail({ to, subject, text, html });
+    }
+    const now = new Date();
+    await db.insert(outreachEmails).values({
+      leadId: lead.id, step: REENGAGE_STEP, toEmail: to, subject, body,
+      status: "sent", messageId, trackToken,
+    });
+    await db.update(leads).set({
+      reengagedAt: now, lastEmailedAt: now, unsubToken: token, updatedAt: now,
+    }).where(eq(leads.id, lead.id));
+    logger.info({ leadId: lead.id }, "Re-engagement email sent");
+    return true;
+  } catch (err) {
+    logger.error({ err, leadId: lead.id }, "Re-engagement send failed");
+    // Stamp it anyway so a broken lead can't wedge the re-engage slot forever.
+    await db.update(leads).set({ reengagedAt: new Date(), updatedAt: new Date() }).where(eq(leads.id, lead.id));
+    return false;
+  }
+}
+
+// ── Deliverability circuit-breaker ───────────────────────────────────────────
+// The whole operation rides on the Gmail account's sending reputation. If
+// sends start erroring in bulk, or opens collapse to spam-folder levels, we
+// pause the engine and tell the owner instead of burning the domain.
+
+const HEALTH_CHECK_GAP_MS = 60 * 60 * 1000;
+const FAILURE_TRIP_COUNT = 8;     // failed sends in the last 24h
+const OPENRATE_MIN_SAMPLE = 30;   // emails ≥24h old before judging open rate
+const OPENRATE_TRIP = 0.07;       // below this, we're almost certainly in spam
+let lastHealthCheckAt = 0;
+
+async function deliverabilityOk(): Promise<boolean> {
+  if (Date.now() - lastHealthCheckAt < HEALTH_CHECK_GAP_MS) return true;
+  lastHealthCheckAt = Date.now();
+
+  const dayAgo = new Date(Date.now() - 86_400_000);
+  const weekAgo = new Date(Date.now() - 7 * 86_400_000);
+
+  const [{ n: failures }] = await db.select({ n: sql<number>`count(*)::int` }).from(outreachEmails)
+    .where(and(eq(outreachEmails.status, "failed"), gte(outreachEmails.createdAt, dayAgo)));
+
+  // Open rate over mature sends (older than 24h so pixels had time to fire).
+  const [mature] = await db.select({
+    n: sql<number>`count(*)::int`,
+    opened: sql<number>`(count(*) filter (where ${outreachEmails.openedAt} is not null))::int`,
+  }).from(outreachEmails)
+    .where(and(eq(outreachEmails.status, "sent"), gte(outreachEmails.createdAt, weekAgo), lte(outreachEmails.createdAt, dayAgo)));
+
+  let reason: string | null = null;
+  if (failures >= FAILURE_TRIP_COUNT) {
+    reason = `${failures} sends failed in the last 24 hours (provider errors).`;
+  } else if (mature.n >= OPENRATE_MIN_SAMPLE && mature.opened / mature.n < OPENRATE_TRIP) {
+    reason = `Only ${mature.opened} of the last ${mature.n} emails were opened (${Math.round((mature.opened / mature.n) * 100)}%) — that pattern usually means the spam folder.`;
+  }
+  if (!reason) return true;
+
+  await updateOutreachSettings({ enabled: false });
+  logger.error({ reason }, "Deliverability circuit-breaker tripped — outreach paused");
+  const { notifyOwner } = await import("./alerts");
+  void notifyOwner({
+    subject: "⛔ Outreach auto-paused to protect your email reputation",
+    text: `The outreach engine paused itself.\n\nWhy: ${reason}\n\nSending through a flagged account makes things worse, so nothing more goes out until you review. Common fixes: slow the daily cap down, check the Gmail account for warnings, or wait a day or two.\n\nTo resume: flip Outreach back on in the dashboard, or just ask.\n\nDashboard: ${PUBLIC_ORIGIN}/admin`,
+    sms: `⛔ Outreach auto-paused: ${reason}`,
+  });
+  return false;
+}
+
 // ── Scheduler ────────────────────────────────────────────────────────────────
 
 const TICK_MS = 90_000;
@@ -564,6 +744,7 @@ export async function outreachTick(): Promise<void> {
     if (!withinWindow(now, s)) return;            // outside office hours / weekend
     if (now.getTime() < nextAllowedSendAt) return; // still cooling down between sends
     if (await sentToday(s) >= s.dailyCap) return;  // hit the daily ceiling
+    if (!(await deliverabilityOk())) return;       // circuit-breaker tripped
 
     // The single most-overdue enrolled, sendable lead.
     const [lead] = await db.select().from(leads).where(and(
@@ -575,7 +756,14 @@ export async function outreachTick(): Promise<void> {
       isNotNull(leads.nextEmailAt),
       lte(leads.nextEmailAt, now),
     )).orderBy(asc(leads.nextEmailAt)).limit(1);
-    if (!lead) return;
+    if (!lead) {
+      // Nothing scheduled — use the free slot for one warm-lead re-engagement.
+      const cand = await findReengageCandidate(now);
+      if (cand && (await sendReengage(cand, s))) {
+        nextAllowedSendAt = Date.now() + randInt(s.minGapMinutes, s.maxGapMinutes) * 60_000;
+      }
+      return;
+    }
 
     const nextStep = (lead.outreachStep ?? 0) + 1; // step to send now
     const isFirst = nextStep === 1;

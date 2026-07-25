@@ -45,6 +45,10 @@ export const packOrders = pgTable("pack_orders", {
   readyAt: timestamp("ready_at", { withTimezone: true }),
   // When we emailed this buyer asking for a review (null = not asked yet).
   reviewRequestedAt: timestamp("review_requested_at", { withTimezone: true }),
+  // Referral program: the referrer's order token this buyer arrived with
+  // (?ref=... link), and when the referrer's $5 thank-you refund went out.
+  referrerToken: text("referrer_token"),
+  referralCreditedAt: timestamp("referral_credited_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [

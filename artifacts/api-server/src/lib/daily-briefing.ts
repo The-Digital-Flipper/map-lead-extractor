@@ -96,6 +96,27 @@ async function buildBriefing(since: Date): Promise<Briefing> {
   lines.push("", "— Money —");
   lines.push(`Lead-pack orders paid: ${paidOrders.length}${paidOrders.length ? `  ·  Revenue: $${(revenueCents / 100).toFixed(2)}` : ""}`);
   lines.push(`Emails captured on site: ${captured.n}`);
+  // Subject-line scoreboard: open rates over the last week's mature sends
+  // (≥24h old so pixels had time to fire), 3+ sends per subject to count.
+  const subjectStats = await db.execute(sql`
+    SELECT subject, count(*)::int AS sent,
+           (count(*) FILTER (WHERE opened_at IS NOT NULL))::int AS opened
+    FROM outreach_emails
+    WHERE status = 'sent'
+      AND created_at >= ${new Date(now.getTime() - 7 * 86_400_000)}
+      AND created_at <= ${new Date(now.getTime() - 86_400_000)}
+    GROUP BY subject HAVING count(*) >= 3
+    ORDER BY (count(*) FILTER (WHERE opened_at IS NOT NULL))::float / count(*) DESC
+    LIMIT 3
+  `);
+  const subjRows = subjectStats.rows as { subject: string; sent: number; opened: number }[];
+  if (subjRows.length) {
+    lines.push("", "— Best subject lines (7d) —");
+    for (const r of subjRows) {
+      lines.push(`  • "${r.subject.slice(0, 60)}" — ${Math.round((r.opened / r.sent) * 100)}% opened (${r.opened}/${r.sent})`);
+    }
+  }
+
   lines.push("", "— Today —");
   lines.push(`${queued.n} outreach emails queued to send`);
   lines.push("Daily social post goes out on schedule");

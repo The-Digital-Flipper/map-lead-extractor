@@ -1221,15 +1221,28 @@ export default function Admin() {
   const [threadBusy, setThreadBusy] = useState<"" | "load" | "send">("");
   const [threadMsg, setThreadMsg] = useState("");
   const [threadErr, setThreadErr] = useState("");
+  // Pipeline panel: funnel counts + warm leads worth a phone call right now
+  interface OutreachPipeline {
+    funnel: { queued: number; contacted: number; opened: number; clicked: number; replied: number; customers: number };
+    warm: { id: number; name: string; phone: string | null; emails: string | null; status: string; last_open: string | null; last_click: string | null }[];
+  }
+  const [emailPipeline, setEmailPipeline] = useState<OutreachPipeline | null>(null);
+  const timeAgo = (iso: string) => {
+    const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+    if (mins < 60) return `${mins}m ago`;
+    if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
+    return `${Math.floor(mins / 1440)}d ago`;
+  };
 
   const loadEmailTab = useCallback(async () => {
     try {
-      const [sR, aR, rR, stR, qR] = await Promise.all([
+      const [sR, aR, rR, stR, qR, pR] = await Promise.all([
         adminFetch(`${basePath}/api/outreach/settings`),
         adminFetch(`${basePath}/api/outreach/activity?limit=100`),
         adminFetch(`${basePath}/api/outreach/replies?limit=50`),
         adminFetch(`${basePath}/api/outreach/stats`),
         adminFetch(`${basePath}/api/outreach/queue`),
+        adminFetch(`${basePath}/api/outreach/pipeline`),
       ]);
       if (sR.ok) {
         const d: OutreachInfo = await sR.json();
@@ -1247,6 +1260,7 @@ export default function Admin() {
       if (rR.ok) setEmailReplies((await rR.json()).replies ?? []);
       if (stR.ok) setEmailStats(await stR.json());
       if (qR.ok) setEmailQueue((await qR.json()).queue ?? []);
+      if (pR.ok) setEmailPipeline(await pR.json());
     } catch { /* keep whatever was already loaded */ }
   }, []);
 
@@ -2324,6 +2338,68 @@ export default function Admin() {
                   </div>
                 )}
               </div>
+
+              {/* Pipeline — funnel counts + warm leads worth calling right now */}
+              {emailPipeline && (
+                <div className="rounded-2xl border border-border bg-card p-5">
+                  <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wide mb-3">Pipeline <span className="normal-case font-normal text-muted-foreground/70">— from first email to paying customer</span></h3>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
+                    {[
+                      { label: "Queued", value: emailPipeline.funnel.queued },
+                      { label: "Contacted", value: emailPipeline.funnel.contacted },
+                      { label: "Opened", value: emailPipeline.funnel.opened },
+                      { label: "Clicked", value: emailPipeline.funnel.clicked },
+                      { label: "Replied", value: emailPipeline.funnel.replied },
+                      { label: "Customers", value: emailPipeline.funnel.customers },
+                    ].map(s => (
+                      <div key={s.label} className="rounded-xl border border-border bg-background/40 px-3 py-2">
+                        <div className="text-lg font-display font-bold text-foreground">{s.value}</div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <h4 className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground mb-2">🔥 Call these first <span className="normal-case font-normal text-muted-foreground/70">— they opened or clicked, strike while it's hot</span></h4>
+                  {emailPipeline.warm.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No warm leads yet — opens and clicks will surface here.</p>
+                  ) : (
+                    <div className="overflow-x-auto max-h-72 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-card">
+                          <tr className="text-left text-muted-foreground border-b border-border">
+                            <th className="px-2 py-1.5 font-semibold">Company</th>
+                            <th className="px-2 py-1.5 font-semibold">Phone</th>
+                            <th className="px-2 py-1.5 font-semibold">Email</th>
+                            <th className="px-2 py-1.5 font-semibold">Signal</th>
+                            <th className="px-2 py-1.5 font-semibold">When</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {emailPipeline.warm.map(w => {
+                            const firstEmail = (w.emails ?? "").split(",")[0]?.trim() || null;
+                            const lastTouch = [w.last_click, w.last_open].filter((t): t is string => !!t)
+                              .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null;
+                            return (
+                              <tr key={w.id} className="border-b border-border/50">
+                                <td className="px-2 py-1.5 text-foreground font-semibold truncate max-w-[220px]">{w.name}</td>
+                                <td className="px-2 py-1.5 whitespace-nowrap">
+                                  {w.phone ? <a href={`tel:${w.phone}`} className="text-primary hover:underline">{w.phone}</a> : <span className="text-muted-foreground">—</span>}
+                                </td>
+                                <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[200px]">{firstEmail ?? "—"}</td>
+                                <td className="px-2 py-1.5">
+                                  <span className={`px-1.5 py-0.5 rounded-full border text-[9px] font-bold uppercase ${w.last_click ? "bg-primary/15 text-primary border-primary/40" : "bg-blue-500/15 text-blue-400 border-blue-500/40"}`}>
+                                    {w.last_click ? "Clicked" : "Opened"}
+                                  </span>
+                                </td>
+                                <td className="px-2 py-1.5 text-muted-foreground whitespace-nowrap">{lastTouch ? timeAgo(lastTouch) : "—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Pitch + sending settings */}
               {emailDraft && (

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { clerkMiddleware, getAuth } from "@clerk/express";
-import { and, gte, isNotNull, sql, desc, inArray } from "drizzle-orm";
-import { db, packOrders, leads, sampleRequests } from "@workspace/db";
+import { and, eq, gte, isNotNull, sql, desc, inArray } from "drizzle-orm";
+import { db, packOrders, packSubscriptions, leads, sampleRequests } from "@workspace/db";
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
 import {
@@ -9,6 +9,7 @@ import {
   type PackFilters,
 } from "../lib/packs";
 import { newOrderToken } from "../lib/packWorker";
+import { MONTHLY_PACK } from "../lib/subscriptions";
 import { unsubscribeSample } from "../lib/buyer-followup";
 import { unsubscribeCustomerByToken } from "../lib/customer-blast";
 
@@ -204,7 +205,7 @@ router.post("/pack-quote", async (req, res) => {
  * gathers fresh leads first (24h deadline, shortfall auto-refunded at Send).
  * No account needed — Stripe collects the buyer's email. */
 router.post("/pack-checkout", async (req, res) => {
-  const body = (req.body ?? {}) as { category?: string; state?: string; request?: string; size?: number };
+  const body = (req.body ?? {}) as { category?: string; state?: string; request?: string; size?: number; ref?: string };
   const filters = await resolveFilters(body);
   if (!filters) {
     res.status(400).json({ error: "Unknown category or state." });
@@ -226,6 +227,26 @@ router.post("/pack-checkout", async (req, res) => {
   const available = await countPackLeads(filters);
   const instant = available >= tier.leadCount;
 
+  // Referral link (?ref=<order token>): buyer gets $5 off at checkout; the
+  // referrer's $5 thank-you goes out when this order is paid (packWorker).
+  let referrerToken: string | null = null;
+  let discounts: { coupon: string }[] | undefined;
+  const ref = String(body.ref ?? "").trim();
+  if (ref) {
+    const [refOrder] = await db.select({ id: packOrders.id, paidAt: packOrders.paidAt })
+      .from(packOrders).where(eq(packOrders.token, ref));
+    if (refOrder?.paidAt) {
+      referrerToken = ref;
+      const COUPON_ID = "REF5USD";
+      try {
+        await stripe.coupons.retrieve(COUPON_ID);
+      } catch {
+        await stripe.coupons.create({ id: COUPON_ID, amount_off: 500, currency: "usd", duration: "once", name: "$5 referral discount" });
+      }
+      discounts = [{ coupon: COUPON_ID }];
+    }
+  }
+
   const token = newOrderToken();
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
@@ -243,6 +264,7 @@ router.post("/pack-checkout", async (req, res) => {
       },
       quantity: 1,
     }],
+    ...(discounts ? { discounts } : {}),
     metadata: { pack_mode: instant ? "instant" : "build", pack_order_token: token },
     success_url: `${baseUrl}/api/leads/pack-order-received?token=${token}`,
     cancel_url: `${baseUrl}/#leads-for-sale`,
@@ -251,6 +273,7 @@ router.post("/pack-checkout", async (req, res) => {
   await db.insert(packOrders).values({
     token,
     stripeSessionId: session.id,
+    referrerToken,
     amountCents: tier.priceCents,
     rawRequest: body.request ?? null,
     category: filters.category,
@@ -262,6 +285,60 @@ router.post("/pack-checkout", async (req, res) => {
   });
 
   res.json({ url: session.url, mode: instant ? "instant" : "build", available });
+});
+
+/** POST /api/stripe/pack-subscribe — monthly subscription: 100 fresh leads
+ * every month at a discount vs the one-off pack. Same filter resolution as
+ * pack-checkout; fulfillment is handled by lib/subscriptions.ts, which mints
+ * a normal pack order each month so the owner-review flow is unchanged. */
+router.post("/pack-subscribe", async (req, res) => {
+  const body = (req.body ?? {}) as { category?: string; state?: string; request?: string };
+  const filters = await resolveFilters(body);
+  if (!filters) {
+    res.status(400).json({ error: "Unknown category or state." });
+    return;
+  }
+  if (body.request && !filters.category) {
+    res.status(422).json({ error: "We couldn't tell which business type you meant — try e.g. \"plumbers in Austin, TX\"." });
+    return;
+  }
+
+  const stripe = await getUncachableStripeClient();
+  const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}`;
+  const token = newOrderToken();
+  const session = await stripe.checkout.sessions.create({
+    mode: "subscription",
+    payment_method_types: ["card"],
+    line_items: [{
+      price_data: {
+        currency: "usd",
+        unit_amount: MONTHLY_PACK.priceCents,
+        recurring: { interval: "month" },
+        product_data: {
+          name: `Monthly: ${packDisplayName(filters, MONTHLY_PACK.leadCount)}`,
+          description: `${MONTHLY_PACK.leadCount} fresh matching leads emailed as a CSV every month. Cancel anytime by replying to any delivery email.`,
+        },
+      },
+      quantity: 1,
+    }],
+    metadata: { pack_subscription_token: token },
+    success_url: `${baseUrl}/api/leads/pack-order-received?token=${token}&sub=1`,
+    cancel_url: `${baseUrl}/#leads-for-sale`,
+  });
+
+  await db.insert(packSubscriptions).values({
+    token,
+    stripeSessionId: session.id,
+    priceCents: MONTHLY_PACK.priceCents,
+    rawRequest: body.request ?? null,
+    category: filters.category,
+    label: filters.label,
+    city: filters.city,
+    state: filters.state,
+    leadCount: MONTHLY_PACK.leadCount,
+  });
+
+  res.json({ url: session.url });
 });
 
 // ── Free sample leads (email-capture conversion flow) ─────────────────────────

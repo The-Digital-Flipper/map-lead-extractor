@@ -255,20 +255,36 @@ export async function scanInbox(): Promise<void> {
     try {
       // Pass 1: envelopes + threading headers only — cheap enough to sweep the
       // whole window every tick; bodies are downloaded only for real matches.
+      const bounced = new Set<number>();
       for await (const m of client.fetch({ since }, { uid: true, envelope: true, headers: ["in-reply-to", "references"] })) {
         const from = (m.envelope?.from?.[0]?.address ?? "").toLowerCase();
         const msgId = normalizeMsgId(m.envelope?.messageId);
-        if (!from || from === self || isMachineSender(from)) continue;
+        if (!from || from === self) continue;
+
+        const headerText = m.headers?.toString() ?? "";
+        const refIds = headerText.match(/<[^<>\s]+>/g) ?? [];
+        let refLeadId: number | undefined;
+        for (const id of refIds) { refLeadId = index.byMessageId.get(id); if (refLeadId) break; }
+
+        // A mailer-daemon answering one of OUR messages = a bounce. Suppress
+        // the lead so we never retry a dead address (and the deliverability
+        // stats stay honest).
+        if (isMachineSender(from)) {
+          if (refLeadId) bounced.add(refLeadId);
+          continue;
+        }
         if (msgId && index.seenInbound.has(msgId)) continue;
 
         // Threading headers first (exact), then from-address (covers replies
         // sent fresh instead of via reply).
-        const headerText = m.headers?.toString() ?? "";
-        const refIds = headerText.match(/<[^<>\s]+>/g) ?? [];
-        let leadId: number | undefined;
-        for (const id of refIds) { leadId = index.byMessageId.get(id); if (leadId) break; }
-        leadId ??= index.byAddress.get(from);
+        const leadId = refLeadId ?? index.byAddress.get(from);
         if (leadId) matched.push({ uid: m.uid, leadId, fromEmail: from });
+      }
+      for (const leadId of bounced) {
+        await db.update(leads)
+          .set({ emailHealth: "bounced", autoOutreach: false, nextEmailAt: null, updatedAt: new Date() })
+          .where(and(eq(leads.id, leadId), sql`${leads.emailHealth} IS NULL`));
+        logger.info({ leadId }, "Bounce detected — lead suppressed");
       }
 
       // Pass 2: download + parse + handle each matched message.

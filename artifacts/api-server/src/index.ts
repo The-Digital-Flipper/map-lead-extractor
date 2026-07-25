@@ -11,6 +11,7 @@ import { startAutoScrapeScheduler } from "./lib/autoScrape";
 import { startGmailConnectorWatcher } from "./lib/gmailConnector";
 import { startCapturedDigestScheduler } from "./lib/captured-digest";
 import { startDailyBriefingScheduler } from "./lib/daily-briefing";
+import { startSubscriptionScheduler } from "./lib/subscriptions";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -33,4 +34,5 @@ app.listen(port, (err) => {
   startGmailConnectorWatcher();
   startCapturedDigestScheduler();
   startDailyBriefingScheduler();
+  startSubscriptionScheduler();
 });
