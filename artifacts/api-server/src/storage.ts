@@ -25,6 +25,26 @@ export class Storage {
     return user;
   }
 
+  /** Set lifetime membership flag for a user by Clerk user ID. */
+  async setLifetimeMember(clerkUserId: string) {
+    await db.update(users)
+      .set({ isLifetime: true, lifetimeGrantedAt: new Date() })
+      .where(eq(users.id, clerkUserId));
+  }
+
+  /** Set lifetime membership flag for a user by Stripe customer ID. */
+  async setLifetimeMemberByCustomerId(customerId: string) {
+    await db.update(users)
+      .set({ isLifetime: true, lifetimeGrantedAt: new Date() })
+      .where(eq(users.stripeCustomerId, customerId));
+  }
+
+  /** Look up a user by Stripe customer ID. */
+  async getUserByCustomerId(customerId: string) {
+    const [user] = await db.select().from(users).where(eq(users.stripeCustomerId, customerId));
+    return user ?? null;
+  }
+
   async getUserByApiKey(apiKey: string) {
     const [user] = await db.select().from(users).where(eq(users.apiKey, apiKey));
     return user ?? null;

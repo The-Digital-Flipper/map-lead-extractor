@@ -19,18 +19,23 @@ const FREE_LEAD_LIMIT = 100;
 // Build-to-order fulfillment window; also the auto-partial-refund deadline.
 const BUILD_DEADLINE_MS = 24 * 60 * 60 * 1000;
 
-/** Check if a Clerk user has an active Pro subscription */
+/** Check if a Clerk user has an active Pro subscription or lifetime membership */
 async function getProStatus(clerkUserId: string): Promise<{
   isPro: boolean;
+  isLifetime: boolean;
   customerId: string | null;
   subscriptionId: string | null;
 }> {
   const user = await storage.getUser(clerkUserId);
-  if (!user?.stripeCustomerId) return { isPro: false, customerId: null, subscriptionId: null };
+  if (!user) return { isPro: false, isLifetime: false, customerId: null, subscriptionId: null };
+
+  const isLifetime = user.isLifetime === true;
+  if (!user.stripeCustomerId) return { isPro: false, isLifetime, customerId: null, subscriptionId: null };
 
   const sub = await storage.getActiveSubscriptionForCustomer(user.stripeCustomerId);
   return {
     isPro: !!sub,
+    isLifetime,
     customerId: user.stripeCustomerId,
     subscriptionId: (sub?.id as string) ?? null,
   };
@@ -44,7 +49,7 @@ router.get("/status", async (req, res) => {
     return;
   }
 
-  const { isPro, subscriptionId } = await getProStatus(auth.userId);
+  const { isPro, isLifetime, subscriptionId } = await getProStatus(auth.userId);
   let periodEnd: string | null = null;
   if (subscriptionId) {
     const sub = await storage.getSubscription(subscriptionId);
@@ -53,7 +58,8 @@ router.get("/status", async (req, res) => {
     }
   }
 
-  res.json({ isPro, plan: isPro ? "pro" : "free", freeLimit: FREE_LEAD_LIMIT, periodEnd });
+  const plan = isLifetime ? "lifetime" : isPro ? "pro" : "free";
+  res.json({ isPro, isLifetime, plan, freeLimit: FREE_LEAD_LIMIT, periodEnd });
 });
 
 /** GET /api/stripe/products — public, for pricing page (fetches directly from Stripe API) */
@@ -105,6 +111,50 @@ router.get("/recent-orders-count", async (req, res) => {
     .from(packOrders)
     .where(and(isNotNull(packOrders.paidAt), gte(packOrders.paidAt, cutoff)));
   res.json({ count: row?.count ?? 0, days });
+});
+
+const LIFETIME_PRODUCT_ID = "prod_UzaVAAEqG0DsZH";
+const LIFETIME_PRICE_ID = "price_1TzbKy0eyemRWWM4srkhRaIB";
+
+/** POST /api/stripe/lifetime-checkout — one-time $197 lifetime membership */
+router.post("/lifetime-checkout", async (req, res) => {
+  const auth = getAuth(req);
+  if (!auth.userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const stripe = await getUncachableStripeClient();
+  let user = await storage.getUser(auth.userId);
+
+  let customerId = user?.stripeCustomerId ?? null;
+  if (!customerId) {
+    const email = (req as unknown as { auth?: { sessionClaims?: { email?: string } } }).auth
+      ?.sessionClaims?.email ?? undefined;
+    const customer = await stripe.customers.create({ email, metadata: { clerkUserId: auth.userId } });
+    customerId = customer.id;
+    await storage.upsertUser(auth.userId, email ?? "");
+    await storage.updateUserStripeInfo(auth.userId, { stripeCustomerId: customerId });
+  }
+
+  // Already a lifetime member — no double charge
+  if (user?.isLifetime) {
+    res.status(400).json({ error: "You already have a lifetime membership." });
+    return;
+  }
+
+  const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}`;
+  const session = await stripe.checkout.sessions.create({
+    customer: customerId,
+    payment_method_types: ["card"],
+    line_items: [{ price: LIFETIME_PRICE_ID, quantity: 1 }],
+    mode: "payment",
+    success_url: `${baseUrl}/dashboard?lifetime=1`,
+    cancel_url: `${baseUrl}/membership`,
+    metadata: { lifetime_membership: "true", clerk_user_id: auth.userId },
+  });
+
+  res.json({ url: session.url });
 });
 
 /** POST /api/stripe/checkout — create a Stripe Checkout session */

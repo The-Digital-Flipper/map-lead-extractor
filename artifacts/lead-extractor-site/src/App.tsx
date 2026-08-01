@@ -37,6 +37,7 @@ const AUTH_PREFIXES = [
   "/sign-in",
   "/sign-up",
   "/connect-extension",
+  "/membership",
 ];
 
 function isAuthPath(path: string): boolean {

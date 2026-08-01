@@ -248,7 +248,8 @@ interface StatsData {
 
 interface PlanStatus {
   isPro: boolean;
-  plan: "free" | "pro";
+  isLifetime: boolean;
+  plan: "free" | "pro" | "lifetime";
   freeLimit: number;
   periodEnd: string | null;
 }
@@ -412,6 +413,41 @@ function PlanBanner({ plan, total, onManageBilling, onUpgrade }: {
   plan: PlanStatus | null; total: number; onManageBilling: () => void; onUpgrade: () => void;
 }) {
   if (!plan) return null;
+
+  // Lifetime membership banner
+  if (plan.isLifetime) {
+    return (
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.05 }} className="mb-8">
+        <div className="bg-gradient-to-r from-primary/10 to-blue-500/10 border border-primary/30 rounded-2xl p-5 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
+              <Crown className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-display font-bold text-foreground">Lifetime Membership</span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/20 border border-primary/40 text-primary text-xs font-bold">LIFETIME</span>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Full access to Scraper, Command Center, AI enrichment &amp; unlimited finds — forever
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a href={`${basePath}/scraper`}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-primary/30 text-sm font-semibold text-primary hover:bg-primary/10 transition-colors">
+              <Radar className="w-3.5 h-3.5" /> Scraper
+            </a>
+            <a href={`${basePath}/command-center`}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-500/30 text-sm font-semibold text-blue-400 hover:bg-blue-500/10 transition-colors">
+              <MessageSquare className="w-3.5 h-3.5" /> SMS
+            </a>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
   if (plan.isPro) {
     return (
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.05 }} className="mb-8">
@@ -430,10 +466,16 @@ function PlanBanner({ plan, total, onManageBilling, onUpgrade }: {
               </p>
             </div>
           </div>
-          <button onClick={onManageBilling}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors shrink-0">
-            <CreditCard className="w-4 h-4" /> Manage Billing
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <a href={`${basePath}/membership`}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-primary/20 text-xs font-semibold text-primary/80 hover:bg-primary/10 transition-colors">
+              <Crown className="w-3 h-3" /> Go Lifetime
+            </a>
+            <button onClick={onManageBilling}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors">
+              <CreditCard className="w-4 h-4" /> Billing
+            </button>
+          </div>
         </div>
       </motion.div>
     );
@@ -455,10 +497,16 @@ function PlanBanner({ plan, total, onManageBilling, onUpgrade }: {
               {total >= FREE_LIMIT ? " — limit reached. Upgrade to save more." : ""}
             </p>
           </div>
-          <button onClick={onUpgrade}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity shrink-0">
-            <ArrowUpRight className="w-4 h-4" /> Upgrade to Pro
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <a href={`${basePath}/membership`}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-primary/30 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors">
+              <Crown className="w-3 h-3" /> Lifetime $197
+            </a>
+            <button onClick={onUpgrade}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity">
+              <ArrowUpRight className="w-4 h-4" /> Upgrade to Pro
+            </button>
+          </div>
         </div>
         <div className="h-2 bg-background rounded-full overflow-hidden border border-border">
           <div className={`h-full rounded-full transition-all duration-500 ${pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-yellow-500" : "bg-primary"}`} style={{ width: `${pct}%` }} />
@@ -1190,8 +1238,12 @@ export default function Dashboard() {
           </a>
           <div className="flex items-center gap-4">
             {plan && (
-              <span className={`hidden md:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${plan.isPro ? "bg-primary/15 border-primary/40 text-primary" : "bg-muted border-border text-muted-foreground"}`}>
-                {plan.isPro ? <><Crown className="w-3 h-3" /> Pro</> : "Free"}
+              <span className={`hidden md:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+                plan.isLifetime ? "bg-primary/15 border-primary/40 text-primary" :
+                plan.isPro ? "bg-primary/15 border-primary/40 text-primary" :
+                "bg-muted border-border text-muted-foreground"
+              }`}>
+                {plan.isLifetime ? <><Crown className="w-3 h-3" /> Lifetime</> : plan.isPro ? <><Crown className="w-3 h-3" /> Pro</> : "Free"}
               </span>
             )}
             <span className="text-sm text-muted-foreground hidden md:block">{user?.primaryEmailAddress?.emailAddress}</span>
@@ -1967,18 +2019,25 @@ export default function Dashboard() {
           </motion.div>
 
           {/* Upgrade CTA */}
-          {plan && !plan.isPro && total >= FREE_LIMIT * 0.8 && (
+          {plan && !plan.isPro && !plan.isLifetime && total >= FREE_LIMIT * 0.8 && (
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.3 }} className="mt-8">
               <div className="bg-primary/10 border border-primary/30 rounded-2xl p-6 text-center">
                 <Crown className="w-8 h-8 text-primary mx-auto mb-3" />
-                <h3 className="font-display font-bold text-xl mb-1">Unlock Unlimited Leads</h3>
+                <h3 className="font-display font-bold text-xl mb-1">Unlock Everything — One Price</h3>
                 <p className="text-muted-foreground text-sm mb-4">
-                  You've used {total} of your {FREE_LIMIT} free leads. Go Pro for $9.99/month and never hit a limit again.
+                  You've used {total} of your {FREE_LIMIT} free leads. Get Lifetime Membership for $197 — unlimited leads,
+                  scraper access, SMS outreach, AI enrichment, and no monthly fees ever.
                 </p>
-                <button onClick={handleUpgrade}
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity">
-                  <ArrowUpRight className="w-4 h-4" /> Upgrade to Pro — $9.99/mo
-                </button>
+                <div className="flex items-center justify-center gap-3 flex-wrap">
+                  <a href={`${basePath}/membership`}
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity">
+                    <Crown className="w-4 h-4" /> Get Lifetime Access — $197
+                  </a>
+                  <button onClick={handleUpgrade}
+                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors">
+                    Pro subscription instead
+                  </button>
+                </div>
               </div>
             </motion.div>
           )}

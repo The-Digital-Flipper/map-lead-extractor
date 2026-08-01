@@ -1,9 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Search, Star, Share2, Check, Lock } from "lucide-react";
+import { ArrowLeft, Search, Star, Share2, Check, Lock, Crown, ArrowUpRight } from "lucide-react";
 import { useSeo } from "@/lib/seo";
 import { PlatformReviews } from "@/components/site/landing-sections";
 import { SCRAPER_ACTORS, type ScraperActor } from "@/lib/scraperActors";
+import { useUser, useSession } from "@clerk/react";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -21,6 +22,23 @@ export default function ScraperStore() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<Category>("all");
   const [shared, setShared] = useState(false);
+  const { isLoaded, isSignedIn } = useUser();
+  const { session } = useSession();
+  const [isLifetime, setIsLifetime] = useState<boolean | null>(null);
+
+  // Check if the signed-in user has lifetime membership
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (!isSignedIn) { setIsLifetime(false); return; }
+    session?.getToken().then(token => {
+      fetch(`${basePath}/api/stripe/status`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+        .then(r => r.json())
+        .then((d: { isLifetime?: boolean }) => setIsLifetime(!!d.isLifetime))
+        .catch(() => setIsLifetime(false));
+    });
+  }, [isLoaded, isSignedIn, session]);
 
   const share = async () => {
     const url = window.location.href;
@@ -40,6 +58,37 @@ export default function ScraperStore() {
       .filter(a => !q || a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q));
   }, [query, category]);
 
+  // Show upgrade gate if not a lifetime member
+  if (isLifetime === false) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 text-center">
+        <div className="max-w-md">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/30 flex items-center justify-center mx-auto mb-6">
+            <Crown className="w-8 h-8 text-primary" />
+          </div>
+          <h1 className="font-display font-bold text-2xl mb-2">Scraper Store</h1>
+          <p className="text-muted-foreground mb-6">
+            The Google Maps Scraper is included in the <strong className="text-foreground">Lifetime Membership</strong>.
+            Run unlimited scrape jobs, build custom lead lists, and export to CSV — all for a one-time $197 payment.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            {!isSignedIn && (
+              <a href={`${basePath}/sign-in`}
+                className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors">
+                Sign in first
+              </a>
+            )}
+            <a href={`${basePath}/membership`}
+              className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity">
+              <ArrowUpRight className="w-4 h-4" /> Get Lifetime Access — $197
+            </a>
+          </div>
+          <a href={`${basePath}/`} className="block mt-6 text-xs text-muted-foreground hover:text-foreground transition-colors">← Back to home</a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <header className="border-b border-border bg-card/60 backdrop-blur-md sticky top-0 z-30">
@@ -48,10 +97,15 @@ export default function ScraperStore() {
             <ArrowLeft className="w-4 h-4" />
           </a>
           <span className="font-display font-bold">Scraper Store</span>
-          <button onClick={share} className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
-            {shared ? <Check className="w-3.5 h-3.5 text-primary" /> : <Share2 className="w-3.5 h-3.5" />}
-            {shared ? "Link copied!" : "Share"}
-          </button>
+          <div className="ml-auto flex items-center gap-3">
+            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/30 text-primary text-xs font-bold">
+              <Crown className="w-3 h-3" /> Lifetime
+            </span>
+            <button onClick={share} className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
+              {shared ? <Check className="w-3.5 h-3.5 text-primary" /> : <Share2 className="w-3.5 h-3.5" />}
+              {shared ? "Link copied!" : "Share"}
+            </button>
+          </div>
         </div>
       </header>
 
