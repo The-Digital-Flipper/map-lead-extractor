@@ -262,6 +262,38 @@ export default function AgencyLp() {
           </div>
         </section>
 
+        {/* ── Who Is This For ─────────────────────────────────────────────── */}
+        <section className="py-24">
+          <div className="container mx-auto px-6 max-w-5xl">
+            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={stagger} className="text-center mb-14">
+              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Built For You</motion.p>
+              <motion.h2 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-5">Who Is This For?</motion.h2>
+              <motion.p variants={fadeUp} className="text-lg text-muted-foreground max-w-xl mx-auto">Anyone who needs a steady pipeline of local business prospects.</motion.p>
+            </motion.div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                { icon: TrendingUp, label: "Marketing Agencies", desc: "Build prospect lists for your sales team in minutes." },
+                { icon: Search, label: "SEO Companies", desc: "Find local businesses that need your services." },
+                { icon: Globe, label: "Website Designers", desc: "Target businesses with outdated or no website." },
+                { icon: Facebook, label: "Facebook Ad Agencies", desc: "Prospect local businesses ready to run ads." },
+                { icon: MapPin, label: "Google Ads Agencies", desc: "Find businesses spending on local search." },
+                { icon: DollarSign, label: "Sales Teams", desc: "Fill your CRM with verified local leads." },
+                { icon: Zap, label: "Freelancers", desc: "Land new clients without cold calling directories." },
+                { icon: BarChart2, label: "Consultants", desc: "Expand your book of business faster." },
+              ].map(({ icon: Icon, label, desc }: { icon: React.ElementType; label: string; desc: string }, i) => (
+                <motion.div key={label} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.06, duration: 0.45 }}
+                  className="flex flex-col items-center text-center p-6 rounded-2xl border border-border bg-card/50 hover:border-primary/30 hover:bg-card transition-all">
+                  <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
+                    <Icon className="w-5 h-5 text-primary" />
+                  </div>
+                  <h3 className="font-bold text-sm mb-1">{label}</h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* ── What You Get ────────────────────────────────────────────────── */}
         <section className="py-24">
           <div className="container mx-auto px-6 max-w-5xl">
@@ -292,6 +324,25 @@ export default function AgencyLp() {
                 </motion.div>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* ── What Can You Search ─────────────────────────────────────────── */}
+        <section className="py-24 bg-card/20 border-y border-border">
+          <div className="container mx-auto px-6 max-w-5xl">
+            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={stagger} className="text-center mb-14">
+              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Any Industry</motion.p>
+              <motion.h2 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-5">What Can You Search?</motion.h2>
+              <motion.p variants={fadeUp} className="text-lg text-muted-foreground max-w-xl mx-auto">Hundreds of business categories across every city in the US.</motion.p>
+            </motion.div>
+            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-40px" }} variants={stagger} className="flex flex-wrap justify-center gap-2">
+              {["Roofers","Plumbers","HVAC","Dentists","Lawyers","Restaurants","Real Estate Agents","Electricians","Insurance Agents","Auto Repair","Tree Service","Pest Control","Chiropractors","Landscapers","Contractors","Painters","Gyms","Salons","Movers","Photographers","Florists","Accountants","Veterinarians","And Hundreds More…"].map((cat) => (
+                <motion.span key={cat} variants={fadeUp}
+                  className={`px-4 py-2 rounded-full text-sm font-medium border ${cat === "And Hundreds More…" ? "border-primary/40 bg-primary/10 text-primary font-bold" : "border-border bg-background text-foreground/80"}`}>
+                  {cat}
+                </motion.span>
+              ))}
+            </motion.div>
           </div>
         </section>
 
@@ -329,6 +380,39 @@ export default function AgencyLp() {
           </div>
         </section>
 
+        {/* ── Customer Journey ────────────────────────────────────────────── */}
+        <section className="py-24">
+          <div className="container mx-auto px-6 max-w-4xl">
+            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={stagger} className="text-center mb-14">
+              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Getting Started</motion.p>
+              <motion.h2 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-5">From Purchase to Prospecting</motion.h2>
+              <motion.p variants={fadeUp} className="text-lg text-muted-foreground max-w-xl mx-auto">You can be finding new prospects within minutes of buying.</motion.p>
+            </motion.div>
+            <div className="flex flex-col md:flex-row items-center justify-center">
+              {[
+                { icon: Download, step: "Buy Today", desc: "One-time payment" },
+                { icon: Package, step: "Download", desc: "Instant access" },
+                { icon: MousePointerClick, step: "Install", desc: "Windows app" },
+                { icon: Search, step: "Search", desc: "Any city, any industry" },
+                { icon: FileSpreadsheet, step: "Export", desc: "CSV / Excel" },
+                { icon: Rocket, step: "Prospect", desc: "Start closing deals" },
+              ].map(({ icon: Icon, label: _l, step, desc }: { icon: React.ElementType; label?: string; step: string; desc: string }, i, arr) => (
+                <div key={step} className="flex flex-col md:flex-row items-center">
+                  <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.1, duration: 0.45 }}
+                    className="flex flex-col items-center text-center px-5 py-2">
+                    <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/25 flex items-center justify-center mb-3">
+                      <Icon className="w-6 h-6 text-primary" />
+                    </div>
+                    <p className="font-bold text-sm">{step}</p>
+                    <p className="text-xs text-muted-foreground">{desc}</p>
+                  </motion.div>
+                  {i < arr.length - 1 && <ArrowRight className="w-5 h-5 text-primary/40 shrink-0 mx-1 rotate-90 md:rotate-0" />}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* ── Why Agencies Love ───────────────────────────────────────────── */}
         <section className="py-24">
           <div className="container mx-auto px-6 max-w-5xl">
@@ -355,6 +439,24 @@ export default function AgencyLp() {
                 </motion.div>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* ── Money-Back Guarantee ────────────────────────────────────────── */}
+        <section className="py-16">
+          <div className="container mx-auto px-6 max-w-3xl">
+            <motion.div initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.55 }}
+              className="flex flex-col sm:flex-row items-center gap-6 rounded-2xl border border-primary/30 bg-primary/5 p-8">
+              <div className="w-20 h-20 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
+                <Shield className="w-10 h-10 text-primary" />
+              </div>
+              <div>
+                <p className="font-display font-bold text-2xl mb-2">30-Day Money-Back Guarantee</p>
+                <p className="text-muted-foreground leading-relaxed">
+                  Try Map Lead Extractor risk-free for 30 days. If it doesn't help you find more prospects, just email us and we'll refund every penny — no questions asked.
+                </p>
+              </div>
+            </motion.div>
           </div>
         </section>
 
