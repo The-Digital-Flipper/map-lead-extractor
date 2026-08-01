@@ -557,6 +557,114 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ── Pricing ───────────────────────────────────────────────────────── */}
+        <section className="py-24">
+          <div className="container mx-auto px-6 max-w-2xl">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-80px" }}
+              variants={stagger}
+            >
+              {/* Badge */}
+              <motion.div variants={fadeUp} className="flex justify-center mb-8">
+                <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/30 text-primary text-sm font-bold">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                  </span>
+                  Limited-Time Launch Offer
+                </span>
+              </motion.div>
+
+              {/* Main pricing card */}
+              <motion.div
+                variants={fadeUp}
+                className="rounded-2xl border border-primary/25 bg-card overflow-hidden shadow-[0_0_60px_rgba(0,230,90,0.1)]"
+              >
+                {/* Header */}
+                <div className="bg-primary/10 border-b border-primary/20 px-8 py-6 text-center">
+                  <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-2">Get Map Lead Extractor Today</p>
+                  <div className="flex items-center justify-center gap-4 mb-1">
+                    <span className="text-muted-foreground line-through text-xl">$297</span>
+                    <span className="text-5xl font-display font-black text-foreground">$197</span>
+                  </div>
+                  <p className="text-primary font-bold text-lg">One-Time Payment</p>
+                </div>
+
+                {/* Body */}
+                <div className="px-8 py-8 space-y-8">
+                  {/* No recurring charges callout */}
+                  <div className="flex flex-col sm:flex-row gap-3 text-center">
+                    {["No monthly subscription.", "No recurring charges.", "Pay once and own your license."].map((text) => (
+                      <div key={text} className="flex-1 rounded-xl border border-border bg-background/60 px-4 py-3 text-sm font-medium text-muted-foreground">
+                        {text}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* What's Included */}
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-4">What's Included</p>
+                    <ul className="space-y-3">
+                      {[
+                        "Lifetime access to the current version",
+                        "Export to Excel",
+                        "Search by business category",
+                        "Search any city",
+                        "Fast lead extraction",
+                        "Future bug fixes",
+                        "Customer support",
+                      ].map((item) => (
+                        <li key={item} className="flex items-center gap-3 text-sm">
+                          <CheckCircle2 className="w-4.5 h-4.5 text-primary shrink-0" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Why Pay Monthly */}
+                  <div className="rounded-xl border border-border bg-background/40 p-6">
+                    <p className="font-bold mb-2">Why Pay Monthly?</p>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Most lead generation tools charge every month. With Map Lead Extractor, you pay once and keep using it.
+                    </p>
+                    <p className="text-sm font-semibold text-foreground">
+                      If this software helps you land just one new client, it can easily <span className="text-primary">pay for itself.</span>
+                    </p>
+                  </div>
+
+                  {/* Secure checkout note */}
+                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Shield className="w-4 h-4 text-primary shrink-0" />
+                    <span><strong className="text-foreground">100% Secure Checkout.</strong> Processed through a secure payment system. Instant access after payment.</span>
+                  </div>
+
+                  {/* CTA */}
+                  <div className="text-center space-y-3 pt-2">
+                    <p className="font-bold text-lg">Ready to Find More Clients?</p>
+                    <p className="text-sm text-muted-foreground">Stop spending hours searching manually. Start building targeted business lead lists today.</p>
+                    <Button
+                      asChild
+                      size="lg"
+                      className="w-full h-16 text-lg font-bold shadow-[0_0_40px_rgba(0,230,90,0.3)] hover:shadow-[0_0_60px_rgba(0,230,90,0.5)] hover:-translate-y-0.5 transition-all"
+                    >
+                      {/* Update this href to your $197 Stripe payment link */}
+                      <a href="#leads-for-sale" data-testid="btn-pricing-buy">
+                        BUY NOW — $197 <ArrowRight className="ml-2 h-5 w-5" />
+                      </a>
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      One-time payment &nbsp;·&nbsp; No monthly fees &nbsp;·&nbsp; Instant access after purchase
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          </div>
+        </section>
+
         {/* ── Imagine This ──────────────────────────────────────────────────── */}
         <section className="py-24">
           <div className="container mx-auto px-6 max-w-3xl">
