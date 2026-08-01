@@ -545,7 +545,7 @@ export default function Home() {
                 <div className="w-0 h-0 border-y-[12px] border-y-transparent border-l-[20px] border-l-primary ml-1.5" />
               </div>
               <div className="relative text-center space-y-1.5 px-4">
-                <p className="font-bold text-lg">60-Second Demo Coming Soon</p>
+                <p className="font-bold text-lg">15-Second Demo Coming Soon</p>
                 <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 text-sm text-muted-foreground">
                   <span>→ Searching "Roofers"</span>
                   <span>→ Selecting Dallas, TX</span>
