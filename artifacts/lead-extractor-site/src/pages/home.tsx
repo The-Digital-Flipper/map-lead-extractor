@@ -537,22 +537,17 @@ export default function Home() {
               whileInView={{ opacity: 1, scale: 1 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5 }}
-              className="relative rounded-2xl border border-border bg-card overflow-hidden aspect-video flex flex-col items-center justify-center gap-4"
+              className="relative rounded-2xl border border-border bg-card overflow-hidden shadow-2xl shadow-black/40"
             >
-              <div className="absolute inset-0 bg-[linear-gradient(to_right,hsl(var(--border)/0.3)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.3)_1px,transparent_1px)] bg-[size:40px_40px]" aria-hidden />
-              <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_50%_50%,hsl(var(--primary)/0.07),transparent)]" aria-hidden />
-              <div className="relative flex items-center justify-center w-20 h-20 rounded-full bg-primary/15 border-2 border-primary/30">
-                <div className="w-0 h-0 border-y-[12px] border-y-transparent border-l-[20px] border-l-primary ml-1.5" />
-              </div>
-              <div className="relative text-center space-y-1.5 px-4">
-                <p className="font-bold text-lg">15-Second Demo Coming Soon</p>
-                <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 text-sm text-muted-foreground">
-                  <span>→ Searching "Roofers"</span>
-                  <span>→ Selecting Dallas, TX</span>
-                  <span>→ Finding hundreds of businesses</span>
-                  <span>→ Exporting to Excel</span>
-                </div>
-              </div>
+              <video
+                src={`${basePath}/demo.mp4`}
+                autoPlay
+                muted
+                loop
+                playsInline
+                controls
+                className="w-full h-auto block"
+              />
             </motion.div>
           </div>
         </section>
