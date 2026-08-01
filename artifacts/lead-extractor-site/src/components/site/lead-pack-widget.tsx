@@ -574,35 +574,60 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
           </div>
         )}
 
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-5">
           <div className="flex-1 h-px bg-border" />
-          <span className="text-xs text-muted-foreground">or pick from a list</span>
+          <span className="text-xs text-muted-foreground font-medium">or search by category</span>
           <div className="flex-1 h-px bg-border" />
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 mb-5">
-          <select
-            value={packCategory}
-            onChange={e => setPackCategory(e.target.value)}
-            data-testid="select-pack-category"
-            aria-label="Business type"
-            className="h-12 flex-1 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
-            <option value="">All business types</option>
-            {PACK_CATEGORIES.map(c => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-          </select>
-          <select
-            value={packState}
-            onChange={e => setPackState(e.target.value)}
-            data-testid="select-pack-state"
-            aria-label="State"
-            className="h-12 flex-1 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm font-medium focus:outline-none focus:border-primary transition-colors">
-            <option value="">All states (nationwide)</option>
-            {US_STATES.map(s => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
+        {/* Big category + state pickers */}
+        <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 p-5 mb-5">
+          <p className="text-center text-sm font-bold text-foreground mb-1">
+            🎯 Choose your business type &amp; location
+          </p>
+          <p className="text-center text-xs text-muted-foreground mb-4">
+            Pick the industry you want leads from, then pick a state — we'll show you how many are in stock.
+          </p>
+
+          <div className="flex flex-col gap-4">
+            {/* Business type */}
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="select-pack-category" className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                <span className="text-base">🏢</span> Business Type
+                <span className="text-xs font-normal text-muted-foreground ml-1">— What kind of businesses do you want?</span>
+              </label>
+              <select
+                id="select-pack-category"
+                value={packCategory}
+                onChange={e => setPackCategory(e.target.value)}
+                data-testid="select-pack-category"
+                className="w-full h-14 px-4 rounded-xl bg-white border-2 border-[#e8eaed] text-[#202124] text-base font-semibold focus:outline-none focus:border-primary transition-colors cursor-pointer shadow-sm">
+                <option value="">— All business types —</option>
+                {PACK_CATEGORIES.map(c => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* State */}
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="select-pack-state" className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                <span className="text-base">📍</span> State / Location
+                <span className="text-xs font-normal text-muted-foreground ml-1">— Where do you want leads from?</span>
+              </label>
+              <select
+                id="select-pack-state"
+                value={packState}
+                onChange={e => setPackState(e.target.value)}
+                data-testid="select-pack-state"
+                className="w-full h-14 px-4 rounded-xl bg-white border-2 border-[#e8eaed] text-[#202124] text-base font-semibold focus:outline-none focus:border-primary transition-colors cursor-pointer shadow-sm">
+                <option value="">— Nationwide (all states) —</option>
+                {US_STATES.map(s => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
 
         {/* Every category/state is always orderable. If we have 100+ on hand it
