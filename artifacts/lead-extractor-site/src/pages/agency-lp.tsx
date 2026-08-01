@@ -599,6 +599,62 @@ export default function AgencyLp() {
           </div>
         </section>
 
+        {/* ── Customer Testimonials Video ──────────────────────────────────── */}
+        <section className="py-24 bg-card/20 border-y border-border">
+          <div className="container mx-auto px-6 max-w-4xl">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-80px" }}
+              variants={stagger}
+              className="text-center mb-10"
+            >
+              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Real Customers</motion.p>
+              <motion.h2 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-4">
+                Hear From 15 of Our Customers
+              </motion.h2>
+              <motion.p variants={fadeUp} className="text-muted-foreground">
+                Real people. Real results. No scripts.
+              </motion.p>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97 }}
+              whileInView={{ opacity: 1, scale: 1 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+              className="flex justify-center"
+            >
+              {/* Portrait phone-style frame */}
+              <div className="relative w-full max-w-xs rounded-[2rem] border-4 border-border bg-card overflow-hidden shadow-2xl shadow-black/50">
+                {/* Notch bar */}
+                <div className="h-6 bg-black flex items-center justify-center">
+                  <div className="w-16 h-1.5 rounded-full bg-zinc-700" />
+                </div>
+                <video
+                  src={`${basePath}/testimonials.mp4`}
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  controls
+                  className="w-full h-auto block"
+                />
+              </div>
+            </motion.div>
+
+            <motion.p
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.3 }}
+              className="text-center text-xs text-muted-foreground mt-6"
+            >
+              15 verified customer testimonials — recorded independently
+            </motion.p>
+          </div>
+        </section>
+
         {/* ── Reviews ─────────────────────────────────────────────────────── */}
         <PlatformReviews />
         <BuyerReviews />
