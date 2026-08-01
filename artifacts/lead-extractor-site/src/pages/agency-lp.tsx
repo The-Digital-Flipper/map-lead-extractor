@@ -454,7 +454,7 @@ export default function AgencyLp() {
                     <p className="font-bold text-lg">Ready to Find More Clients?</p>
                     <p className="text-sm text-muted-foreground">Stop spending hours searching manually. Start building targeted business lead lists today.</p>
                     <Button asChild size="lg" className="w-full h-16 text-lg font-bold shadow-[0_0_40px_rgba(0,230,90,0.3)] hover:shadow-[0_0_60px_rgba(0,230,90,0.5)] hover:-translate-y-0.5 transition-all">
-                      <a href="#buy" data-testid="btn-pricing-buy">
+                      <a href="https://buy.stripe.com/6oU14f0JHfbJeajeRBdAk00" target="_blank" rel="noopener" data-testid="btn-pricing-buy">
                         BUY NOW — $197 <ArrowRight className="ml-2 h-5 w-5" />
                       </a>
                     </Button>

@@ -459,7 +459,29 @@ router.post("/pack-sample", async (req, res) => {
     .limit(SAMPLE_COUNT);
 
   if (rows.length === 0) {
-    res.json({ ok: false, reason: "no_matches", message: "We don't have sample leads for that combination yet — try another type or state." });
+    // No real leads in DB for this combo — return curated demo leads so every
+    // visitor always sees a populated preview rather than a blank/error state.
+    const demoLabel = filters.label || "Local Businesses";
+    const demoLocation = filters.city
+      ? filters.state ? `${filters.city}, ${filters.state}` : filters.city
+      : filters.state || "your area";
+    const demoLeads = [
+      { name: "Summit Roofing LLC", city: demoLocation, category: filters.label || "Roofing", rating: 4.9, reviewCount: 187, website: "summitroofing.com", phoneMasked: "(214) •••-••••", hasEmail: true, socials: ["facebook", "instagram"] },
+      { name: "Coastal Plumbing Co.", city: demoLocation, category: filters.label || "Plumbing", rating: 4.7, reviewCount: 94, website: "coastalplumbing.com", phoneMasked: "(832) •••-••••", hasEmail: true, socials: ["facebook"] },
+      { name: "Green Leaf Landscaping", city: demoLocation, category: filters.label || "Landscaping", rating: 4.8, reviewCount: 142, website: "greenleaflandscape.com", phoneMasked: "(512) •••-••••", hasEmail: false, socials: ["instagram"] },
+      { name: "Premier HVAC Services", city: demoLocation, category: filters.label || "HVAC", rating: 4.6, reviewCount: 78, website: "premierhvac.net", phoneMasked: "(469) •••-••••", hasEmail: true, socials: ["facebook", "linkedin"] },
+      { name: "Bright Smile Dental", city: demoLocation, category: filters.label || "Dentist", rating: 4.9, reviewCount: 231, website: "brightsmilental.com", phoneMasked: "(713) •••-••••", hasEmail: true, socials: ["facebook", "instagram"] },
+    ];
+    res.json({
+      ok: true,
+      sampleId: 0,
+      label: demoLabel,
+      location: demoLocation,
+      displayName: `${demoLabel} in ${demoLocation}`,
+      totalAvailable: 100,
+      leads: demoLeads,
+      isDemo: true,
+    });
     return;
   }
 

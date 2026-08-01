@@ -40,7 +40,9 @@ async function getStripeCredentials(): Promise<{ secretKey: string; webhookSecre
 
   return {
     secretKey: settings.secret,
-    webhookSecret: settings.webhook_secret,
+    // Prefer the integration-managed secret; fall back to the env var set
+    // after registering the webhook endpoint with Stripe.
+    webhookSecret: settings.webhook_secret || process.env.STRIPE_WEBHOOK_SECRET,
   };
 }
 
