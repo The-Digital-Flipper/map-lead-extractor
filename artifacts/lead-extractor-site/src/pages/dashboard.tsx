@@ -4,15 +4,22 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Zap, Copy, Check, Download, LogOut, Star, Phone, Mail, Globe,
   Search, Share2, Crown, ArrowUpRight, CreditCard, Trash2,
-  RefreshCw, ChevronLeft, ChevronRight, BarChart2, X,
+  RefreshCw, ChevronLeft, ChevronRight, ChevronDown, BarChart2, X,
   CheckSquare, Square, CheckCheck, ShieldCheck, MessageSquare,
   Settings, Bookmark, Plus, Pin, StickyNote, Tag, Bell, Sparkles, Radar,
-  Users, Quote, Lightbulb,
+  Users, Quote, Lightbulb, List, LayoutGrid, DollarSign, AlertTriangle,
 } from "lucide-react";
+import { FaFacebookF, FaInstagram, FaXTwitter, FaLinkedinIn } from "react-icons/fa6";
 import {
   PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis,
   ResponsiveContainer, Legend,
 } from "recharts";
+import { Toaster, toast } from "sonner";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { CollectionsManager } from "@/components/dashboard/collections-manager";
 
 const STORE_URL = "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
@@ -30,7 +37,20 @@ const STATUS_OPTIONS = [
 type LeadStatus = "new" | "contacted" | "converted" | "not_interested";
 
 const SCORE_COLORS = ["#00E676", "#EAB308", "#EF4444"];
-const CATEGORY_COLOR = "#00E676";
+
+// Compact page list with ellipses: always show first/last, the current page,
+// and one neighbour on each side — e.g. [1, "…", 4, 5, 6, "…", 20].
+function pageList(current: number, total: number): (number | "…")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const out: (number | "…")[] = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  if (start > 2) out.push("…");
+  for (let p = start; p <= end; p++) out.push(p);
+  if (end < total - 1) out.push("…");
+  out.push(total);
+  return out;
+}
 
 interface Lead {
   id: number;
@@ -334,9 +354,9 @@ function StatusBadge({ status, id, onChange }: { status: string | null; id: numb
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(o => !o)}
-        className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-semibold whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity ${current.color}`}
+        className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full border text-xs font-semibold whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity ${current.color}`}
       >
-        {current.label} ▾
+        {current.label} <ChevronDown className={`w-3 h-3 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       <AnimatePresence>
         {open && (
@@ -363,12 +383,12 @@ function StatusBadge({ status, id, onChange }: { status: string | null; id: numb
   );
 }
 
-function SocialLink({ href, label, emoji }: { href: string | null; label: string; emoji: string }) {
+function SocialLink({ href, label, icon }: { href: string | null; label: string; icon: React.ReactNode }) {
   if (!href) return null;
   return (
     <a href={href} target="_blank" rel="noopener noreferrer" title={label}
-      className="inline-flex items-center justify-center w-6 h-6 rounded bg-white/5 hover:bg-white/15 text-xs transition-colors">
-      {emoji}
+      className="inline-flex items-center justify-center w-6 h-6 rounded bg-white/5 hover:bg-white/15 text-muted-foreground hover:text-primary text-xs transition-colors">
+      {icon}
     </a>
   );
 }
@@ -377,7 +397,8 @@ function CopyBtn({ value, title }: { value: string | null; title: string }) {
   const [copied, setCopied] = useState(false);
   if (!value) return null;
   const handleCopy = async () => {
-    try { await navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
+    try { await navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    catch { toast.error("Couldn't copy to clipboard"); }
   };
   return (
     <button onClick={handleCopy} title={`Copy ${title}`}
@@ -448,11 +469,12 @@ function PlanBanner({ plan, total, onManageBilling, onUpgrade }: {
 }
 
 // ---- Charts panel -----------------------------------------------------------
-function ChartsPanel({ stats }: { stats: StatsData | null }) {
+function ChartsPanel({ stats, accentHsl }: { stats: StatsData | null; accentHsl: string }) {
   if (!stats) return null;
   const hasScore = stats.scoreDistribution.length > 0;
   const hasCats = stats.topCategories.length > 0;
   if (!hasScore && !hasCats) return null;
+  const accent = `hsl(${accentHsl})`;
 
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.17 }}
@@ -478,7 +500,7 @@ function ChartsPanel({ stats }: { stats: StatsData | null }) {
               <XAxis type="number" tick={{ fill: "#8b949e", fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis type="category" dataKey="category" tick={{ fill: "#8b949e", fontSize: 11 }} axisLine={false} tickLine={false} width={90} />
               <Tooltip contentStyle={{ background: "#0d1117", border: "1px solid #21262d", borderRadius: 8, color: "#e6edf3" }} />
-              <Bar dataKey="count" fill={CATEGORY_COLOR} radius={[0, 4, 4, 0]} />
+              <Bar dataKey="count" fill={accent} radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -526,6 +548,7 @@ export default function Dashboard() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [showCollections, setShowCollections] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmDel, setConfirmDel] = useState<{ kind: "single"; id: number; name: string } | { kind: "bulk"; count: number } | null>(null);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
@@ -1034,12 +1057,19 @@ export default function Dashboard() {
 
   // Delete single
   const handleDelete = async (id: number) => {
+    const removed = leads.find(l => l.id === id);
     setLeads(prev => prev.filter(l => l.id !== id));
     setTotal(t => Math.max(0, t - 1));
     try {
-      await fetch(`${basePath}/api/leads/${id}`, { method: "DELETE" });
+      const res = await fetch(`${basePath}/api/leads/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(String(res.status));
       fetchStats();
-    } catch {}
+      toast.success("Lead deleted");
+    } catch {
+      // Roll back the optimistic removal so the UI stays truthful.
+      if (removed) { setLeads(prev => [removed, ...prev]); setTotal(t => t + 1); }
+      toast.error("Couldn't delete lead — try again");
+    }
   };
 
   // Bulk delete
@@ -1047,13 +1077,21 @@ export default function Dashboard() {
     if (selected.size === 0) return;
     setDeleting(true);
     const ids = Array.from(selected);
+    const removed = leads.filter(l => selected.has(l.id));
     setLeads(prev => prev.filter(l => !selected.has(l.id)));
     setTotal(t => Math.max(0, t - ids.length));
     setSelected(new Set());
     try {
-      await fetch(`${basePath}/api/leads/bulk`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) });
+      const res = await fetch(`${basePath}/api/leads/bulk`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) });
+      if (!res.ok) throw new Error(String(res.status));
       fetchStats();
-    } catch {}
+      toast.success(`${ids.length} lead${ids.length !== 1 ? "s" : ""} deleted`);
+    } catch {
+      // Roll back so the deleted rows reappear instead of vanishing silently.
+      setLeads(prev => [...removed, ...prev]);
+      setTotal(t => t + ids.length);
+      toast.error("Couldn't delete leads — try again");
+    }
     setDeleting(false);
   };
 
@@ -1109,6 +1147,40 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <Toaster theme="dark" position="bottom-right" richColors closeButton />
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!confirmDel} onOpenChange={(o) => { if (!o) setConfirmDel(null); }}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-400" />
+              {confirmDel?.kind === "bulk" ? `Delete ${confirmDel.count} lead${confirmDel.count !== 1 ? "s" : ""}?` : "Delete this lead?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmDel?.kind === "bulk"
+                ? `This permanently removes the ${confirmDel.count} selected lead${confirmDel.count !== 1 ? "s" : ""}, including any notes and tags. This can't be undone.`
+                : confirmDel?.kind === "single"
+                ? <>This permanently removes <span className="font-semibold text-foreground">{confirmDel.name}</span>, including any notes and tags. This can't be undone.</>
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-500 text-white hover:bg-red-600"
+              onClick={() => {
+                if (confirmDel?.kind === "single") handleDelete(confirmDel.id);
+                else if (confirmDel?.kind === "bulk") handleBulkDelete();
+                setConfirmDel(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Navbar */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-border">
         <div className="container mx-auto px-6 h-16 flex items-center justify-between">
@@ -1214,7 +1286,7 @@ export default function Dashboard() {
                           type="text" value={prefs.brandName} maxLength={40}
                           onChange={e => updatePrefs({ brandName: e.target.value })}
                           placeholder="e.g. Gulf Coast Leads"
-                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30"
                         />
                       </div>
                       {/* Accent */}
@@ -1377,7 +1449,7 @@ export default function Dashboard() {
                   onChange={e => { setAiGoal(e.target.value); setAiResult(null); setAiError(null); }}
                   onKeyDown={e => { if (e.key === "Enter") handleAiFind(); }}
                   placeholder={'e.g. "roofing companies in Mobile AL with no website"'}
-                  className="flex-1 min-w-[240px] bg-background border border-border rounded-lg px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+                  className="flex-1 min-w-[240px] bg-background border border-border rounded-lg px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30"
                 />
                 <button
                   onClick={handleAiFind}
@@ -1411,14 +1483,16 @@ export default function Dashboard() {
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.15 }}
             className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {[
-              { label: "Total Leads", value: loading ? "…" : total.toLocaleString(), icon: <Star className="w-4 h-4" /> },
-              { label: "With Phone", value: loading ? "…" : withPhone.toLocaleString(), icon: <Phone className="w-4 h-4" /> },
-              { label: "With Email", value: loading ? "…" : withEmail.toLocaleString(), icon: <Mail className="w-4 h-4" /> },
-              { label: "With Social", value: loading ? "…" : withSocial.toLocaleString(), icon: <Share2 className="w-4 h-4" /> },
+              { label: "Total Leads", value: total.toLocaleString(), icon: <Star className="w-4 h-4" /> },
+              { label: "With Phone", value: withPhone.toLocaleString(), icon: <Phone className="w-4 h-4" /> },
+              { label: "With Email", value: withEmail.toLocaleString(), icon: <Mail className="w-4 h-4" /> },
+              { label: "With Social", value: withSocial.toLocaleString(), icon: <Share2 className="w-4 h-4" /> },
             ].map((s, i) => (
               <div key={i} className="bg-card border border-border rounded-xl p-4">
                 <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">{s.icon} {s.label}</div>
-                <div className="text-2xl font-display font-bold text-foreground">{s.value}</div>
+                {loading
+                  ? <Skeleton className="h-8 w-16 mt-0.5" />
+                  : <div className="text-2xl font-display font-bold text-foreground">{s.value}</div>}
               </div>
             ))}
           </motion.div>
@@ -1437,7 +1511,7 @@ export default function Dashboard() {
 
           {/* Charts */}
           <AnimatePresence>
-            {showCharts && <ChartsPanel stats={stats} />}
+            {showCharts && <ChartsPanel stats={stats} accentHsl={ACCENTS.find(a => a.key === prefs.accent)?.hsl ?? ACCENTS[0].hsl} />}
           </AnimatePresence>
 
           {/* Money Leads + view toggle */}
@@ -1452,19 +1526,19 @@ export default function Dashboard() {
               </button>
               <button
                 onClick={() => { setMoneyMode(true); setPage(1); }}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${moneyMode ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${moneyMode ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
-                💰 Money Leads
+                <DollarSign className="w-4 h-4" /> Money Leads
               </button>
             </div>
             <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1 w-fit">
               <button onClick={() => setViewMode("table")}
-                className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${viewMode === "table" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                ☰ Table
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${viewMode === "table" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                <List className="w-4 h-4" /> Table
               </button>
               <button onClick={() => setViewMode("board")}
-                className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${viewMode === "board" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                ▦ Board
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${viewMode === "board" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                <LayoutGrid className="w-4 h-4" /> Board
               </button>
             </div>
             {moneyMode && (
@@ -1589,7 +1663,7 @@ export default function Dashboard() {
                       placeholder="Search leads..."
                       value={searchInput}
                       onChange={e => setSearchInput(e.target.value)}
-                      className="pl-9 pr-4 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 w-48"
+                      className="pl-9 pr-4 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30 w-48"
                     />
                     {searchInput && (
                       <button onClick={() => setSearchInput("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
@@ -1612,8 +1686,16 @@ export default function Dashboard() {
               </div>
 
               {loading ? (
-                <div className="py-20 text-center">
-                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+                <div className="p-4 space-y-2.5" aria-busy="true" aria-label="Loading leads">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-4 px-2 py-2">
+                      <Skeleton className="h-4 w-4 rounded shrink-0" />
+                      <Skeleton className="h-4 w-40 shrink-0" />
+                      <Skeleton className="h-4 w-28 shrink-0 hidden sm:block" />
+                      <Skeleton className="h-4 w-32 shrink-0 hidden md:block" />
+                      <Skeleton className="h-5 w-16 rounded-full ml-auto shrink-0" />
+                    </div>
+                  ))}
                 </div>
               ) : leads.length === 0 ? (() => {
                 const queued = stats?.statusCounts.find(s => s.status === "contacted")?.count ?? 0;
@@ -1784,10 +1866,10 @@ export default function Dashboard() {
                             {cols.socials && (
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-1">
-                                <SocialLink href={lead.facebook} label="Facebook" emoji="f" />
-                                <SocialLink href={lead.instagram} label="Instagram" emoji="📸" />
-                                <SocialLink href={lead.twitter} label="Twitter / X" emoji="𝕏" />
-                                <SocialLink href={lead.linkedin} label="LinkedIn" emoji="in" />
+                                <SocialLink href={lead.facebook} label="Facebook" icon={<FaFacebookF className="w-3 h-3" />} />
+                                <SocialLink href={lead.instagram} label="Instagram" icon={<FaInstagram className="w-3.5 h-3.5" />} />
+                                <SocialLink href={lead.twitter} label="Twitter / X" icon={<FaXTwitter className="w-3 h-3" />} />
+                                <SocialLink href={lead.linkedin} label="LinkedIn" icon={<FaLinkedinIn className="w-3 h-3" />} />
                                 {!lead.facebook && !lead.instagram && !lead.twitter && !lead.linkedin && (
                                   <span className="text-muted-foreground/40">—</span>
                                 )}
@@ -1836,7 +1918,7 @@ export default function Dashboard() {
                                   <StickyNote className="w-4 h-4" />
                                 </button>
                                 <button
-                                  onClick={() => handleDelete(lead.id)}
+                                  onClick={() => setConfirmDel({ kind: "single", id: lead.id, name: lead.name ?? "this lead" })}
                                   className="text-muted-foreground/40 hover:text-red-400 transition-colors"
                                   title="Delete lead"
                                 >
@@ -1852,16 +1934,29 @@ export default function Dashboard() {
 
                   {/* Pagination */}
                   {pages > 1 && (
-                    <div className="flex items-center justify-between px-5 py-3 border-t border-border text-sm">
-                      <span className="text-muted-foreground">Page {page} of {pages}</span>
-                      <div className="flex gap-2">
+                    <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-border text-sm flex-wrap">
+                      <span className="text-muted-foreground shrink-0">Page {page} of {pages}</span>
+                      <div className="flex items-center gap-1.5">
                         <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-                          <ChevronLeft className="w-4 h-4" /> Prev
+                          aria-label="Previous page"
+                          className="flex items-center justify-center w-8 h-8 rounded-lg border border-border hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                          <ChevronLeft className="w-4 h-4" />
                         </button>
+                        {pageList(page, pages).map((p, i) =>
+                          p === "…" ? (
+                            <span key={`gap-${i}`} className="w-8 h-8 flex items-center justify-center text-muted-foreground/50 select-none">…</span>
+                          ) : (
+                            <button key={p} onClick={() => setPage(p)}
+                              aria-label={`Page ${p}`} aria-current={p === page ? "page" : undefined}
+                              className={`w-8 h-8 rounded-lg text-sm font-semibold transition-colors ${p === page ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:text-foreground hover:bg-white/5"}`}>
+                              {p}
+                            </button>
+                          )
+                        )}
                         <button onClick={() => setPage(p => Math.min(pages, p + 1))} disabled={page >= pages}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-                          Next <ChevronRight className="w-4 h-4" />
+                          aria-label="Next page"
+                          className="flex items-center justify-center w-8 h-8 rounded-lg border border-border hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                          <ChevronRight className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
@@ -1908,7 +2003,7 @@ export default function Dashboard() {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 100, opacity: 0 }}
             transition={{ type: "spring", stiffness: 380, damping: 32 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-4 py-3 bg-card/95 backdrop-blur-md border border-border rounded-2xl shadow-2xl"
+            className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 flex flex-wrap items-center justify-center gap-2 px-4 py-3 bg-card/95 backdrop-blur-md border border-border rounded-2xl shadow-2xl max-w-[calc(100vw-1.5rem)]"
             style={{ boxShadow: "0 8px 40px rgba(0,230,118,0.12), 0 2px 16px rgba(0,0,0,0.5)" }}
           >
             <span className="text-sm font-bold text-foreground pr-2 border-r border-border mr-1">
@@ -1962,7 +2057,10 @@ export default function Dashboard() {
 
             {selEmails.length > 0 && (
               <button
-                onClick={async () => { try { await navigator.clipboard.writeText(selEmails.join(", ")); } catch {} }}
+                onClick={async () => {
+                  try { await navigator.clipboard.writeText(selEmails.join(", ")); toast.success(`Copied ${selEmails.length} email${selEmails.length !== 1 ? "s" : ""}`); }
+                  catch { toast.error("Couldn't copy to clipboard"); }
+                }}
                 title="Copy emails"
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-muted-foreground text-xs font-semibold hover:text-foreground hover:border-border/80 transition-colors"
               >
@@ -1972,7 +2070,10 @@ export default function Dashboard() {
 
             {selPhones.length > 0 && (
               <button
-                onClick={async () => { try { await navigator.clipboard.writeText(selPhones.join(", ")); } catch {} }}
+                onClick={async () => {
+                  try { await navigator.clipboard.writeText(selPhones.join(", ")); toast.success(`Copied ${selPhones.length} phone${selPhones.length !== 1 ? "s" : ""}`); }
+                  catch { toast.error("Couldn't copy to clipboard"); }
+                }}
                 title="Copy phones"
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-muted-foreground text-xs font-semibold hover:text-foreground hover:border-border/80 transition-colors"
               >
@@ -1981,7 +2082,7 @@ export default function Dashboard() {
             )}
 
             <button
-              onClick={handleBulkDelete}
+              onClick={() => setConfirmDel({ kind: "bulk", count: selected.size })}
               disabled={deleting}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-bold hover:bg-red-500/20 transition-colors disabled:opacity-50"
             >
@@ -2037,14 +2138,14 @@ export default function Dashboard() {
                 <input
                   type="text" value={emailSubject} onChange={e => setEmailSubject(e.target.value)}
                   placeholder="e.g. Quick question about your business"
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 mb-4"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30 mb-4"
                 />
 
                 <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Message</label>
                 <textarea
                   value={emailBody} onChange={e => setEmailBody(e.target.value)}
                   rows={5} placeholder="Hi there, I noticed your business could benefit from…"
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-none mb-5"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30 resize-none mb-5"
                 />
 
                 <div className="flex flex-wrap gap-2 justify-between">
@@ -2144,7 +2245,7 @@ export default function Dashboard() {
                     value={smsMessage} onChange={e => { setSmsMessage(e.target.value); setSmsResult(null); }}
                     rows={4}
                     placeholder="Hi, I noticed your business on Google Maps and wanted to reach out…"
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-none"
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30 resize-none"
                   />
                 </div>
                 <div className="flex justify-between items-center mb-4">
@@ -2247,7 +2348,7 @@ export default function Dashboard() {
               <textarea
                 value={noteDraft} onChange={e => setNoteDraft(e.target.value)}
                 rows={4} placeholder="Call back Tuesday, owner is Mike, quoted $1,500 for a 5-page site…"
-                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-none mb-4"
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30 resize-none mb-4"
               />
 
               <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Tags</label>
@@ -2264,7 +2365,7 @@ export default function Dashboard() {
                   type="text" value={tagInput} onChange={e => setTagInput(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
                   placeholder="hot-lead, follow-up, website…"
-                  className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+                  className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30"
                 />
                 <button onClick={addTag}
                   className="px-3 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors flex items-center gap-1">
@@ -2276,7 +2377,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-2 mb-5">
                 <input
                   type="date" value={reminderDraft} onChange={e => setReminderDraft(e.target.value)}
-                  className="bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50"
+                  className="bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30"
                 />
                 {reminderDraft && (
                   <button onClick={() => setReminderDraft("")} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
@@ -2694,7 +2795,7 @@ export default function Dashboard() {
                     <span className="text-xs font-semibold text-foreground block mb-1.5">What are you offering? <span className="text-muted-foreground/60 font-normal">(optional)</span></span>
                     <textarea value={autoDraft.offer ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, offer: e.target.value } : d)} rows={3}
                       placeholder="In your own words — e.g. what you do, who for, and the main benefit. Every email is written around this."
-                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/50" />
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30" />
                     <span className="text-[11px] text-muted-foreground mt-1 block">Type your own pitch and every email is written around exactly that. Left blank, emails pitch the standard offer: websites, SEO, ads, reputation & marketing automation for local businesses.</span>
                   </label>
 
@@ -2845,7 +2946,7 @@ export default function Dashboard() {
                         <span className="text-xs font-semibold text-muted-foreground block mb-1.5">From email (Resend-verified)</span>
                         <input type="email" value={autoDraft.fromEmail ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, fromEmail: e.target.value } : d)}
                           placeholder="ryan@yourdomain.com"
-                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30" />
                       </label>
                     </>
                   )}
@@ -2856,13 +2957,13 @@ export default function Dashboard() {
                       <span className="text-xs font-semibold text-muted-foreground block mb-1.5">From name</span>
                       <input type="text" value={autoDraft.fromName ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, fromName: e.target.value } : d)}
                         placeholder="Ryan @ Gulf Coast"
-                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30" />
                     </label>
                     <label className="block">
                       <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Reply-to (optional)</span>
                       <input type="email" value={autoDraft.replyTo ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, replyTo: e.target.value } : d)}
                         placeholder={autoDraft.provider === "gmail" ? "Defaults to your Gmail" : "Defaults to your From email"}
-                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30" />
                     </label>
                   </div>
 
@@ -2872,13 +2973,13 @@ export default function Dashboard() {
                       <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Signature</span>
                       <textarea value={autoDraft.signature ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, signature: e.target.value } : d)} rows={3}
                         placeholder={"Ryan Boudreaux\nGulf Coast Digital\n(251) 555-0134"}
-                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/50" />
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30" />
                     </label>
                     <label className="block">
                       <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Business mailing address <span className="text-muted-foreground/60">(required)</span></span>
                       <textarea value={autoDraft.businessAddress ?? ""} onChange={e => setAutoDraft(d => d ? { ...d, businessAddress: e.target.value } : d)} rows={3}
                         placeholder={"123 Bay St, Mobile, AL 36602"}
-                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/50" />
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30" />
                     </label>
                   </div>
 
@@ -2889,22 +2990,22 @@ export default function Dashboard() {
                       <label className="block">
                         <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Emails per day (max)</span>
                         <input type="number" min={1} max={500} value={autoDraft.dailyCap} onChange={e => setAutoDraft(d => d ? { ...d, dailyCap: Number(e.target.value) } : d)}
-                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30" />
                       </label>
                       <label className="block">
                         <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Window start (hour)</span>
                         <input type="number" min={0} max={23} value={autoDraft.windowStartHour} onChange={e => setAutoDraft(d => d ? { ...d, windowStartHour: Number(e.target.value) } : d)}
-                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30" />
                       </label>
                       <label className="block">
                         <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Window end (hour)</span>
                         <input type="number" min={1} max={24} value={autoDraft.windowEndHour} onChange={e => setAutoDraft(d => d ? { ...d, windowEndHour: Number(e.target.value) } : d)}
-                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30" />
                       </label>
                       <label className="block">
                         <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Timezone</span>
                         <select value={autoDraft.tzOffsetMinutes} onChange={e => setAutoDraft(d => d ? { ...d, tzOffsetMinutes: Number(e.target.value) } : d)}
-                          className="w-full bg-background border border-border rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-primary/50">
+                          className="w-full bg-background border border-border rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30">
                           <option value={-240}>Eastern (EDT)</option>
                           <option value={-300}>Central (CDT)</option>
                           <option value={-360}>Mountain (MDT)</option>
@@ -2915,10 +3016,10 @@ export default function Dashboard() {
                         <span className="text-xs font-semibold text-muted-foreground block mb-1.5">Gap between sends (min)</span>
                         <div className="flex items-center gap-1">
                           <input type="number" min={1} max={240} value={autoDraft.minGapMinutes} onChange={e => setAutoDraft(d => d ? { ...d, minGapMinutes: Number(e.target.value) } : d)}
-                            className="w-full bg-background border border-border rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                            className="w-full bg-background border border-border rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30" />
                           <span className="text-muted-foreground text-xs">to</span>
                           <input type="number" min={1} max={480} value={autoDraft.maxGapMinutes} onChange={e => setAutoDraft(d => d ? { ...d, maxGapMinutes: Number(e.target.value) } : d)}
-                            className="w-full bg-background border border-border rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-primary/50" />
+                            className="w-full bg-background border border-border rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30" />
                         </div>
                       </label>
                       <label className="flex items-center gap-2 mt-6">

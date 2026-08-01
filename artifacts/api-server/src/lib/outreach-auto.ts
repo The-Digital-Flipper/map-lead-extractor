@@ -293,10 +293,17 @@ export function renderEmail(rawBody: string, s: OutreachSettings): { text: strin
 
   // Body → real paragraphs (a blank line starts a new one, a single break stays
   // a line break) so it reads like an email a person actually typed, not one
-  // dense block of text.
+  // dense block of text. A closing "P.S." is set off with a subtle accent bar —
+  // it's one of the most-read lines in any email, so we make it easy to scan.
   const bodyHtml = esc(rawBody.trim())
     .split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
-    .map((p) => `<p style="margin:0 0 14px">${p.replace(/\n/g, "<br>")}</p>`)
+    .map((p) => {
+      const inner = linkEmails(p.replace(/\n/g, "<br>"));
+      if (/^p\.?\s*s\.?[:.\-—\s]/i.test(p)) {
+        return `<p style="margin:18px 0 14px;padding:2px 0 2px 14px;border-left:3px solid #0a7d3f;color:#3a3a3a">${inner}</p>`;
+      }
+      return `<p style="margin:0 0 14px">${inner}</p>`;
+    })
     .join("");
 
   // Signature → a tidy block set slightly apart. The sender's name is
@@ -310,10 +317,10 @@ export function renderEmail(rawBody: string, s: OutreachSettings): { text: strin
     const nameIdx = lines.length > 1 && closer.test(lines[0]) ? 1 : 0;
     const rendered = lines
       .map((l, i) => i === nameIdx
-        ? `<div style="font-weight:600;color:#222">${linkEmails(l)}</div>`
+        ? `<div style="font-weight:700;color:#1a1a1a;font-size:14px;letter-spacing:.2px">${linkEmails(l)}</div>`
         : `<div>${linkEmails(l)}</div>`)
       .join("");
-    sigHtml = `<div style="margin:20px 0 0;padding-top:14px;border-top:1px solid #ececec;font-size:13px;line-height:1.55;color:#555">${rendered}</div>`;
+    sigHtml = `<div style="margin:22px 0 0;padding-top:14px;border-top:2px solid #0a7d3f;display:inline-block;min-width:60%;font-size:13px;line-height:1.6;color:#555">${rendered}</div>`;
   }
 
   const footHtml = addr
