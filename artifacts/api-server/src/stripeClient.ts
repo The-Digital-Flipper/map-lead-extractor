@@ -40,13 +40,20 @@ async function getStripeCredentials(): Promise<{ secretKey: string; webhookSecre
 
   return {
     secretKey: settings.secret,
-    webhookSecret: settings.webhook_secret,
+    // Prefer the integration-managed secret; fall back to the env var set
+    // after registering the webhook endpoint with Stripe.
+    webhookSecret: settings.webhook_secret || process.env.STRIPE_WEBHOOK_SECRET,
   };
 }
 
 export async function getUncachableStripeClient(): Promise<Stripe> {
   const { secretKey } = await getStripeCredentials();
   return new Stripe(secretKey);
+}
+
+export async function getWebhookSecret(): Promise<string> {
+  const { webhookSecret } = await getStripeCredentials();
+  return webhookSecret ?? '';
 }
 
 export async function getStripeSync(): Promise<StripeSync> {

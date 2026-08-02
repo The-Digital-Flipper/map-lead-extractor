@@ -10,8 +10,14 @@ const BlogPost = lazy(() => import("@/pages/blog-post"));
 const Privacy = lazy(() => import("@/pages/privacy"));
 const Terms = lazy(() => import("@/pages/terms"));
 const IndustryLanding = lazy(() => import("@/pages/industry-landing"));
+const FbLeads = lazy(() => import("@/pages/fb-leads"));
+const AgencyLp = lazy(() => import("@/pages/agency-lp"));
+const ThankYou = lazy(() => import("@/pages/thank-you"));
+const SocialLanding = lazy(() => import("@/pages/lp"));
 const ToolsIndex = lazy(() => import("@/pages/tools"));
 const ToolPage = lazy(() => import("@/pages/tool"));
+const FreeTool = lazy(() => import("@/pages/free-tool"));
+const Review = lazy(() => import("@/pages/review"));
 
 // Everything auth-related (Clerk, dashboard, admin, pricing, account, home) is
 // isolated in a lazily-loaded module so it only loads on auth/account routes.
@@ -27,9 +33,11 @@ const AUTH_PREFIXES = [
   "/admin",
   "/admin-login",
   "/command-center",
+  "/scraper",
   "/sign-in",
   "/sign-up",
   "/connect-extension",
+  "/membership",
 ];
 
 function isAuthPath(path: string): boolean {
@@ -56,8 +64,14 @@ function Shell() {
         <Route path="/blog" component={Blog} />
         <Route path="/blog/:slug" component={BlogPost} />
         <Route path="/leads/:industry" component={IndustryLanding} />
+        <Route path="/get-leads" component={FbLeads} />
+        <Route path="/lp" component={AgencyLp} />
+        <Route path="/thank-you" component={ThankYou} />
+        <Route path="/go/:variant" component={SocialLanding} />
         <Route path="/tools" component={ToolsIndex} />
         <Route path="/tools/:tool" component={ToolPage} />
+        <Route path="/free-tool" component={FreeTool} />
+        <Route path="/review" component={Review} />
         <Route path="/privacy" component={Privacy} />
         <Route path="/terms" component={Terms} />
         <Route component={NotFound} />

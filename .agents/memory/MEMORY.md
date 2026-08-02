@@ -1,0 +1,1 @@
+- [Lifetime Membership](lifetime-membership.md) — $197 one-time; DB flag `isLifetime`; Stripe IDs; webhook detection; frontend gates on /scraper + /command-center.

@@ -1,0 +1,503 @@
+<!doctype html>
+<!--
+  Ad-creative renderer for MapLeadExtractor.
+
+  Every marketing picture (landing-page og images in public/go/, the social
+  auto-poster pool in public/creatives/, facebook-ad.png) is rendered from
+  this file with headless chromium — real HTML type and tables instead of
+  AI-generated pseudo-UI, so text is always crisp and perfectly spelled.
+
+  Usage: render.mjs opens template.html?v=<variant> and screenshots it.
+  Add/edit variants in the VARIANTS map at the bottom.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+  :root {
+    --bg: #060a12;
+    --bg2: #0b1220;
+    --card: #0d1524;
+    --line: rgba(148, 180, 255, 0.14);
+    --green: #00e65a;
+    --green-soft: rgba(0, 230, 90, 0.14);
+    --ink: #f4f7fb;
+    --dim: #8b98ad;
+    --amber: #ffb020;
+    --mono: "JetBrains Mono", monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { background: #000; }
+  body { font-family: "Inter", sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
+
+  .canvas { position: relative; overflow: hidden; background: var(--bg); }
+  .canvas.wide { width: 1536px; height: 1024px; }
+  .canvas.square { width: 1080px; height: 1080px; }
+
+  /* ── backdrop ─────────────────────────────────────────── */
+  .bg { position: absolute; inset: 0; }
+  .bg .grid {
+    position: absolute; inset: -2%;
+    background:
+      linear-gradient(to right, rgba(120, 160, 255, 0.055) 1.5px, transparent 1.5px),
+      linear-gradient(to bottom, rgba(120, 160, 255, 0.055) 1.5px, transparent 1.5px);
+    background-size: 96px 96px;
+    -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 40%, black 30%, transparent 75%);
+  }
+  .bg .roads {
+    position: absolute; inset: -2%;
+    background:
+      linear-gradient(to right, rgba(120, 160, 255, 0.10) 3px, transparent 3px) 31% 0 / 100% 100% no-repeat,
+      linear-gradient(to bottom, rgba(120, 160, 255, 0.08) 3px, transparent 3px) 0 63% / 100% 100% no-repeat;
+    -webkit-mask-image: radial-gradient(ellipse 85% 75% at 50% 45%, black 25%, transparent 72%);
+  }
+  .bg .glow { position: absolute; inset: 0;
+    background: radial-gradient(ellipse 70% 55% at 50% 0%, rgba(0, 230, 90, 0.13), transparent 65%);
+  }
+  .bg .floor { position: absolute; inset: 0;
+    background: radial-gradient(ellipse 90% 60% at 50% 115%, rgba(10, 22, 44, 0.9), transparent 70%);
+  }
+  .bg .vig { position: absolute; inset: 0;
+    box-shadow: inset 0 0 260px 60px rgba(0, 0, 0, 0.55);
+  }
+
+  .pin { position: absolute; }
+  .pin svg { display: block; filter: drop-shadow(0 0 18px rgba(0, 230, 90, 0.65)); }
+  .pin.dim svg { filter: drop-shadow(0 0 10px rgba(0, 230, 90, 0.3)); opacity: 0.5; }
+
+  /* ── brand / chrome ───────────────────────────────────── */
+  .brand { display: flex; align-items: center; gap: 14px;
+    font-family: "Space Grotesk"; font-weight: 700; font-size: 34px; letter-spacing: -0.01em; }
+  .brand .bolt { width: 52px; height: 52px; border-radius: 14px;
+    background: var(--green-soft); border: 2px solid rgba(0, 230, 90, 0.45);
+    display: flex; align-items: center; justify-content: center; }
+  .brand .bolt svg { width: 28px; height: 28px; }
+  .brand b { color: var(--green); font-weight: 700; }
+
+  .chip { display: inline-flex; align-items: center; gap: 12px;
+    padding: 12px 26px; border-radius: 999px;
+    background: var(--green-soft); border: 2px solid rgba(0, 230, 90, 0.45);
+    color: var(--green); font-family: "Space Grotesk"; font-weight: 700; letter-spacing: 0.06em; }
+  .chip.plain { background: rgba(13, 21, 36, 0.85); border-color: var(--line); color: var(--dim); }
+
+  .h-display { font-family: "Space Grotesk"; font-weight: 700; letter-spacing: -0.025em;
+    line-height: 0.98; text-transform: uppercase; }
+  .h-display em { font-style: normal; color: var(--green);
+    text-shadow: 0 0 60px rgba(0, 230, 90, 0.45); }
+
+  .cta { display: inline-flex; align-items: center; justify-content: center; gap: 14px;
+    background: linear-gradient(180deg, #12f06c, #00ce50);
+    color: #04140a; font-family: "Space Grotesk"; font-weight: 700;
+    border-radius: 22px; box-shadow: 0 0 70px rgba(0, 230, 90, 0.4), 0 18px 40px rgba(0, 0, 0, 0.45); }
+
+  .url { font-family: var(--mono); color: var(--dim); letter-spacing: 0.02em; }
+  .url b { color: var(--green); font-weight: 600; }
+
+  /* ── lead table card ──────────────────────────────────── */
+  .lead-card { background: linear-gradient(180deg, #101a2e, #0b1322);
+    border: 2px solid rgba(0, 230, 90, 0.28); border-radius: 28px;
+    box-shadow: 0 40px 90px rgba(0, 0, 0, 0.62), 0 0 90px rgba(0, 230, 90, 0.10);
+    overflow: hidden; position: relative; }
+  .lead-card .bar { display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 30px; border-bottom: 2px solid var(--line); background: rgba(6, 10, 18, 0.6); }
+  .lead-card .dots { display: flex; gap: 9px; }
+  .lead-card .dots i { width: 13px; height: 13px; border-radius: 50%; display: block; }
+  .lead-card .dots i:nth-child(1) { background: #ff5f57; }
+  .lead-card .dots i:nth-child(2) { background: #febc2e; }
+  .lead-card .dots i:nth-child(3) { background: #28c840; }
+  .lead-card .file { font-family: var(--mono); font-size: 19px; color: var(--dim); }
+
+  .lead-row { display: grid; align-items: center;
+    grid-template-columns: 1fr auto auto; gap: 26px;
+    padding: 21px 30px; border-bottom: 1.5px solid rgba(148, 180, 255, 0.09); }
+  .lead-row:last-child { border-bottom: none; }
+  .lead-row .who .nm { font-weight: 700; font-size: 24px; letter-spacing: -0.01em; }
+  .lead-row .who .ct { font-size: 17px; color: var(--dim); margin-top: 3px; }
+  .lead-row .tel { font-family: var(--mono); font-size: 20px; color: #cfe3ff; }
+  .lead-row .rate { display: flex; align-items: center; gap: 8px; justify-self: end;
+    font-weight: 700; font-size: 20px; }
+  .lead-row .rate small { color: var(--dim); font-weight: 500; font-size: 16px; }
+  .lead-row.hot { background: linear-gradient(90deg, rgba(0, 230, 90, 0.16), rgba(0, 230, 90, 0.03));
+    box-shadow: inset 4px 0 0 var(--green); }
+  .tag-hot { display: inline-block; margin-left: 12px; padding: 4px 12px; border-radius: 999px;
+    background: var(--green); color: #04140a; font-family: "Space Grotesk";
+    font-weight: 700; font-size: 14px; letter-spacing: 0.08em; vertical-align: 3px; }
+
+  .star { width: 21px; height: 21px; display: inline-block; }
+
+  /* compact card for tighter compositions */
+  .lead-card.dense .bar { padding: 14px 24px; }
+  .lead-card.dense .file { font-size: 16px; }
+  .lead-card.dense .lead-row { padding: 15px 24px; gap: 18px; }
+  .lead-card.dense .who .nm { font-size: 20px; white-space: nowrap; }
+  .lead-card.dense .who .ct { font-size: 14.5px; }
+  .lead-card.dense .tel { font-size: 16.5px; }
+  .lead-card.dense .rate { font-size: 17px; }
+  .lead-card.dense .rate small { font-size: 14px; }
+  .lead-card.dense .star { width: 17px; height: 17px; }
+
+  .seal { position: absolute; width: 108px; height: 108px; border-radius: 50%;
+    background: linear-gradient(180deg, #12f06c, #00b846);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5), 0 0 60px rgba(0, 230, 90, 0.55);
+    border: 5px solid #0b1322; }
+  .seal svg { width: 54px; height: 54px; }
+
+  .ribbon { position: absolute; top: 34px; right: -66px; transform: rotate(38deg);
+    background: var(--green); color: #04140a; font-family: "Space Grotesk"; font-weight: 700;
+    font-size: 22px; letter-spacing: 0.18em; padding: 10px 80px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); }
+
+  /* ── price lockup ─────────────────────────────────────── */
+  .price { display: flex; align-items: baseline; gap: 22px; }
+  .price .now { font-family: "Space Grotesk"; font-weight: 700; color: var(--green);
+    text-shadow: 0 0 70px rgba(0, 230, 90, 0.5); letter-spacing: -0.03em; }
+  .price .was { font-family: "Space Grotesk"; font-weight: 600; color: var(--dim);
+    text-decoration: line-through; text-decoration-thickness: 4px; }
+  .price .off { padding: 8px 18px; border-radius: 999px; background: var(--green-soft);
+    border: 2px solid rgba(0, 230, 90, 0.45); color: var(--green);
+    font-family: "Space Grotesk"; font-weight: 700; font-size: 24px; }
+
+  /* ── phone mockup ─────────────────────────────────────── */
+  .phone { position: relative; width: 420px; border-radius: 58px;
+    background: #05070c; border: 4px solid #1d2636;
+    box-shadow: 0 50px 110px rgba(0, 0, 0, 0.7), 0 0 100px rgba(0, 230, 90, 0.10);
+    padding: 16px; }
+  .phone .screen { border-radius: 42px; overflow: hidden;
+    background: linear-gradient(180deg, #0c1526, #080e1a); }
+  .phone .notch { height: 34px; display: flex; justify-content: center; align-items: center; }
+  .phone .notch i { width: 130px; height: 24px; border-radius: 999px; background: #05070c; display: block; }
+  .notif { margin: 18px 20px 14px; padding: 18px 20px; border-radius: 22px;
+    background: rgba(0, 230, 90, 0.13); border: 1.5px solid rgba(0, 230, 90, 0.4); }
+  .notif .t { display: flex; gap: 10px; align-items: center;
+    font-weight: 700; font-size: 21px; }
+  .notif .s { margin-top: 4px; color: var(--dim); font-size: 15.5px; }
+  .p-row { display: flex; justify-content: space-between; align-items: center;
+    margin: 0 20px; padding: 13px 4px; border-bottom: 1.5px solid rgba(148, 180, 255, 0.09); }
+  .p-row:last-of-type { border-bottom: none; }
+  .p-row .n { font-weight: 600; font-size: 17.5px; }
+  .p-row .v { font-family: var(--mono); font-size: 15.5px; color: #cfe3ff; }
+  .p-dl { margin: 12px 20px 24px; height: 56px; border-radius: 18px;
+    background: linear-gradient(180deg, #12f06c, #00ce50); color: #04140a;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Space Grotesk"; font-weight: 700; font-size: 19px; letter-spacing: 0.04em; }
+
+  /* ── scribble (before) panel ──────────────────────────── */
+  .mess { position: relative; border-radius: 28px; border: 2px dashed rgba(148, 180, 255, 0.25);
+    background: rgba(9, 14, 24, 0.6); overflow: hidden; }
+  .mess .lbl, .clean-lbl { position: absolute; top: 22px; left: 50%; transform: translateX(-50%);
+    font-family: "Space Grotesk"; font-weight: 700; font-size: 19px; letter-spacing: 0.22em;
+    color: var(--dim); }
+  .arrow-hub { width: 110px; height: 110px; border-radius: 50%; flex: none;
+    background: var(--green-soft); border: 3px solid rgba(0, 230, 90, 0.55);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 70px rgba(0, 230, 90, 0.35); }
+
+  /* ── browser (free tool) ──────────────────────────────── */
+  .browser { background: linear-gradient(180deg, #101a2e, #0b1322);
+    border: 2px solid rgba(0, 230, 90, 0.28); border-radius: 26px; overflow: hidden;
+    box-shadow: 0 40px 90px rgba(0, 0, 0, 0.62), 0 0 90px rgba(0, 230, 90, 0.10); }
+  .browser .tabbar { display: flex; align-items: center; gap: 16px;
+    background: rgba(6, 10, 18, 0.7); padding: 16px 24px; border-bottom: 2px solid var(--line); }
+  .browser .addr { flex: 1; height: 40px; border-radius: 999px; background: #0a1120;
+    border: 1.5px solid var(--line); display: flex; align-items: center;
+    padding: 0 20px; font-family: var(--mono); font-size: 17px; color: var(--dim); }
+  .browser .body { display: grid; grid-template-columns: 1fr 1fr; }
+  .browser .mapside { position: relative; background:
+      radial-gradient(ellipse at 60% 40%, rgba(24, 40, 74, 0.8), rgba(9, 15, 27, 0.9)),
+      linear-gradient(to right, rgba(120, 160, 255, 0.08) 1.5px, transparent 1.5px),
+      linear-gradient(to bottom, rgba(120, 160, 255, 0.08) 1.5px, transparent 1.5px);
+    background-size: auto, 52px 52px, 52px 52px;
+    border-right: 2px solid var(--line); }
+  .browser .listside { padding: 6px 0; }
+  .mini-row { display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 24px; border-bottom: 1.5px solid rgba(148, 180, 255, 0.09); }
+  .mini-row:last-child { border-bottom: none; }
+  .mini-row .n { font-weight: 600; font-size: 19px; }
+  .mini-row .v { font-family: var(--mono); font-size: 16px; color: #9fe8bd; }
+
+  .puzzle-badge { position: absolute; z-index: 5; width: 96px; height: 96px; border-radius: 26px;
+    background: linear-gradient(180deg, #12f06c, #00b846);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55), 0 0 70px rgba(0, 230, 90, 0.5);
+    border: 4px solid #0b1322; }
+  .puzzle-badge svg { width: 52px; height: 52px; }
+</style>
+</head>
+<body>
+<script>
+/* ═══════════════ shared fragments ═══════════════ */
+
+const BOLT = `<svg viewBox="0 0 24 24" fill="none"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z" fill="#00e65a" stroke="#00e65a" stroke-width="1" stroke-linejoin="round"/></svg>`;
+const CHECK = `<svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7.5" stroke="#04140a" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const STAR = `<svg class="star" viewBox="0 0 20 20"><path d="M10 1.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8L1.5 7.7l5.9-.8L10 1.5z" fill="#ffb020"/></svg>`;
+const PIN = (s, dim) => `<span class="pin ${dim ? "dim" : ""}" style="${s}"><svg width="46" height="58" viewBox="0 0 46 58"><path d="M23 2C11.4 2 2 11.4 2 23c0 15.7 21 33 21 33s21-17.3 21-33C44 11.4 34.6 2 23 2z" fill="#00e65a"/><circle cx="23" cy="22" r="8.5" fill="#04140a"/></svg></span>`;
+const ARROW = `<svg width="54" height="54" viewBox="0 0 24 24" fill="none"><path d="M4 12h15m0 0-6-6m6 6-6 6" stroke="#00e65a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const PUZZLE = `<svg viewBox="0 0 24 24" fill="none"><path d="M10 3.5a2 2 0 1 1 4 0V5h3a2 2 0 0 1 2 2v3h-1.5a2 2 0 1 0 0 4H19v3a2 2 0 0 1-2 2h-3v-1.5a2 2 0 1 0-4 0V19H7a2 2 0 0 1-2-2v-3H3.5a2 2 0 1 1 0-4H5V7a2 2 0 0 1 2-2h3V3.5z" fill="#04140a"/></svg>`;
+
+const brand = (px = 34) =>
+  `<div class="brand" style="font-size:${px}px">
+     <span class="bolt" style="width:${px * 1.5}px;height:${px * 1.5}px">${BOLT}</span>
+     <span>Map<b>Lead</b>Extractor</span>
+   </div>`;
+
+const bg = (pins) => `
+  <div class="bg">
+    <div class="grid"></div><div class="roads"></div>
+    <div class="glow"></div><div class="floor"></div><div class="vig"></div>
+    ${pins || ""}
+  </div>`;
+
+const stars = (n = 5) => Array.from({ length: n }, () => STAR).join("");
+
+const LEADS = [
+  { nm: "Riverside Roofing Co.", ct: "Tampa, FL", tel: "(813) 555-0142", r: "4.8", rv: "214" },
+  { nm: "Bayline Roof & Gutter", ct: "Tampa, FL", tel: "(813) 555-0177", r: "4.9", rv: "168" },
+  { nm: "Summit Roofing Group", ct: "Brandon, FL", tel: "(813) 555-0129", r: "4.7", rv: "96" },
+  { nm: "Gulf Shore Exteriors", ct: "Clearwater, FL", tel: "(727) 555-0163", r: "4.8", rv: "143" },
+  { nm: "Harbor Peak Roofing", ct: "St. Petersburg, FL", tel: "(727) 555-0195", r: "4.6", rv: "88" },
+];
+
+const leadRow = (l, hot) => `
+  <div class="lead-row ${hot ? "hot" : ""}">
+    <div class="who"><div class="nm">${l.nm}${hot ? '<span class="tag-hot">HOT PROSPECT</span>' : ""}</div><div class="ct">${l.ct}</div></div>
+    <div class="tel">${l.tel}</div>
+    <div class="rate">${STAR} ${l.r} <small>(${l.rv})</small></div>
+  </div>`;
+
+const leadCard = (opts = {}) => `
+  <div class="lead-card ${opts.dense ? "dense" : ""}" style="${opts.style || ""}">
+    ${opts.ribbon ? `<div class="ribbon">${opts.ribbon}</div>` : ""}
+    <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="file">${opts.file || "roofers-tampa-fl.csv · 100 rows"}</div></div>
+    ${LEADS.slice(0, opts.rows || 5).map((l, i) => leadRow(l, opts.hot === i)).join("")}
+    ${opts.seal ? `<div class="seal" style="${opts.seal}">${CHECK}</div>` : ""}
+  </div>`;
+
+const phone = () => `
+  <div class="phone">
+    <div class="screen">
+      <div class="notch"><i></i></div>
+      <div class="notif">
+        <div class="t"><svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#00e65a"/><path d="M7 12.5l3.2 3.2L17 9" stroke="#04140a" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg> Your leads are ready</div>
+        <div class="s">100 verified businesses · roofers-tampa-fl.csv</div>
+      </div>
+      ${LEADS.map((l) => `<div class="p-row"><span class="n">${l.nm.replace(" Co.", "").replace(" Group", "")}</span><span class="v">${l.tel}</span></div>`).join("")}
+      <div class="p-dl">DOWNLOAD CSV ↓</div>
+    </div>
+  </div>`;
+
+const scribble = `
+  <svg width="100%" height="100%" viewBox="0 0 560 560" preserveAspectRatio="none" style="position:absolute;inset:0">
+    <path d="M60 90 C 240 30, 120 260, 320 180 S 520 90, 470 260 S 220 300, 300 400 S 520 380, 440 500 S 150 470, 110 380 S 40 240, 140 300 S 380 480, 250 250 S 60 160, 60 90" fill="none" stroke="rgba(120,160,255,0.35)" stroke-width="3.5"/>
+    <path d="M120 480 C 60 320, 300 520, 380 340 S 180 120, 480 140" fill="none" stroke="rgba(120,160,255,0.22)" stroke-width="3"/>
+  </svg>`;
+
+const browserShot = () => `
+  <div class="browser" style="width:880px">
+    <div class="tabbar">
+      <div class="dots" style="display:flex;gap:9px"><i style="width:13px;height:13px;border-radius:50%;background:#ff5f57;display:block"></i><i style="width:13px;height:13px;border-radius:50%;background:#febc2e;display:block"></i><i style="width:13px;height:13px;border-radius:50%;background:#28c840;display:block"></i></div>
+      <div class="addr">google.com/maps/search/roofers+tampa</div>
+    </div>
+    <div class="body" style="height:400px">
+      <div class="mapside">
+        ${PIN("top:60px;left:80px")}${PIN("top:170px;left:230px")}${PIN("top:110px;left:330px", 1)}
+        ${PIN("top:250px;left:120px", 1)}${PIN("top:280px;left:300px")}
+      </div>
+      <div class="listside">
+        ${LEADS.map((l) => `<div class="mini-row"><span class="n">${l.nm}</span><span class="v">${l.tel}</span></div>`).join("")}
+      </div>
+    </div>
+  </div>`;
+
+/* ═══════════════ page templates ═══════════════ */
+
+// Wide LP hero: headline block left, visual right.
+const wideSplit = (o) => `
+  <section class="canvas wide">
+    ${bg(`${PIN("top:110px;right:130px", 1)}${PIN("bottom:150px;left:90px", 1)}${PIN("bottom:110px;right:210px")}`)}
+    <div style="position:absolute;inset:70px 80px;display:flex;flex-direction:column">
+      ${brand(30)}
+      <div style="flex:1;display:flex;align-items:center;gap:70px;margin-top:8px">
+        <div style="flex:1.05">
+          ${o.chip ? `<div class="chip" style="font-size:23px;margin-bottom:34px">${o.chip}</div>` : ""}
+          <div class="h-display" style="font-size:${o.hsize || 96}px">${o.h}</div>
+          ${o.price ? `<div class="price" style="margin-top:40px"><span class="now" style="font-size:110px">$29</span><span class="was" style="font-size:44px">$99</span><span class="off">71% OFF</span></div>` : ""}
+          ${o.sub ? `<div style="margin-top:36px;font-size:30px;line-height:1.45;color:var(--dim);max-width:600px">${o.sub}</div>` : ""}
+        </div>
+        <div style="flex:0.95;display:flex;justify-content:center">${o.visual}</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="url" style="font-size:24px"><b>mapleadextractor.net</b></span>
+        <span class="chip plain" style="font-size:20px">${o.foot || "DONE-FOR-YOU · DELIVERED IN HOURS · MONEY-BACK GUARANTEE"}</span>
+      </div>
+    </div>
+  </section>`;
+
+// Wide LP hero: big centered headline over visual.
+const wideCenter = (o) => `
+  <section class="canvas wide">
+    ${bg(`${PIN("top:140px;left:120px", 1)}${PIN("top:200px;right:150px", 1)}${PIN("bottom:130px;right:100px")}${PIN("bottom:170px;left:170px")}`)}
+    <div style="position:absolute;inset:64px 80px;display:flex;flex-direction:column;align-items:center;text-align:center">
+      ${brand(30)}
+      ${o.chip ? `<div class="chip" style="font-size:23px;margin-top:34px">${o.chip}</div>` : ""}
+      <div class="h-display" style="font-size:${o.hsize || 92}px;margin-top:26px;max-width:1240px">${o.h}</div>
+      <div style="flex:1;display:flex;align-items:center;margin-top:10px">${o.visual}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+        <span class="url" style="font-size:24px"><b>mapleadextractor.net</b></span>
+        <span class="chip plain" style="font-size:20px">${o.foot || "ONE-TIME $29 · NO SUBSCRIPTION · MONEY-BACK GUARANTEE"}</span>
+      </div>
+    </div>
+  </section>`;
+
+// Square social-post creative: stacked lockup with CTA.
+const squarePost = (o) => `
+  <section class="canvas square">
+    ${bg(`${PIN("top:150px;right:80px", 1)}${PIN("bottom:220px;left:60px", 1)}`)}
+    <div style="position:absolute;inset:48px 64px 44px;display:flex;flex-direction:column;align-items:center;text-align:center">
+      ${brand(27)}
+      ${o.chip ? `<div class="chip" style="font-size:21px;margin-top:28px">${o.chip}</div>` : ""}
+      <div class="h-display" style="font-size:${o.hsize || 78}px;margin-top:20px">${o.h}</div>
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;zoom:${o.vscale || 0.94}">${o.visual}</div>
+      <div class="cta" style="height:88px;padding:0 54px;font-size:31px;margin-bottom:20px">${o.cta || "GET MY LEAD PACK →"}</div>
+      <span class="url" style="font-size:22px"><b>mapleadextractor.net</b>${o.path || "/get-leads"}</span>
+    </div>
+  </section>`;
+
+const beforeAfter = (w = 1180, h = 330) => `
+  <div style="display:flex;align-items:center;gap:34px;width:${w}px">
+    <div class="mess" style="flex:1;height:${h}px">
+      ${scribble}
+      <div class="lbl">HOURS OF SCRAPING</div>
+      ${PIN("top:70px;left:60px", 1)}${PIN("bottom:50px;right:70px", 1)}${PIN("top:130px;right:130px", 1)}
+    </div>
+    <div class="arrow-hub">${ARROW}</div>
+    <div style="flex:1.25;position:relative">
+      <div class="clean-lbl" style="position:static;display:block;text-align:center;margin-bottom:14px;color:var(--green)">DONE-FOR-YOU · 5 MINUTES</div>
+      ${leadCard({ rows: 3, dense: 1, file: "your-leads.csv · 100 rows" })}
+    </div>
+  </div>`;
+
+/* ═══════════════ variants ═══════════════ */
+
+const VARIANTS = {
+  /* ── wide 1536x1024 — landing-page og images (public/go) ── */
+  "deal": wideSplit({
+    chip: "● FRESH LOCAL LEADS — DELIVERED TODAY",
+    h: `100 LOCAL<br>LEADS<br><em>READY TO<br>CALL</em>`,
+    hsize: 92,
+    price: true,
+    visual: `<div style="position:relative;width:660px;transform:perspective(1700px) rotateX(5deg) rotateY(-9deg) rotate(-1.5deg)">${leadCard({ file: "roofers-tampa-fl.csv", seal: "top:-34px;right:-30px" })}</div>`,
+  }),
+  "free-leads": wideCenter({
+    chip: "NO CREDIT CARD · TAKES 20 SECONDS",
+    h: `SEE <em>5 REAL LEADS</em> FROM<br>YOUR MARKET — FREE`,
+    hsize: 80,
+    visual: `<div style="position:relative;width:860px">${leadCard({ dense: 1, ribbon: "FREE", file: "your-city-preview.csv" })}</div>`,
+    foot: "PREVIEW FIRST · UPGRADE TO 100 FOR $29 ONLY IF YOU LOVE THEM",
+  }),
+  "stop-scraping": wideCenter({
+    chip: "$29 · DONE-FOR-YOU",
+    h: `STOP <em>SCRAPING.</em><br>START <em>CLOSING.</em>`,
+    hsize: 88,
+    visual: beforeAfter(),
+    foot: "HUMAN-REVIEWED · DELIVERED IN HOURS · MONEY-BACK GUARANTEE",
+  }),
+  "tonight": wideSplit({
+    chip: "ORDER NOW — IN YOUR INBOX TONIGHT",
+    h: `LEADS BY<br><em>TONIGHT</em>`,
+    hsize: 116,
+    price: true,
+    sub: "100 verified local businesses — phone, email, website & ratings — emailed as a clean CSV in hours.",
+    visual: phone(),
+    foot: "CSV EMAILED IN HOURS · NEVER MORE THAN 24H",
+  }),
+  "agency": wideCenter({
+    chip: "$29 · 100 SCORED PROSPECTS",
+    h: `YOUR NEXT CLIENT<br>IS <em>ON THIS LIST</em>`,
+    hsize: 88,
+    visual: `<div style="position:relative;width:900px">${leadCard({ dense: 1, hot: 1, file: "prospects-your-city.csv · 100 rows" })}</div>`,
+    foot: "SCORED & HUMAN-REVIEWED · DELIVERED IN HOURS",
+  }),
+
+  /* ── square 1080x1080 — social auto-poster pool (public/creatives) ── */
+  "leads-0": squarePost({
+    chip: "● DELIVERED IN HOURS",
+    h: `100 LOCAL LEADS<br><em>$29</em>`,
+    visual: `<div style="width:850px">${leadCard({ rows: 4, dense: 1, seal: "top:-30px;right:-24px" })}</div>`,
+  }),
+  "leads-1": squarePost({
+    chip: "$29 · DONE-FOR-YOU",
+    h: `STOP <em>SCRAPING.</em><br>START <em>CLOSING.</em>`,
+    hsize: 66,
+    visual: beforeAfter(900, 330),
+    vscale: 0.9,
+  }),
+  "leads-2": squarePost({
+    chip: "ORDER TODAY — DELIVERED TODAY",
+    h: `LEADS BY <em>TONIGHT</em>`,
+    hsize: 70,
+    visual: phone(),
+    vscale: 0.78,
+    cta: "GET 100 FOR $29 →",
+  }),
+  "leads-3": squarePost({
+    chip: "$29 · 100 SCORED PROSPECTS",
+    h: `YOUR NEXT CLIENT IS<br><em>ON THIS LIST</em>`,
+    hsize: 62,
+    visual: `<div style="width:860px">${leadCard({ rows: 4, dense: 1, hot: 1 })}</div>`,
+  }),
+  "leads-4": squarePost({
+    chip: "PHONE · EMAIL · WEBSITE · RATINGS",
+    h: `<em>29¢</em> PER<br>VERIFIED LEAD`,
+    hsize: 72,
+    visual: `<div style="width:850px">${leadCard({ rows: 4, dense: 1, file: "100-verified-leads.csv" })}</div>`,
+  }),
+
+  "freetool-0": squarePost({
+    chip: "100% FREE CHROME EXTENSION",
+    h: `FREE <em>LEAD<br>SCRAPER</em>`,
+    hsize: 80,
+    visual: `<div style="position:relative">${browserShot()}<div class="puzzle-badge" style="top:-38px;right:-30px">${PUZZLE}</div></div>`,
+    vscale: 0.9,
+    cta: "ADD TO CHROME — FREE",
+    path: "/free-tool",
+  }),
+  "freetool-1": squarePost({
+    chip: "NO SIGNUP · NO LIMITS · FREE",
+    h: `SCRAPE GOOGLE MAPS<br>IN <em>ONE CLICK</em>`,
+    hsize: 58,
+    visual: `<div style="position:relative">${browserShot()}<div class="puzzle-badge" style="top:-38px;left:-30px">${PUZZLE}</div></div>`,
+    vscale: 0.9,
+    cta: "ADD TO CHROME — FREE",
+    path: "/free-tool",
+  }),
+  "freetool-2": squarePost({
+    chip: "FREE CHROME EXTENSION",
+    h: `TURN MAPS INTO A<br><em>LEAD LIST</em>`,
+    hsize: 62,
+    visual: `<div style="width:850px">${leadCard({ rows: 4, dense: 1, file: "exported-from-maps.csv", seal: "top:-30px;right:-24px" })}</div>`,
+    cta: "ADD TO CHROME — FREE",
+    path: "/free-tool",
+  }),
+
+  /* ── square — the hand-run Facebook ad creative (facebook-ad.png) ── */
+  "fb-hero": squarePost({
+    chip: "● FRESH LOCAL LEADS · DELIVERED TODAY",
+    h: `100 READY-TO-CLOSE<br><em>LOCAL LEADS</em>`,
+    hsize: 60,
+    visual: `<div style="width:860px">${leadCard({ rows: 4, dense: 1, seal: "top:-30px;right:-24px", file: "your-city-your-niche.csv · 100 rows" })}</div>`,
+    cta: "GET MY LEAD PACK — $29 →",
+  }),
+};
+
+const params = new URLSearchParams(location.search);
+const v = params.get("v") || "deal";
+document.body.innerHTML = VARIANTS[v] || `<pre style="color:#fff;padding:40px">Unknown variant "${v}". Available: ${Object.keys(VARIANTS).join(", ")}</pre>`;
+// Supersampling: render.mjs opens the page at zoom=2 in a 2x window, then
+// downsamples the screenshot for extra-crisp edges.
+const zoom = Number(params.get("zoom") || 1);
+if (zoom !== 1) document.body.style.zoom = String(zoom);
+</script>
+</body>
+</html>

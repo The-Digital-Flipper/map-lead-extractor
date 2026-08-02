@@ -2,6 +2,7 @@ import { ArrowRight, Zap } from "lucide-react";
 import { tools } from "@/data/tools";
 import { useSeo } from "@/lib/seo";
 import { MobileNav } from "@/components/site/mobile-nav";
+import { PlatformReviews } from "@/components/site/landing-sections";
 
 const STORE_URL =
   "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
@@ -61,6 +62,8 @@ export default function ToolsIndex() {
           </div>
         </div>
       </main>
+
+      <PlatformReviews />
 
       <footer className="bg-card border-t border-border py-10">
         <div className="container mx-auto px-6 flex flex-col md:flex-row justify-between items-center text-sm text-muted-foreground gap-4">

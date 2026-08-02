@@ -1,6 +1,33 @@
 import { Router } from "express";
+import { db, chatConversations, chatMessages } from "@workspace/db";
+import { eq, and, gt, asc } from "drizzle-orm";
 
 const router = Router();
+
+// ── Conversation persistence (live human takeover) ───────────────────────────
+// Every widget conversation is stored so the owner can watch and reply live
+// from the admin 💬 Chats tab. While the owner has joined, the AI stays silent.
+
+async function getOrCreateConversation(publicId: string, page: string | undefined) {
+  const found = await db.select().from(chatConversations).where(eq(chatConversations.publicId, publicId));
+  if (found[0]) return found[0];
+  const inserted = await db
+    .insert(chatConversations)
+    .values({ publicId, page: page?.slice(0, 200) ?? null })
+    .onConflictDoNothing()
+    .returning();
+  if (inserted[0]) return inserted[0];
+  const again = await db.select().from(chatConversations).where(eq(chatConversations.publicId, publicId));
+  return again[0]!;
+}
+
+async function storeMessage(conversationId: number, sender: "visitor" | "ai" | "admin", body: string) {
+  const rows = await db.insert(chatMessages).values({ conversationId, sender, body: body.slice(0, 4000) }).returning();
+  await db.update(chatConversations)
+    .set({ updatedAt: new Date(), ...(sender === "visitor" ? { lastVisitorAt: new Date() } : {}) })
+    .where(eq(chatConversations.id, conversationId));
+  return rows[0]!;
+}
 
 // Sales assistant persona — knows exactly what lead types we sell so it can
 // guide a visitor toward the right pack. Kept factual: no invented prices/counts.
@@ -19,7 +46,9 @@ We sell these lead types (each is a local business with a gap a buyer can fill):
 
 Leads are delivered as clean CSV with name, phone, email, website, ratings, category, address and more. Packs can be filtered by lead type, industry, and location.
 
-Your job: understand what the visitor sells or who they serve, recommend the lead types that fit, and encourage them to request a pack. Keep replies short, warm, and concrete (2-4 sentences). If asked about price or exact lead counts, explain packs are custom-priced by volume and vertical and invite them to share what they need — do NOT invent specific prices or numbers. Never claim anything illegal or guarantee results.`;
+There is ONE ready-to-buy pack: the "100 Local Business Leads" pack — $29 one-time (no subscription, no account needed), bought in the Buy Leads section of the homepage. The buyer can type what they want in plain words (business type + city/state, or "anywhere"), or pick from dropdowns. Every pack is human-reviewed for quality before it ships: the CSV download link arrives by email, usually within a few hours and always within 24 — if we can't fill all 100, we auto-refund the difference. Larger or more specific packs (exact lead type, exclusive territory, custom volume) are custom-priced.
+
+Your job: understand what the visitor sells or who they serve, recommend the lead types that fit, and encourage them to buy the $29 starter pack or request a custom pack. Keep replies short, warm, and concrete (2-4 sentences). For custom packs, do NOT invent specific prices or counts — invite them to share what they need. Never claim anything illegal or guarantee results.`;
 
 interface ChatMessage { role: string; content: string }
 
@@ -119,14 +148,27 @@ router.get("/health", async (_req, res) => {
   }
 });
 
+// GET /api/chat/:publicId/messages?after=<id> — the widget polls this to pick
+// up the owner's live replies (and to survive page reloads). The unguessable
+// publicId minted by the widget is the read credential.
+router.get("/:publicId/messages", async (req, res) => {
+  const publicId = String(req.params.publicId ?? "");
+  if (publicId.length < 16) { res.status(404).json({ error: "Not found" }); return; }
+  const conv = (await db.select().from(chatConversations).where(eq(chatConversations.publicId, publicId)))[0];
+  if (!conv) { res.status(404).json({ error: "Not found" }); return; }
+  const after = Number(req.query.after) || 0;
+  const rows = await db
+    .select({ id: chatMessages.id, sender: chatMessages.sender, body: chatMessages.body })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.conversationId, conv.id), gt(chatMessages.id, after)))
+    .orderBy(asc(chatMessages.id))
+    .limit(100);
+  res.json({ messages: rows, humanMode: conv.adminJoined });
+});
+
 router.post("/", async (req, res) => {
   const apiKey = getOpenAiKey();
-  if (!apiKey) {
-    res.status(503).json({ error: "The chat assistant isn't configured yet." });
-    return;
-  }
-
-  const body = req.body as { messages?: ChatMessage[] };
+  const body = req.body as { messages?: ChatMessage[]; conversationId?: string; page?: string };
   const incoming = Array.isArray(body.messages) ? body.messages : [];
   // Keep only valid user/assistant turns, cap history + length to bound cost.
   const history = incoming
@@ -139,15 +181,50 @@ router.post("/", async (req, res) => {
     return;
   }
 
+  const visitorMsg = history[history.length - 1].content;
+
+  // Persist the conversation so the owner can watch + take over live.
+  let conv: typeof chatConversations.$inferSelect | null = null;
+  const publicId = typeof body.conversationId === "string" ? body.conversationId.slice(0, 64) : "";
+  if (publicId.length >= 16) {
+    try {
+      conv = await getOrCreateConversation(publicId, body.page);
+      await storeMessage(conv.id, "visitor", visitorMsg);
+    } catch (err) {
+      req.log.error({ err }, "chat persistence failed — continuing stateless");
+    }
+  }
+
   // Text the owner the first time a visitor sends a message in a conversation.
   const userTurns = history.filter(m => m.role === "user").length;
   if (userTurns === 1) {
-    const firstMsg = history[history.length - 1].content;
-    notifyOwnerSms(`🟢 New lead chat on MapLeadExtractor:\n"${firstMsg}"\n\nReply on the site to close them.`)
+    notifyOwnerSms(`🟢 New lead chat on MapLeadExtractor:\n"${visitorMsg}"\n\nOpen /admin → 💬 Chats to reply live.`)
       .catch(() => {});
     notifyOwnerEmail("🟢 New lead chat on MapLeadExtractor",
-      `Someone just started chatting on your site:\n\n"${firstMsg}"\n\nOpen your site's chat to reply and close them.`)
+      `Someone just started chatting on your site:\n\n"${visitorMsg}"\n\nOpen https://mapleadextractor.net/admin → 💬 Chats tab to watch the conversation and reply live.`)
       .catch(() => {});
+  }
+
+  // Owner has taken over: the AI stays silent, the widget switches to polling
+  // for the owner's live replies.
+  if (conv?.adminJoined) {
+    res.json({ reply: null, humanMode: true });
+    return;
+  }
+
+  // The visitor's message is saved and the owner alerted, so even without a
+  // working AI the chat still "works": hold the visitor here and let the owner
+  // reply live from the admin Chats tab. Used when no key is set AND when the
+  // OpenAI call fails (bad key, no credit, outage) — never show an error.
+  const holdingReply = async () => {
+    const fallback = "Thanks for your message! The owner has been notified and will reply right here shortly.";
+    if (conv) await storeMessage(conv.id, "ai", fallback).catch(() => {});
+    res.json({ reply: fallback });
+  };
+
+  if (!apiKey) {
+    await holdingReply();
+    return;
   }
 
   try {
@@ -166,16 +243,17 @@ router.post("/", async (req, res) => {
     if (!r.ok) {
       const detail = await r.text().catch(() => "");
       req.log.error({ status: r.status, detail: detail.slice(0, 500) }, "OpenAI chat error");
-      res.status(502).json({ error: "The assistant is unavailable right now — please try again." });
+      await holdingReply();
       return;
     }
 
     const data = await r.json() as { choices?: { message?: { content?: string } }[] };
     const reply = data.choices?.[0]?.message?.content?.trim() || "Sorry, I didn't catch that — could you rephrase?";
+    if (conv) await storeMessage(conv.id, "ai", reply).catch(() => {});
     res.json({ reply });
   } catch (err) {
     req.log.error({ err }, "OpenAI chat request failed");
-    res.status(502).json({ error: "The assistant is unavailable right now — please try again." });
+    await holdingReply();
   }
 });
 

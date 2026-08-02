@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useUser } from "@clerk/react";
 import { useSession } from "@clerk/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Phone, Send, RefreshCw, ArrowLeft, MessageSquare, Circle, ChevronRight, Zap, Download, ChevronDown, Upload, Lock, Crown, Smartphone } from "lucide-react";
+import { Phone, Send, RefreshCw, ArrowLeft, MessageSquare, Circle, ChevronRight, Zap, Download, ChevronDown, Upload, Lock, Crown, Smartphone, ArrowUpRight } from "lucide-react";
 import { useSeo } from "@/lib/seo";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -49,6 +49,21 @@ export default function CommandCenter() {
   useSeo({ title: "Command Center — MapLeadExtractor", path: "/command-center" });
   const { isLoaded, isSignedIn } = useUser();
   const { session } = useSession();
+  const [isLifetime, setIsLifetime] = useState<boolean | null>(null);
+
+  // Check lifetime membership
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (!isSignedIn) { setIsLifetime(false); return; }
+    session?.getToken().then(token => {
+      fetch(`${basePath}/api/stripe/status`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+        .then(r => r.json())
+        .then((d: { isLifetime?: boolean }) => setIsLifetime(!!d.isLifetime))
+        .catch(() => setIsLifetime(false));
+    });
+  }, [isLoaded, isSignedIn, session]);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activePhone, setActivePhone] = useState<string | null>(null);
@@ -264,6 +279,29 @@ export default function CommandCenter() {
   if (!isSignedIn) {
     window.location.href = `${basePath}/sign-in`;
     return null;
+  }
+
+  // Lifetime gate
+  if (isLifetime === false) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 text-center">
+        <div className="max-w-md">
+          <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mx-auto mb-6">
+            <MessageSquare className="w-8 h-8 text-blue-400" />
+          </div>
+          <h1 className="font-display font-bold text-2xl mb-2">SMS Command Center</h1>
+          <p className="text-muted-foreground mb-6">
+            Two-way SMS inbox and bulk text blasts are included in the <strong className="text-foreground">Lifetime Membership</strong>.
+            Reach your leads directly from your browser — no extra apps needed.
+          </p>
+          <a href={`${basePath}/membership`}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity">
+            <Crown className="w-4 h-4" /> Get Lifetime Access — $197
+          </a>
+          <a href={`${basePath}/dashboard`} className="block mt-6 text-xs text-muted-foreground hover:text-foreground transition-colors">← Back to dashboard</a>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -6,6 +6,10 @@ import { pgTable, serial, text, integer, boolean, timestamp, index } from "drizz
 export const socialPosts = pgTable("social_posts", {
   id: serial("id").primaryKey(),
   platform: text("platform").notNull().default("facebook"),
+  // Which ad this post is: "leads" sells the paid done-for-you lists (default),
+  // "freetool" promotes the free Chrome extension with its Web Store install
+  // link. The daily scheduler rotates ~1 freetool post for every 2 leads posts.
+  campaign: text("campaign").notNull().default("leads"), // leads | freetool
   body: text("body").notNull(),
   // One short line on why this post works — shown in the admin queue.
   note: text("note"),
@@ -18,6 +22,17 @@ export const socialPosts = pgTable("social_posts", {
   attemptedAt: timestamp("attempted_at", { withTimezone: true }),
   postedAt: timestamp("posted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  // AI-generated image, stored as base64 PNG right in the row (deploy fs is
+  // ephemeral). List endpoints must exclude this column — it's megabytes.
+  imageB64: text("image_b64"),
+  // Engagement pulled from the Graph API after publishing; null = never synced.
+  likes: integer("likes"),
+  comments: integer("comments"),
+  shares: integer("shares"),
+  impressions: integer("impressions"),
+  // Facebook's own post_clicks metric (all clicks anywhere on the post).
+  fbClicks: integer("fb_clicks"),
+  statsSyncedAt: timestamp("stats_synced_at", { withTimezone: true }),
 }, (t) => [
   index("social_posts_status_idx").on(t.status),
   index("social_posts_posted_at_idx").on(t.postedAt),
@@ -41,9 +56,37 @@ export const socialSettings = pgTable("social_settings", {
   fbPageId: text("fb_page_id"),
   fbPageName: text("fb_page_name"),
   fbPageToken: text("fb_page_token"),
+  // TikTok connection, filled by the admin "Connect TikTok" OAuth flow. The
+  // client key/secret come from the owner's TikTok developer app (seeded here
+  // via the Social tab, env TIKTOK_CLIENT_KEY/SECRET as fallback). Access
+  // tokens live 24h and are refreshed on demand from the 365-day refresh
+  // token, which TikTok rotates on every refresh.
+  tiktokClientKey: text("tiktok_client_key"),
+  tiktokClientSecret: text("tiktok_client_secret"),
+  tiktokAccessToken: text("tiktok_access_token"),
+  tiktokRefreshToken: text("tiktok_refresh_token"),
+  tiktokExpiresAt: timestamp("tiktok_expires_at", { withTimezone: true }),
+  tiktokRefreshExpiresAt: timestamp("tiktok_refresh_expires_at", { withTimezone: true }),
+  tiktokOpenId: text("tiktok_open_id"),
+  tiktokDisplayName: text("tiktok_display_name"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Facebook Groups the admin posts to by hand. Meta killed the Groups API in
+// 2024, so the app can't publish for them — instead the Social tab keeps a
+// queue of group-flavored posts and a one-click "copy post + open group" flow,
+// and this table remembers each group and when it last got a post.
+export const socialGroups = pgTable("social_groups", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  notes: text("notes"),
+  postCount: integer("post_count").notNull().default(0),
+  lastPostedAt: timestamp("last_posted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export type SocialPost = typeof socialPosts.$inferSelect;
 export type InsertSocialPost = typeof socialPosts.$inferInsert;
 export type SocialSettings = typeof socialSettings.$inferSelect;
+export type SocialGroup = typeof socialGroups.$inferSelect;

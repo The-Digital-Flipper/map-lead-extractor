@@ -26,6 +26,7 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+packages = ["codex"]
 
 [userenv]
 
@@ -36,3 +37,4 @@ ADMIN_SECRET = "Kanaan12!"
 # Key (SK...) by mistake; the app uses this AC SID + the account Auth Token
 # (TWILIO_AUTH_TOKEN) for standard auth. Not sensitive — appears in API URLs.
 TWILIO_ACCOUNT_SID_AC = "AC8dcc703ff000ad04c2750a748ea762ea"
+STRIPE_WEBHOOK_SECRET = "whsec_spooFcAgRcFsFKeLcDfx52h6qqHXgTnO"

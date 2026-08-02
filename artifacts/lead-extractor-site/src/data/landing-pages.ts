@@ -44,11 +44,12 @@ export const industryPages: IndustryPage[] = [
   {
     slug: "real-estate-agents",
     industry: "Real Estate Agents",
-    h1: "Extract Real Estate Agent & Realtor Leads From Google Maps",
-    metaTitle: "Real Estate Agent Leads From Google Maps | Map Lead Extractor",
+    h1: "Buy Real Estate Agent Leads — Ready-to-Call Lists for Any US City",
+    metaTitle: "Buy Real Estate Agent Leads by City | Map Lead Extractor",
     metaDescription:
-      "Find and export real estate agent, realtor, and brokerage leads from Google & Bing Maps — names, phones, emails, and websites — to CSV in seconds.",
+      "Buy targeted real estate agent leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     intro: [
+      "Skip the scraping — we sell ready-made real estate agent leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Real estate is one of the easiest verticals to prospect on Google Maps. Every agent, broker, and agency keeps an up-to-date listing with a phone number, website, and review history — exactly the data you need to pitch CRM tools, lead-gen services, photography, staging, or marketing.",
       "Instead of copying agent details one listing at a time, Map Lead Extractor pulls an entire map search of realtors into a clean CSV: names, phone numbers, websites, addresses, ratings, and (with website enrichment) public email addresses.",
     ],
@@ -83,11 +84,12 @@ export const industryPages: IndustryPage[] = [
   {
     slug: "restaurants",
     industry: "Restaurants",
-    h1: "Extract Restaurant & Food Service Leads From Google Maps",
-    metaTitle: "Restaurant Leads From Google Maps | Map Lead Extractor",
+    h1: "Buy Restaurant Leads — Ready-to-Call Lists for Any US City",
+    metaTitle: "Buy Restaurant Leads by City | Map Lead Extractor",
     metaDescription:
-      "Find restaurant, cafe, and bar leads from Google & Bing Maps — names, phones, websites, and ratings — and export to CSV. Perfect for POS, delivery, and marketing sales.",
+      "Buy targeted restaurant leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     intro: [
+      "Skip the scraping — we sell ready-made restaurant leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Restaurants are a high-volume, high-turnover market — which makes them a constant source of fresh prospects for anyone selling POS systems, online ordering, reservation software, delivery integrations, or local marketing.",
       "Map Lead Extractor turns a Google or Bing Maps search of restaurants into an instant CSV of names, phone numbers, websites, addresses, star ratings, and review counts so you can segment by quality and reach out fast.",
     ],
@@ -122,11 +124,12 @@ export const industryPages: IndustryPage[] = [
   {
     slug: "contractors",
     industry: "Contractors & Home Services",
-    h1: "Extract Contractor & Home Services Leads From Google Maps",
-    metaTitle: "Contractor Leads From Google Maps | Map Lead Extractor",
+    h1: "Buy Contractor Leads — Ready-to-Call Lists for Any US City",
+    metaTitle: "Buy Contractor Leads by City | Map Lead Extractor",
     metaDescription:
-      "Find contractor, plumber, electrician, and home-services leads from Google & Bing Maps — names, phones, emails, websites — and export to CSV in seconds.",
+      "Buy targeted contractor and home-services leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     intro: [
+      "Skip the scraping — we sell ready-made contractor and home-services leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Home-services businesses — plumbers, electricians, HVAC, roofers, landscapers, and general contractors — are among the most profitable industries to sell to, because they spend heavily on lead generation and advertising.",
       "Map Lead Extractor pulls every contractor in a Google or Bing Maps search into a CSV with phone numbers, websites, addresses, and ratings, so agencies and SaaS sellers can build a targeted outreach list in minutes.",
     ],
@@ -161,11 +164,12 @@ export const industryPages: IndustryPage[] = [
   {
     slug: "dentists",
     industry: "Dentists & Dental Practices",
-    h1: "Extract Dentist & Dental Practice Leads From Google Maps",
-    metaTitle: "Dentist Leads From Google Maps | Map Lead Extractor",
+    h1: "Buy Dentist Leads — Ready-to-Call Lists for Any US City",
+    metaTitle: "Buy Dentist Leads by City | Map Lead Extractor",
     metaDescription:
-      "Find dentist and dental practice leads from Google & Bing Maps — names, phones, emails, websites, and ratings — and export to CSV. Ideal for medical SaaS and agencies.",
+      "Buy targeted dentist leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     intro: [
+      "Skip the scraping — we sell ready-made dentist leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Dental practices are high-value, recession-resistant clients that invest in patient acquisition, scheduling software, and reputation management — making them a prime target for agencies and B2B sellers.",
       "Map Lead Extractor exports every dentist in a Maps search to CSV with phone numbers, websites, addresses, and review data, so you can prioritize practices by location and rating before you reach out.",
     ],
@@ -200,11 +204,12 @@ export const industryPages: IndustryPage[] = [
   {
     slug: "gyms-and-fitness",
     industry: "Gyms & Fitness Studios",
-    h1: "Extract Gym & Fitness Studio Leads From Google Maps",
-    metaTitle: "Gym & Fitness Leads From Google Maps | Map Lead Extractor",
+    h1: "Buy Gym & Fitness Studio Leads — Ready-to-Call Lists for Any US City",
+    metaTitle: "Buy Gym & Fitness Studio Leads by City | Map Lead Extractor",
     metaDescription:
-      "Find gym, fitness studio, and personal-trainer leads from Google & Bing Maps — names, phones, websites, and ratings — and export to CSV in seconds.",
+      "Buy targeted gym & fitness studio leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     intro: [
+      "Skip the scraping — we sell ready-made gym & fitness studio leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Gyms, boutique studios, and personal trainers are constantly looking for members — which means they buy marketing, booking software, and membership tools. That makes them an attractive, high-churn market for B2B sellers and agencies.",
       "Map Lead Extractor turns any Maps search for fitness businesses into a CSV of names, phones, websites, addresses, and ratings so you can build a focused outreach list fast.",
     ],
@@ -239,11 +244,12 @@ export const industryPages: IndustryPage[] = [
   {
     slug: "auto-repair-shops",
     industry: "Auto Repair Shops",
-    h1: "Extract Auto Repair Shop Leads From Google Maps",
-    metaTitle: "Auto Repair Shop Leads From Google Maps | Map Lead Extractor",
+    h1: "Buy Auto Repair Shop Leads — Ready-to-Call Lists for Any US City",
+    metaTitle: "Buy Auto Repair Shop Leads by City | Map Lead Extractor",
     metaDescription:
-      "Find auto repair, mechanic, and body-shop leads from Google & Bing Maps — names, phones, websites, and ratings — and export to CSV in seconds.",
+      "Buy targeted auto repair shop leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     intro: [
+      "Skip the scraping — we sell ready-made auto repair shop leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Auto repair shops, mechanics, and body shops are local businesses that depend on a steady flow of customers, so they invest in advertising, booking tools, and parts suppliers — a reliable market for agencies and B2B sellers.",
       "Map Lead Extractor exports every shop in a Maps search to CSV with phone numbers, websites, addresses, and ratings, so you can segment by location and reputation before reaching out.",
     ],
@@ -278,10 +284,11 @@ export const industryPages: IndustryPage[] = [
   {
     "slug": "plumbers",
     "industry": "Plumbers",
-    "h1": "Extract Plumber Leads from Google Maps for B2B Outreach",
-    "metaTitle": "Plumber Leads from Google Maps | Map Lead Extractor",
-    "metaDescription": "Extract plumber and plumbing company leads from Google Maps with phone, website, ratings, and emails. Export to CSV and start selling today. Try it now.",
+    "h1": "Buy Plumber Leads — Ready-to-Call Lists for Any US City",
+    "metaTitle": "Buy Plumber Leads by City | Map Lead Extractor",
+    "metaDescription": "Buy targeted plumber leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     "intro": [
+      "Skip the scraping — we sell ready-made plumber leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "If you sell marketing services, software, or supplies to plumbing businesses, the hardest part is building an accurate, current list of who to contact. Map Lead Extractor pulls plumber and plumbing-contractor data straight from Google Maps and Bing Maps, capturing business name, phone, website, address, star rating, and review count in one pass. No copy-paste, no stale databases, just clean prospect lists you can act on the same day.",
       "Plumbing is a fragmented, local market: thousands of owner-operators, regional drain specialists, and emergency-service crews compete for the same search visibility. That fragmentation is exactly why it is so sellable, and exactly why a manual approach fails. This page shows how B2B sellers and agencies use targeted Maps extraction, CSV export, and optional Website Enrichment to find decision-makers and reach plumbers before competitors do."
     ],
@@ -443,10 +450,11 @@ export const industryPages: IndustryPage[] = [
   {
     "slug": "electricians",
     "industry": "Electricians",
-    "h1": "Extract Electrician & Electrical Contractor Leads from Google Maps",
-    "metaTitle": "Electrician Leads Extractor | Map Lead Extractor",
-    "metaDescription": "Extract electrician & electrical contractor leads from Google Maps and Bing Maps. Get phones, websites, emails, and ratings, then export to CSV. Start building your list today.",
+    "h1": "Buy Electrician Leads — Ready-to-Call Lists for Any US City",
+    "metaTitle": "Buy Electrician Leads by City | Map Lead Extractor",
+    "metaDescription": "Buy targeted electrician leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     "intro": [
+      "Skip the scraping — we sell ready-made electrician leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "If you sell to electrical contractors, manually copying business details off Google Maps is a dead end. Map Lead Extractor pulls electrician listings straight from the map view, including business name, phone, website, address, star rating, and review count, then exports everything to a clean CSV. You get a structured prospecting list in minutes instead of days, ready for your CRM, cold email tool, or dialer.",
       "Electricians are a high-value, high-volume niche, from solo residential handymen to commercial and industrial firms with full crews. This page shows B2B sellers, agencies, and SaaS vendors how to find, segment, and reach electrical contractors at scale, including how Website Enrichment surfaces public emails and how Bing Maps doubles your coverage."
     ],
@@ -623,10 +631,11 @@ export const industryPages: IndustryPage[] = [
   {
     "slug": "hvac-companies",
     "industry": "HVAC Companies",
-    "h1": "Extract HVAC Contractor Leads from Google Maps",
-    "metaTitle": "Extract HVAC Leads from Google Maps | Map Lead Extractor",
-    "metaDescription": "Build targeted HVAC contractor lists from Google Maps and Bing Maps. Extract names, phones, websites, ratings and emails to CSV. Start prospecting today.",
+    "h1": "Buy HVAC Contractor Leads — Ready-to-Call Lists for Any US City",
+    "metaTitle": "Buy HVAC Contractor Leads by City | Map Lead Extractor",
+    "metaDescription": "Buy targeted HVAC contractor leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     "intro": [
+      "Skip the scraping — we sell ready-made HVAC contractor leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Selling to HVAC contractors means reaching thousands of independent shops, regional installers, and refrigeration specialists scattered across every metro and small town in the country. Map Lead Extractor turns Google Maps and Bing Maps into a structured prospecting database, pulling business names, phone numbers, websites, addresses, star ratings, and review counts straight into a clean CSV you can load into any CRM, dialer, or cold-email sequence in minutes.",
       "Whether you sell SEO, paid ads, scheduling software, financing, parts, or fleet services, your buyers are HVAC owners who spend heavily to win seasonal jobs. This page shows how to find them fast, enrich records with public emails and social links, and prioritize the shops most likely to buy. No copy-paste, no manual scraping, no guesswork about which contractor to call next."
     ],
@@ -783,10 +792,11 @@ export const industryPages: IndustryPage[] = [
   {
     "slug": "roofing-contractors",
     "industry": "Roofing Contractors",
-    "h1": "Extract Roofing Contractor Leads from Google Maps in Minutes",
-    "metaTitle": "Roofer Lead Extractor for Google Maps | Map Lead Extractor",
-    "metaDescription": "Build a targeted roofing contractor email list from Google Maps. Extract names, phones, websites & emails to CSV. Find roofers fast—start prospecting today.",
+    "h1": "Buy Roofing Contractor Leads — Ready-to-Call Lists for Any US City",
+    "metaTitle": "Buy Roofing Contractor Leads by City | Map Lead Extractor",
+    "metaDescription": "Buy targeted roofing contractor leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     "intro": [
+      "Skip the scraping — we sell ready-made roofing contractor leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Selling to roofing contractors means reaching companies that move fast, spend big, and live by their phones. Map Lead Extractor pulls roofer details straight from Google Maps—business name, phone, website, address, star rating, and review count—then exports clean CSV files you can drop into any CRM or cold-email tool. Skip the manual copy-paste and build a targeted prospect list of residential, commercial, and storm-restoration roofers in any city you sell into, in minutes instead of days.",
       "Whether you offer SEO, paid ads, financing software, supplier services, or recruiting, you need accurate contact data before you can pitch. Turn on optional Website Enrichment to capture public emails and social profiles from each roofer's site, and run the same search across Bing Maps to widen coverage. The result is a deduplicated, sales-ready roofing contractor list—no scraping scripts, no APIs, no guesswork. Search a metro, export, and start outreach the same day."
     ],
@@ -925,10 +935,11 @@ export const industryPages: IndustryPage[] = [
   {
     "slug": "painters",
     "industry": "Painters",
-    "h1": "Extract Painter & Painting Contractor Leads from Google Maps",
-    "metaTitle": "Painter Leads from Google Maps | Map Lead Extractor",
-    "metaDescription": "Extract painter and painting contractor leads from Google Maps in minutes. Get names, phones, websites and emails, then export to CSV. Start prospecting today.",
+    "h1": "Buy Painter Leads — Ready-to-Call Lists for Any US City",
+    "metaTitle": "Buy Painter Leads by City | Map Lead Extractor",
+    "metaDescription": "Buy targeted painter leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     "intro": [
+      "Skip the scraping — we sell ready-made painter leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Painting contractors are one of the easiest local trades to prospect at scale and one of the hardest to reach with clean data. Most are small or solo operators with a Google Maps pin, a cell number, and a thin or missing website. Map Lead Extractor pulls those listings into a structured CSV in minutes, so you spend your time pitching painters instead of copying phone numbers off a screen one tab at a time.",
       "Whether you sell websites, SEO, lead generation, CRM software, insurance, or paint supplies, this page shows how to build a targeted painting contractor list by city and service type. Search interior, exterior, commercial, or cabinet refinishing painters, capture star ratings and review counts to qualify them, enrich for public emails, and pull a second batch from Bing Maps to widen your coverage before your competitors do."
     ],
@@ -1088,10 +1099,11 @@ export const industryPages: IndustryPage[] = [
   {
     "slug": "landscapers",
     "industry": "Landscapers",
-    "h1": "Extract Landscaper & Landscaping Company Leads from Google Maps",
-    "metaTitle": "Extract Landscaper Leads | Map Lead Extractor",
-    "metaDescription": "Find and export landscaping company leads from Google Maps and Bing Maps to CSV. Get names, phones, websites, and emails. Start building your list today.",
+    "h1": "Buy Landscaper Leads — Ready-to-Call Lists for Any US City",
+    "metaTitle": "Buy Landscaper Leads by City | Map Lead Extractor",
+    "metaDescription": "Buy targeted landscaper leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     "intro": [
+      "Skip the scraping — we sell ready-made landscaper leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Selling to landscapers means racing the seasons. Spring and early summer are when lawn care crews, design-build firms, and hardscapers spend on trucks, software, marketing, and crew tools. Map Lead Extractor pulls landscaping business leads straight from Google Maps into a clean CSV in minutes, so your outreach lands while budgets are open and owners are answering the phone between job sites.",
       "Instead of copy-pasting listings one at a time, you scrape an entire metro of landscapers at once: business name, phone, website, address, star rating, and review count. Turn on Website Enrichment to add public emails and social links, then pull Bing Maps as a second source to catch operators Google misses. The result is a targeted, ready-to-work prospect list."
     ],
@@ -1257,10 +1269,11 @@ export const industryPages: IndustryPage[] = [
   {
     "slug": "lawyers",
     "industry": "Lawyers",
-    "h1": "Extract Lawyer & Law Firm Leads From Google Maps",
-    "metaTitle": "Extract Lawyer Leads | Map Lead Extractor",
-    "metaDescription": "Build a targeted law firm email list fast. Extract attorney leads from Google Maps & Bing Maps, enrich emails, and export to CSV. Start prospecting today.",
+    "h1": "Buy Lawyer & Law Firm Leads — Ready-to-Call Lists for Any US City",
+    "metaTitle": "Buy Lawyer & Law Firm Leads by City | Map Lead Extractor",
+    "metaDescription": "Buy targeted lawyer and law firm leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     "intro": [
+      "Skip the scraping — we sell ready-made lawyer and law firm leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Selling to attorneys means reaching the right firms before your competitors do. Map Lead Extractor pulls verified law firm data straight from Google Maps and Bing Maps: business name, phone, website, address, star rating, and review count. In minutes you build a clean, segmented prospect list of solo practitioners and multi-attorney firms in any city and any practice area, exported to CSV and ready for your CRM, cold email tool, or dialer.",
       "Whether you sell legal-tech SaaS, run a marketing agency, or freelance services, generic directories waste hours. This tool turns a single Google Maps search into a structured lead file, and optional Website Enrichment scrapes public emails and social links from each firm's site. Target personal injury shops with heavy ad spend, immigration boutiques, estate planners, or criminal defense lawyers, and start conversations that convert instead of cold-calling blindly."
     ],
@@ -1432,10 +1445,11 @@ export const industryPages: IndustryPage[] = [
   {
     "slug": "chiropractors",
     "industry": "Chiropractors",
-    "h1": "Extract Chiropractor Leads from Google Maps for Chiropractic Outreach",
-    "metaTitle": "Chiropractor Leads from Maps | Map Lead Extractor",
-    "metaDescription": "Extract chiropractor leads from Google Maps and Bing Maps to CSV. Get clinic names, phones, websites, ratings, plus enriched emails. Start prospecting today.",
+    "h1": "Buy Chiropractor Leads — Ready-to-Call Lists for Any US City",
+    "metaTitle": "Buy Chiropractor Leads by City | Map Lead Extractor",
+    "metaDescription": "Buy targeted chiropractor leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     "intro": [
+      "Skip the scraping — we sell ready-made chiropractor leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Chiropractic is a local, owner-operated market: thousands of small clinics competing on patient acquisition, reviews, and neighborhood visibility. If you sell to them, that fragmentation is your opportunity. Map Lead Extractor pulls chiropractor listings straight from Google Maps into a clean CSV, capturing clinic name, phone, website, address, star rating, and review count so you can build a targeted prospect list in minutes instead of copy-pasting from search results one tab at a time.",
       "Whether you offer SEO, paid ads, reputation management, EHR or scheduling software, billing services, or done-for-you patient marketing, the workflow is the same: search a city, extract the clinics, and add public emails and social links with optional Website Enrichment. Bing Maps works as a second source to catch listings Google misses. Export, segment by rating or review volume, and start outreach the same day with verified, locally relevant data."
     ],
@@ -1594,10 +1608,11 @@ export const industryPages: IndustryPage[] = [
   {
     "slug": "marketing-agencies",
     "industry": "Marketing Agencies",
-    "h1": "Extract Marketing Agency & Local Client Leads From Google Maps",
-    "metaTitle": "Extract Marketing Agency Leads | Map Lead Extractor",
-    "metaDescription": "Build targeted prospect lists of marketing agencies or local-business clients from Google Maps. Extract names, phones, emails & export to CSV. Start prospecting today.",
+    "h1": "Buy Marketing Agency Leads — Ready-to-Call Lists for Any US City",
+    "metaTitle": "Buy Marketing Agency Leads by City | Map Lead Extractor",
+    "metaDescription": "Buy targeted marketing agency leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     "intro": [
+      "Skip the scraping — we sell ready-made marketing agency leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Whether you run an SMMA chasing local clients or you sell white-label services to other agencies, your pipeline lives and dies by list quality. Map Lead Extractor turns Google Maps and Bing Maps into a structured prospecting database, pulling business name, phone, website, address, star rating, and review count for every result. Optional Website Enrichment adds public emails and social links, so you can skip the manual copy-paste and go straight to outreach. Everything exports to clean CSV.",
       "Stop paying for stale lead lists or scraping rows by hand. With a few searches by city and vertical, you can assemble hundreds of qualified prospects — dentists, roofers, law firms, or competing agencies — ranked by the signals that matter. Map Lead Extractor is built for agencies and resellers who need volume without sacrificing accuracy, so your cold email and cold call workflows stay full, fresh, and segmented by exactly the niche you serve."
     ],
@@ -1755,10 +1770,11 @@ export const industryPages: IndustryPage[] = [
   {
     "slug": "web-designers",
     "industry": "Web Designers",
-    "h1": "Find Web Design Clients on Google Maps: Lead Extraction for Web Designers",
-    "metaTitle": "Find Web Design Clients | Map Lead Extractor",
-    "metaDescription": "Find web design clients hiding in Google Maps. Filter for businesses with no website, enrich for emails, and export to CSV. Start prospecting smarter today.",
+    "h1": "Buy Web Design Client Leads — Ready-to-Call Lists for Any US City",
+    "metaTitle": "Buy Web Design Client Leads by City | Map Lead Extractor",
+    "metaDescription": "Buy targeted web design client leads (local businesses with no website) for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     "intro": [
+      "Skip the scraping — we sell ready-made web design client leads (local businesses with no website). Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Every web designer faces the same bottleneck: not the design work, but finding paying clients. The warmest prospects are local businesses that already show up on Google Maps but have a broken, outdated, or completely missing website. Map Lead Extractor pulls those businesses into a clean CSV in minutes, so you can spend your time pitching redesigns instead of scrolling listings one tab at a time.",
       "Instead of buying generic lists or waiting on referrals, you build your own targeted pipeline by city and vertical. Extract business names, phone numbers, addresses, star ratings, review counts, and website URLs from Google Maps and Bing Maps. Turn on Website Enrichment to capture public emails and social links, then filter your CSV for empty website fields to surface the businesses that need you most."
     ],
@@ -1906,10 +1922,11 @@ export const industryPages: IndustryPage[] = [
   {
     "slug": "salons-and-spas",
     "industry": "Salons & Spas",
-    "h1": "Extract Salon & Spa Leads from Google Maps",
-    "metaTitle": "Salon & Spa Leads from Google Maps | Map Lead Extractor",
-    "metaDescription": "Extract hair salon, nail bar, and med spa leads from Google Maps with phones, ratings, and emails. Export to CSV and start selling today. Try it now.",
+    "h1": "Buy Salon & Spa Leads — Ready-to-Call Lists for Any US City",
+    "metaTitle": "Buy Salon & Spa Leads by City | Map Lead Extractor",
+    "metaDescription": "Buy targeted salon & spa leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     "intro": [
+      "Skip the scraping — we sell ready-made salon & spa leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Salons and spas are everywhere on Google Maps, but copying their details by hand is brutal. Map Lead Extractor turns any beauty-business search into a clean spreadsheet of names, phones, websites, addresses, star ratings, and review counts. Whether you sell booking software, payment terminals, or salon supplies, you can build a targeted list of hair salons, nail bars, lash studios, and med spas in minutes and export everything straight to CSV.",
       "Beauty businesses are appointment-driven and relationship-led, which makes timing and personalization everything. With optional Website Enrichment, you also capture public email addresses and social links, so you can reach owners on the channels they actually check. Add Bing Maps as a second source to widen coverage, and you have a repeatable pipeline for finding and selling to salons and spas in any city you target."
     ],
@@ -2078,10 +2095,11 @@ export const industryPages: IndustryPage[] = [
   {
     "slug": "pest-control",
     "industry": "Pest Control",
-    "h1": "Extract Pest Control Leads From Google Maps in Minutes",
-    "metaTitle": "Pest Control Leads From Google Maps | Map Lead Extractor",
-    "metaDescription": "Build a targeted pest control email list from Google Maps and Bing Maps. Pull exterminator names, phones, websites, and emails, then export to CSV. Start free.",
+    "h1": "Buy Pest Control Leads — Ready-to-Call Lists for Any US City",
+    "metaTitle": "Buy Pest Control Leads by City | Map Lead Extractor",
+    "metaDescription": "Buy targeted pest control leads for any US city — human-reviewed CSV with names, phones, emails, websites & ratings. 100 leads for $29, delivered in hours, refund-backed.",
     "intro": [
+      "Skip the scraping — we sell ready-made pest control leads. Tell us your target city and a human-reviewed CSV (names, phones, emails, websites, ratings) lands in your inbox, usually within hours, from $29 per 100 leads. Refund if we come up short. Want to build your own list instead? This guide shows exactly how.",
       "Pest control is a high-LTV, recurring-revenue business: quarterly contracts, mosquito and termite seasons, and routes that compound year over year. That makes exterminators one of the most valuable field-service niches you can sell into. Map Lead Extractor pulls clean, structured pest control leads straight from Google Maps so you can stop copy-pasting and start contacting decision-makers the same day.",
       "Whether you sell SaaS, run an agency, or freelance cold outreach, you need real contact data, not a scraped mess. This tool captures business name, phone, website, address, star rating, and review count, then adds public emails and social links through optional Website Enrichment. Filter by city, niche, or review volume, export to CSV, and load your CRM in one pass."
     ],

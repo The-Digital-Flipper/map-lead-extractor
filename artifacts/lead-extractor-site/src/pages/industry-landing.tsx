@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { ArrowRight, Check, Search, Zap } from "lucide-react";
+import { ArrowRight, Check, Package, Search, Zap } from "lucide-react";
 import { SiGooglechrome } from "react-icons/si";
 import { useParams } from "wouter";
 import { getIndustryPage, industryPages } from "@/data/landing-pages";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import NotFound from "@/pages/not-found";
 import { useSeo } from "@/lib/seo";
 import { MobileNav } from "@/components/site/mobile-nav";
+import { BuyerReviews, PlatformReviews } from "@/components/site/landing-sections";
 
 const STORE_URL =
   "https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg";
@@ -50,19 +51,18 @@ export default function IndustryLanding() {
             </span>
           </a>
           <nav className="hidden md:flex gap-8 text-sm font-medium text-muted-foreground">
-            <a href="/#extensions" className="hover:text-foreground transition-colors">Products</a>
-            <a href="/#how-it-works" className="hover:text-foreground transition-colors">How it Works</a>
+            <a href="/#leads-for-sale" className="text-primary hover:opacity-80 transition-opacity font-semibold">Buy Leads</a>
+            <a href="/#industries" className="hover:text-foreground transition-colors">Industries</a>
+            <a href="/free-tool" className="hover:text-foreground transition-colors">Free Tool</a>
             <a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a>
             <a href="/blog" className="hover:text-foreground transition-colors">Blog</a>
           </nav>
           <MobileNav />
           <a
-            href={STORE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/#leads-for-sale"
             className="hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity"
           >
-            Install Free
+            Get Leads
           </a>
         </div>
       </header>
@@ -73,7 +73,7 @@ export default function IndustryLanding() {
           <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
             <a href="/" className="hover:text-primary">Home</a>
             <span className="mx-2">/</span>
-            <a href="/#extensions" className="hover:text-primary">Leads by Industry</a>
+            <a href="/#industries" className="hover:text-primary">Leads by Industry</a>
             <span className="mx-2">/</span>
             <span className="text-foreground">{page.industry}</span>
           </nav>
@@ -91,10 +91,15 @@ export default function IndustryLanding() {
                   {para}
                 </p>
               ))}
-              <div className="mt-8">
+              <div className="mt-8 flex flex-col sm:flex-row gap-4">
                 <Button asChild size="lg" className="h-14 px-8 text-lg font-bold">
-                  <a href={STORE_URL} target="_blank" rel="noopener noreferrer">
-                    <SiGooglechrome className="mr-3 h-5 w-5" /> Add to Chrome — It's Free
+                  <a href="/#leads-for-sale">
+                    <Package className="mr-3 h-5 w-5" /> Buy {page.industry} Leads
+                  </a>
+                </Button>
+                <Button asChild size="lg" variant="outline" className="h-14 px-8 text-lg font-bold">
+                  <a href="/free-tool">
+                    <SiGooglechrome className="mr-3 h-5 w-5" /> Or Extract Them Free
                   </a>
                 </Button>
               </div>
@@ -226,18 +231,28 @@ export default function IndustryLanding() {
           </div>
         </section>
 
+        <PlatformReviews />
+        <BuyerReviews />
+
         {/* CTA */}
         <section className="py-24 bg-primary text-primary-foreground text-center">
           <div className="container mx-auto px-6 max-w-3xl">
             <h2 className="text-3xl md:text-5xl font-display font-bold mb-6">
-              Start extracting {page.industry.toLowerCase()} leads now
+              Get your {page.industry.toLowerCase()} leads today
             </h2>
-            <p className="text-xl mb-10 opacity-90">Free to install. No credit card. Works instantly.</p>
-            <Button asChild size="lg" variant="secondary" className="h-14 px-8 text-lg font-bold">
-              <a href={STORE_URL} target="_blank" rel="noopener noreferrer">
-                <SiGooglechrome className="mr-3 h-5 w-5" /> Install Free Extension
-              </a>
-            </Button>
+            <p className="text-xl mb-10 opacity-90">100 human-reviewed leads for $29 — delivered in hours, refund if we come up short.</p>
+            <div className="flex flex-col sm:flex-row justify-center gap-4">
+              <Button asChild size="lg" variant="secondary" className="h-14 px-8 text-lg font-bold">
+                <a href="/#leads-for-sale">
+                  <Package className="mr-3 h-5 w-5" /> Buy a Lead Pack
+                </a>
+              </Button>
+              <Button asChild size="lg" variant="secondary" className="h-14 px-8 text-lg font-bold opacity-80">
+                <a href={STORE_URL} target="_blank" rel="noopener noreferrer">
+                  <SiGooglechrome className="mr-3 h-5 w-5" /> Or Install the Free Extension
+                </a>
+              </Button>
+            </div>
           </div>
         </section>
       </main>

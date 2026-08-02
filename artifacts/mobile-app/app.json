@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "MapLeadExtractor",
+    "slug": "mobile-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "mobile-app",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#090a0e",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#090a0e"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "backgroundColor": "#090a0e"
+    },
+    "android": {
+      "backgroundColor": "#090a0e"
+    },
+    "web": {
+      "favicon": "./assets/images/icon.png",
+      "backgroundColor": "#090a0e"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "origin": "https://replit.com/"
+        }
+      ],
+      "expo-font",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

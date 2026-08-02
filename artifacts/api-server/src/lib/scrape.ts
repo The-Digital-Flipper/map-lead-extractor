@@ -36,6 +36,9 @@ export type ScrapeResult = {
   places: number;
   saved: number;
   duplicates: number;
+  // The parsed dataset for this run — capped so a big search doesn't bloat
+  // the response/DB row; `places` above still reflects the true total found.
+  items: Omit<ParsedPlace, "ftid" | "plusCode">[];
 };
 
 function loopbackBase(): string {
@@ -46,6 +49,9 @@ export async function scrapeAndSave(opts: {
   category: string;
   location?: string;
   maxScrolls?: number;
+  // Caps how many parsed places get saved/returned — a real, honored limit
+  // (unlike Apify's per-run cost cap, this is just a result-count cutoff).
+  maxPlaces?: number;
   apiKey?: string;
 }): Promise<ScrapeResult> {
   const term = opts.location ? `${opts.category} in ${opts.location}` : opts.category;
@@ -141,7 +147,9 @@ export async function scrapeAndSave(opts: {
       /* ignore a bad payload */
     }
   }
-  const places = [...byKey.values()];
+  const allPlaces = [...byKey.values()];
+  const cap = opts.maxPlaces && opts.maxPlaces > 0 ? Math.floor(opts.maxPlaces) : undefined;
+  const places = cap ? allPlaces.slice(0, cap) : allPlaces;
 
   // Shape like an extension extraction and save (server scores + de-dupes).
   const rows = places.map((p) => ({
@@ -177,5 +185,10 @@ export async function scrapeAndSave(opts: {
     }
   }
 
-  return { term, places: places.length, saved, duplicates };
+  const items = places.slice(0, 200).map((p) => ({
+    name: p.name, phone: p.phone, website: p.website, address: p.address, rating: p.rating, reviews: p.reviews,
+  }));
+  // `places` reports the true number Google Maps matched, even if maxPlaces
+  // capped how many were actually saved/returned.
+  return { term, places: allPlaces.length, saved, duplicates, items };
 }
