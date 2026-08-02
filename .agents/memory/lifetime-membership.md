@@ -19,8 +19,8 @@ description: How the $197 lifetime membership is implemented — Stripe IDs, DB 
 ## Backend Flow
 - `POST /api/stripe/lifetime-checkout` — creates a Stripe one-time checkout session, guards against double purchase
 - `GET /api/stripe/status` — now returns `isLifetime: boolean` and `plan: "free" | "pro" | "lifetime"`
-- `artifacts/api-server/src/webhookHandlers.ts` — on `checkout.session.completed`, detects `LIFETIME_PRODUCT_ID`, calls `storage.setLifetimeMemberByCustomerId()`, sends welcome email
-- `artifacts/api-server/src/storage.ts` — added `setLifetimeMember()`, `setLifetimeMemberByCustomerId()`, `getUserByCustomerId()`
+- `artifacts/api-server/src/webhookHandlers.ts` — on `checkout.session.completed`, detects `LIFETIME_PRODUCT_ID`, then grants in reliability order: `metadata.clerk_user_id` (direct PK, set at checkout) → Stripe customer ID → email fallback. Each grant returns whether a row matched; if none match, logs a loud `LIFETIME PURCHASE UNFULFILLED` error for manual reconciliation. Sends welcome email regardless.
+- `artifacts/api-server/src/storage.ts` — added `setLifetimeMember()`, `setLifetimeMemberByCustomerId()`, `setLifetimeMemberByEmail()`, `getUserByCustomerId()`. The three grant fns return `boolean` (did a row match).
 
 **Why:** Lifetime is one-time (not subscription), so it can't be checked via `stripe.subscriptions`. Stored as a DB flag set by webhook.
 

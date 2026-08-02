@@ -147,17 +147,35 @@ async function handleLicenseFulfillment(payload: Buffer, signature: string): Pro
 
   if (isLifetime) {
     logger.info({ email, sessionId: session.id }, 'Lifetime membership purchased — granting access');
-    // Grant by customer ID (user must be signed in to have one) or by email fallback
+    // Grant in order of reliability: clerk_user_id (direct PK, set at checkout) →
+    // Stripe customer ID → email. Each returns whether a row actually matched.
+    const clerkUserId = full.metadata?.clerk_user_id ?? session.metadata?.clerk_user_id ?? null;
     const customerId = typeof session.customer === 'string' ? session.customer : null;
-    if (customerId) {
-      try {
-        await storage.setLifetimeMemberByCustomerId(customerId);
-        logger.info({ customerId, email }, 'Lifetime membership granted by customer ID');
-      } catch (err) {
-        logger.error({ err, customerId }, 'Failed to grant lifetime membership by customer ID');
+    let granted = false;
+    try {
+      if (clerkUserId) {
+        granted = await storage.setLifetimeMember(clerkUserId);
+        if (granted) logger.info({ clerkUserId, email }, 'Lifetime membership granted by clerk user ID');
       }
+      if (!granted && customerId) {
+        granted = await storage.setLifetimeMemberByCustomerId(customerId);
+        if (granted) logger.info({ customerId, email }, 'Lifetime membership granted by customer ID');
+      }
+      if (!granted) {
+        granted = await storage.setLifetimeMemberByEmail(email);
+        if (granted) logger.info({ email }, 'Lifetime membership granted by email fallback');
+      }
+    } catch (err) {
+      logger.error({ err, clerkUserId, customerId, email, sessionId: session.id }, 'Error while granting lifetime membership');
     }
-    // Send welcome email
+    if (!granted) {
+      // Payment succeeded but no user row matched — must be reconciled manually so the buyer isn't left without access.
+      logger.error(
+        { email, clerkUserId, customerId, sessionId: session.id },
+        'LIFETIME PURCHASE UNFULFILLED — payment completed but no matching user row; grant access manually',
+      );
+    }
+    // Send welcome email regardless — the buyer paid and should hear from us
     await sendLifetimeEmail(email, session.id);
   }
 }

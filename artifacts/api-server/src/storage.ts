@@ -25,18 +25,31 @@ export class Storage {
     return user;
   }
 
-  /** Set lifetime membership flag for a user by Clerk user ID. */
-  async setLifetimeMember(clerkUserId: string) {
-    await db.update(users)
+  /** Set lifetime membership flag for a user by Clerk user ID. Returns true if a row matched. */
+  async setLifetimeMember(clerkUserId: string): Promise<boolean> {
+    const rows = await db.update(users)
       .set({ isLifetime: true, lifetimeGrantedAt: new Date() })
-      .where(eq(users.id, clerkUserId));
+      .where(eq(users.id, clerkUserId))
+      .returning({ id: users.id });
+    return rows.length > 0;
   }
 
-  /** Set lifetime membership flag for a user by Stripe customer ID. */
-  async setLifetimeMemberByCustomerId(customerId: string) {
-    await db.update(users)
+  /** Set lifetime membership flag for a user by Stripe customer ID. Returns true if a row matched. */
+  async setLifetimeMemberByCustomerId(customerId: string): Promise<boolean> {
+    const rows = await db.update(users)
       .set({ isLifetime: true, lifetimeGrantedAt: new Date() })
-      .where(eq(users.stripeCustomerId, customerId));
+      .where(eq(users.stripeCustomerId, customerId))
+      .returning({ id: users.id });
+    return rows.length > 0;
+  }
+
+  /** Set lifetime membership flag for a user by email (last-resort fallback). Returns true if a row matched. */
+  async setLifetimeMemberByEmail(email: string): Promise<boolean> {
+    const rows = await db.update(users)
+      .set({ isLifetime: true, lifetimeGrantedAt: new Date() })
+      .where(eq(users.email, email))
+      .returning({ id: users.id });
+    return rows.length > 0;
   }
 
   /** Look up a user by Stripe customer ID. */
