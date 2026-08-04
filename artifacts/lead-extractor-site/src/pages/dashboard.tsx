@@ -751,6 +751,20 @@ export default function Dashboard() {
       .catch(() => {});
   }, [user]);
 
+  // Show success toasts for post-checkout redirects and clean the URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("lifetime")) {
+      toast.success("🎉 Lifetime Membership activated! You now have access to the Scraper, Command Center, and AI enrichment.", { duration: 8000 });
+      params.delete("lifetime");
+      window.history.replaceState({}, "", window.location.pathname + (params.toString() ? `?${params}` : ""));
+    } else if (params.has("upgraded")) {
+      toast.success("🎉 You're now on Pro! Unlimited leads unlocked.", { duration: 6000 });
+      params.delete("upgraded");
+      window.history.replaceState({}, "", window.location.pathname + (params.toString() ? `?${params}` : ""));
+    }
+  }, []);
+
   // Fetch stats
   const fetchStats = useCallback(async () => {
     try {

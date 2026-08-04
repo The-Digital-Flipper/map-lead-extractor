@@ -173,9 +173,9 @@ async function topLeadIds(f: PackFilters, limit: number): Promise<number[]> {
   return rows.map((r) => r.id);
 }
 
-// Snapshot the best matching leads for this buyer and park the order for the
-// owner's manual review. NOTHING goes to the buyer here — the owner's Send
-// click (admin dashboard → sendOrder) is what delivers.
+// Snapshot the best matching leads for this buyer, then auto-deliver to the
+// buyer immediately. Set PACK_MANUAL_REVIEW=true to revert to the old manual
+// admin-review flow (e.g. when you want to QA a specific order).
 async function snapshotForReview(order: PackOrder): Promise<void> {
   const f = orderFilters(order);
   const ids = await topLeadIds(f, order.requested);
@@ -184,9 +184,24 @@ async function snapshotForReview(order: PackOrder): Promise<void> {
   await db.update(packOrders).set({
     status: "needs_review", delivered, leadIds: ids, updatedAt: new Date(),
   }).where(eq(packOrders.id, order.id));
-  logger.info({ orderId: order.id, delivered }, "pack order snapshotted — awaiting owner review");
+  logger.info({ orderId: order.id, delivered }, "pack order snapshotted");
 
-  await notifyOwner({ ...order, status: "needs_review", delivered, leadIds: ids });
+  if (process.env.PACK_MANUAL_REVIEW === "true") {
+    // Manual review mode: owner must click Send in admin dashboard.
+    logger.info({ orderId: order.id }, "PACK_MANUAL_REVIEW=true — parked for owner review");
+    await notifyOwner({ ...order, status: "needs_review", delivered, leadIds: ids });
+    return;
+  }
+
+  // Auto-deliver: call sendOrder immediately so buyer gets CSV without waiting.
+  try {
+    await sendOrder(order.id);
+    logger.info({ orderId: order.id }, "pack order auto-delivered to buyer");
+    await notifyOwnerAutoDelivered({ ...order, status: "needs_review", delivered, leadIds: ids });
+  } catch (err) {
+    logger.error({ err, orderId: order.id }, "auto-delivery failed — falling back to manual review notification");
+    await notifyOwner({ ...order, status: "needs_review", delivered, leadIds: ids });
+  }
 }
 
 /** The owner's Send button: refund any shortfall, email the buyer their
@@ -267,7 +282,29 @@ async function deliverEmail(to: string, subject: string, html: string, orderId: 
   return false;
 }
 
-// Tell the owner a paid order is snapshotted and waiting for their Send click.
+// Tell the owner a pack was auto-delivered to the buyer.
+async function notifyOwnerAutoDelivered(order: PackOrder): Promise<void> {
+  const to = ownerEmail();
+  if (!to) return;
+  const delivered = (order.leadIds ?? []).length;
+  const what = [order.label || "leads", order.city, order.state].filter(Boolean).join(", ");
+  const short = delivered < order.requested
+    ? ` (SHORT ${order.requested - delivered} — shortfall auto-refunded)`
+    : "";
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111">
+<p>✅ <strong>Order #${order.id}</strong> was <strong>auto-delivered</strong> to the buyer: <strong>${delivered}/${order.requested}</strong> ${what} leads${short}.</p>
+<p>Buyer: ${order.email ?? "(unknown)"} — $${(order.amountCents / 100).toFixed(2)}</p>
+<p style="color:#666;font-size:13px">No action needed. <a href="${PUBLIC_ORIGIN}/admin" style="color:#00a844">View in admin →</a></p>
+</div>`;
+  try {
+    await deliverEmail(to, `Order #${order.id} auto-delivered — ${delivered}/${order.requested} ${what}`, html, order.id);
+  } catch (err) {
+    logger.error({ err, orderId: order.id }, "owner auto-delivery notification threw");
+  }
+}
+
+// Tell the owner a paid order is snapshotted and waiting for their Send click
+// (only used when PACK_MANUAL_REVIEW=true).
 async function notifyOwner(order: PackOrder): Promise<void> {
   const to = ownerEmail();
   if (!to) { logger.warn({ orderId: order.id }, "no owner email configured — review notification NOT sent"); return; }
