@@ -41,9 +41,9 @@ const BUILD_DATE = new Date().toISOString().slice(0, 10);
 const staticRoutes = [
   {
     path: "/",
-    title: "Buy Local Business Leads — Human-Reviewed Lists by Industry & City | Map Lead Extractor",
+    title: "Find Local Businesses That Need Your Service | Map Lead Extractor",
     description:
-      "Done-for-you local business lead lists: pick an industry and city, get a clean, human-reviewed CSV — names, phones, emails, websites & ratings. 100 targeted leads for $29, delivered in hours.",
+      "MapLeadExtractor finds local leads, scores their opportunity, audits their websites, and writes your follow-up messages so you know who to contact first. Preview real matching leads free, or buy a done-for-you CSV pack from $29.",
   },
   {
     path: "/free-tool",
@@ -53,9 +53,9 @@ const staticRoutes = [
   },
   {
     path: "/pricing",
-    title: "Pricing — Map Lead Extractor | Free & Pro Plans",
+    title: "Pricing — Map Lead Extractor | Software Plans & Lead Packs",
     description:
-      "Start free, upgrade to Pro for unlimited lead saves and the full money-lead scoring suite. Simple pricing for Google & Bing Maps lead extraction.",
+      "Software plans from $49/mo to find, score and audit leads yourself, or buy a done-for-you CSV lead pack from $29. Simple pricing for Google & Bing Maps lead generation.",
   },
   {
     path: "/blog",

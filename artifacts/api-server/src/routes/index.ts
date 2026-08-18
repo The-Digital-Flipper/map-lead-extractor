@@ -15,6 +15,7 @@ import extRouter from "./ext.js";
 import smsRouter from "./sms.js";
 import trackRouter from "./track.js";
 import outreachRouter from "./outreach.js";
+import commandRouter from "./command.js";
 import blogRouter from "./blog.js";
 import testimonialsRouter from "./testimonials.js";
 
@@ -50,6 +51,7 @@ router.use("/chat", chatRouter);
 router.use("/v1", v1Router);
 router.use("/sms", smsRouter);
 router.use("/outreach", outreachRouter);
+router.use("/command", commandRouter);
 router.use("/blog", blogRouter);
 router.use("/testimonials", testimonialsRouter);
 router.use(trackRouter);

@@ -4,8 +4,11 @@ import { resendConfigured, gmailSendReady, sendGmailMail, replitMailConfigured, 
 import { logger } from './lib/logger';
 import { storage } from './storage';
 
-const LICENSE_PRODUCT_ID = 'prod_UzYDwzsJLH96T0';
-const LIFETIME_PRODUCT_ID = 'prod_UzaVAAEqG0DsZH';
+// $197 product IDs, overridable via Replit secrets (test values are the
+// fallback defaults). Set STRIPE_LICENSE_PRODUCT_ID / STRIPE_LIFETIME_PRODUCT_ID
+// to the LIVE product IDs — the Lifetime default below is stale.
+const LICENSE_PRODUCT_ID = process.env.STRIPE_LICENSE_PRODUCT_ID || 'prod_UzYDwzsJLH96T0';
+const LIFETIME_PRODUCT_ID = process.env.STRIPE_LIFETIME_PRODUCT_ID || 'prod_UzaVAAEqG0DsZH';
 const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN || 'https://mapleadextractor.net';
 const STORE_URL =
   'https://chromewebstore.google.com/detail/map-lead-extractor/hdcllknjhfjlgifobniljjgfgmdjhfmg';
@@ -251,6 +254,28 @@ async function sendLifetimeEmail(to: string, sessionId: string): Promise<void> {
 // ── Main handler ─────────────────────────────────────────────────────────────
 
 export class WebhookHandlers {
+  /**
+   * Fast signature verification against the RAW request body. Throws on an
+   * invalid/absent signature or a missing webhook secret. Callers should verify
+   * BEFORE acknowledging so forged webhooks are rejected, then acknowledge, then
+   * run the (slower) fulfillment via processWebhook.
+   */
+  static async verify(payload: Buffer, signature: string): Promise<Stripe.Event> {
+    if (!Buffer.isBuffer(payload)) {
+      throw new Error(
+        'STRIPE WEBHOOK ERROR: Payload must be a Buffer. ' +
+        'This usually means express.json() parsed the body before reaching this handler.'
+      );
+    }
+    const webhookSecret = await getWebhookSecret();
+    if (!webhookSecret) {
+      throw new Error('STRIPE WEBHOOK ERROR: No webhook signing secret configured (set STRIPE_WEBHOOK_SECRET).');
+    }
+    const stripe = await getUncachableStripeClient();
+    // Throws Stripe.errors.StripeSignatureVerificationError on a bad signature.
+    return stripe.webhooks.constructEvent(payload, signature, webhookSecret);
+  }
+
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
     if (!Buffer.isBuffer(payload)) {
       throw new Error(

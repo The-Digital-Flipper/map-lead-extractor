@@ -1,9 +1,10 @@
-import { Router } from "express";
+import { Router, type RequestHandler, type ErrorRequestHandler } from "express";
 import { clerkMiddleware, getAuth } from "@clerk/express";
 import { and, eq, gte, isNotNull, sql, desc, inArray } from "drizzle-orm";
 import { db, packOrders, packSubscriptions, leads, sampleRequests } from "@workspace/db";
 import { storage } from "../storage";
-import { getUncachableStripeClient } from "../stripeClient";
+import { getUncachableStripeClient, getStripeMode, isWebhookSecretConfigured } from "../stripeClient";
+import { logger } from "../lib/logger";
 import {
   LEAD_PACK, PACK_TIERS, validateFilters, parseRequest, countPackLeads, packWhere, packDisplayName, locationString,
   type PackFilters,
@@ -14,6 +15,58 @@ import { unsubscribeSample } from "../lib/buyer-followup";
 import { unsubscribeCustomerByToken } from "../lib/customer-blast";
 
 const router = Router();
+
+// ── Async error plumbing ──────────────────────────────────────────────────────
+// Express 4 does NOT forward rejected promises from async handlers to error
+// middleware, so an unhandled Stripe/DB failure would hang the request forever.
+// `wrap` catches any rejection and routes it to the router error handler below,
+// which turns it into a clean JSON response with a proper status code. This is
+// the try/catch for every Stripe call in this file.
+const wrap = (fn: RequestHandler): RequestHandler => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
+
+// Register routes through `R` instead of `router` so every handler is
+// automatically wrapped — a thrown/rejected Stripe or DB call becomes a clean
+// JSON error via stripeErrorHandler instead of a hung request. `router[method]`
+// (not a literal router.get/post) keeps this immune to the bulk wrapping.
+const register = (method: "get" | "post") => (path: string, ...handlers: RequestHandler[]) =>
+  router[method](path, ...handlers.map(wrap));
+const R = { get: register("get"), post: register("post") };
+
+/** Duck-typed Stripe error (works across stripe-node versions without importing
+ *  the class). Stripe errors carry `type` like "StripeInvalidRequestError". */
+function asStripeError(err: unknown): { type: string; code?: string; message: string; requestId?: string; statusCode?: number } | null {
+  if (err && typeof err === "object" && "type" in err && typeof (err as { type: unknown }).type === "string" && (err as { type: string }).type.startsWith("Stripe")) {
+    return err as { type: string; code?: string; message: string; requestId?: string; statusCode?: number };
+  }
+  return null;
+}
+
+// Router-scoped error handler. Logs the REAL Stripe error server-side (type,
+// code, message, request id — never the key) and returns a safe, generic
+// message to the client. Placed after all routes via router.use(...) at the end
+// of this file.
+const stripeErrorHandler: ErrorRequestHandler = (err, req, res, _next) => {
+  if (res.headersSent) return;
+  const se = asStripeError(err);
+  if (se) {
+    logger.error(
+      { stripeErrorType: se.type, stripeCode: se.code, stripeRequestId: se.requestId, statusCode: se.statusCode, path: req.path, msg: se.message },
+      "Stripe API error",
+    );
+    // Card declines surface to the buyer; everything else is a generic outage.
+    if (se.type === "StripeCardError") {
+      res.status(402).json({ error: "Your card was declined. Please try a different card." });
+      return;
+    }
+    const upstream = typeof se.statusCode === "number" && se.statusCode >= 400 ? se.statusCode : 502;
+    const status = upstream >= 500 ? 503 : upstream === 429 ? 429 : upstream;
+    res.status(status).json({ error: "Checkout is temporarily unavailable — please try again in a moment." });
+    return;
+  }
+  logger.error({ err, path: req.path }, "Unhandled error in Stripe routes");
+  res.status(500).json({ error: "Something went wrong — please try again." });
+};
 
 const FREE_LEAD_LIMIT = 100;
 // Build-to-order fulfillment window; also the auto-partial-refund deadline.
@@ -42,7 +95,7 @@ async function getProStatus(clerkUserId: string): Promise<{
 }
 
 /** GET /api/stripe/status — current user's plan */
-router.get("/status", async (req, res) => {
+R.get("/status", async (req, res) => {
   const auth = getAuth(req);
   if (!auth.userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -62,8 +115,20 @@ router.get("/status", async (req, res) => {
   res.json({ isPro, isLifetime, plan, freeLimit: FREE_LEAD_LIMIT, periodEnd });
 });
 
+/** GET /api/stripe/health — public. Reports whether the app is running on a
+ *  LIVE or TEST Stripe key and whether a webhook signing secret is configured,
+ *  so the live-mode swap can be verified without guessing. Booleans and the
+ *  mode word only — no keys, no IDs, no secrets. */
+R.get("/health", async (_req, res) => {
+  const [stripeMode, webhookSecretConfigured] = await Promise.all([
+    getStripeMode(),
+    isWebhookSecretConfigured(),
+  ]);
+  res.json({ stripeMode, webhookSecretConfigured });
+});
+
 /** GET /api/stripe/products — public, for pricing page (fetches directly from Stripe API) */
-router.get("/products", async (_req, res) => {
+R.get("/products", async (_req, res) => {
   const stripe = await getUncachableStripeClient();
   const productsRes = await stripe.products.list({ active: true, limit: 20 });
   const pricesRes = await stripe.prices.list({ active: true, limit: 100 });
@@ -103,7 +168,7 @@ router.get("/products", async (_req, res) => {
  * leads this week" trust ticker on the landing page — this must stay a
  * genuine number, never a hardcoded/marketing figure.
  */
-router.get("/recent-orders-count", async (req, res) => {
+R.get("/recent-orders-count", async (req, res) => {
   const days = Math.min(30, Math.max(1, parseInt(String(req.query.days ?? "7"), 10) || 7));
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const [row] = await db
@@ -113,11 +178,15 @@ router.get("/recent-orders-count", async (req, res) => {
   res.json({ count: row?.count ?? 0, days });
 });
 
-const LIFETIME_PRODUCT_ID = "prod_UzaVAAEqG0DsZH";
-const LIFETIME_PRICE_ID = "price_1TzbKy0eyemRWWM4srkhRaIB";
+// $197 Lifetime Membership product/price. Overridable via Replit secrets so the
+// live IDs can be swapped in without a code change — the current test values
+// are the fallback defaults. NOTE: the default product ID below is stale; set
+// STRIPE_LIFETIME_PRODUCT_ID / STRIPE_LIFETIME_PRICE_ID to the live IDs.
+const LIFETIME_PRODUCT_ID = process.env.STRIPE_LIFETIME_PRODUCT_ID || "prod_UzaVAAEqG0DsZH";
+const LIFETIME_PRICE_ID = process.env.STRIPE_LIFETIME_PRICE_ID || "price_1TzbKy0eyemRWWM4srkhRaIB";
 
 /** POST /api/stripe/lifetime-checkout — one-time $197 lifetime membership */
-router.post("/lifetime-checkout", async (req, res) => {
+R.post("/lifetime-checkout", async (req, res) => {
   const auth = getAuth(req);
   if (!auth.userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -158,7 +227,7 @@ router.post("/lifetime-checkout", async (req, res) => {
 });
 
 /** POST /api/stripe/checkout — create a Stripe Checkout session */
-router.post("/checkout", async (req, res) => {
+R.post("/checkout", async (req, res) => {
   const auth = getAuth(req);
   if (!auth.userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -208,7 +277,7 @@ async function resolveFilters(body: { category?: string; state?: string; request
 
 /** GET /api/stripe/pack-availability — live count for a whitelisted
  * category/state combo (the dropdown path). */
-router.get("/pack-availability", async (req, res) => {
+R.get("/pack-availability", async (req, res) => {
   const filters = validateFilters(req.query.category, req.query.state);
   if (!filters) {
     res.status(400).json({ error: "Unknown category or state." });
@@ -220,7 +289,7 @@ router.get("/pack-availability", async (req, res) => {
 
 /** POST /api/stripe/pack-quote — parse a free-text request and report whether
  * we can fill it instantly (100+ on hand) or will build it to order. */
-router.post("/pack-quote", async (req, res) => {
+R.post("/pack-quote", async (req, res) => {
   const request = String((req.body as { request?: string })?.request ?? "").trim();
   if (request.length < 3) {
     res.status(400).json({ error: "Tell us what leads you want — e.g. \"roofers in Mobile, AL\"." });
@@ -254,7 +323,7 @@ router.post("/pack-quote", async (req, res) => {
  * just means the worker snapshots the pack on its first tick; otherwise it
  * gathers fresh leads first (24h deadline, shortfall auto-refunded at Send).
  * No account needed — Stripe collects the buyer's email. */
-router.post("/pack-checkout", async (req, res) => {
+R.post("/pack-checkout", async (req, res) => {
   const body = (req.body ?? {}) as { category?: string; state?: string; request?: string; size?: number; ref?: string };
   const filters = await resolveFilters(body);
   if (!filters) {
@@ -341,7 +410,7 @@ router.post("/pack-checkout", async (req, res) => {
  * every month at a discount vs the one-off pack. Same filter resolution as
  * pack-checkout; fulfillment is handled by lib/subscriptions.ts, which mints
  * a normal pack order each month so the owner-review flow is unchanged. */
-router.post("/pack-subscribe", async (req, res) => {
+R.post("/pack-subscribe", async (req, res) => {
   const body = (req.body ?? {}) as { category?: string; state?: string; request?: string };
   const filters = await resolveFilters(body);
   if (!filters) {
@@ -476,7 +545,7 @@ function cityLabel(address: string | null, f: PackFilters): string {
  * for a category/state (or free-text request) and records the (email-less)
  * sample view. No email required.
  */
-router.post("/pack-sample", async (req, res) => {
+R.post("/pack-sample", async (req, res) => {
   const body = (req.body ?? {}) as { category?: string; state?: string; request?: string };
   const filters = await resolveFilters(body);
   if (!filters) {
@@ -578,7 +647,7 @@ router.post("/pack-sample", async (req, res) => {
  * against a prior /pack-sample view and returns the SAME 5 leads with full
  * phone + email revealed.
  */
-router.post("/pack-sample-unlock", async (req, res) => {
+R.post("/pack-sample-unlock", async (req, res) => {
   const body = (req.body ?? {}) as { sampleId?: number; email?: string };
   const email = String(body.email ?? "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) {
@@ -638,8 +707,8 @@ const sampleUnsub = async (req: import("express").Request, res: import("express"
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unsubscribed</title><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0d1117;color:#e6edf3;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0"><div style="text-align:center;max-width:420px;padding:2rem"><h1 style="font-size:1.25rem;margin:0 0 .5rem">You're unsubscribed</h1><p style="color:#94a3b8;line-height:1.5">You won't get any more follow-up emails from us. You can still buy leads any time at <a href="https://mapleadextractor.net/" style="color:#00E676">mapleadextractor.net</a>.</p></div></body>`);
 };
-router.get("/sample-unsub/:token", sampleUnsub);
-router.post("/sample-unsub/:token", sampleUnsub);
+R.get("/sample-unsub/:token", sampleUnsub);
+R.post("/sample-unsub/:token", sampleUnsub);
 
 /** GET|POST /api/stripe/customer-unsub/:token — one-click unsubscribe from
  *  customer email blasts (backs the List-Unsubscribe header + footer link). */
@@ -648,11 +717,11 @@ const customerUnsub = async (req: import("express").Request, res: import("expres
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unsubscribed</title><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0d1117;color:#e6edf3;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0"><div style="text-align:center;max-width:420px;padding:2rem"><h1 style="font-size:1.25rem;margin:0 0 .5rem">You're unsubscribed</h1><p style="color:#94a3b8;line-height:1.5">You won't get any more emails from us. You can still buy leads any time at <a href="https://mapleadextractor.net/" style="color:#00E676">mapleadextractor.net</a>.</p></div></body>`);
 };
-router.get("/customer-unsub/:token", customerUnsub);
-router.post("/customer-unsub/:token", customerUnsub);
+R.get("/customer-unsub/:token", customerUnsub);
+R.post("/customer-unsub/:token", customerUnsub);
 
 /** POST /api/stripe/portal — customer billing portal */
-router.post("/portal", async (req, res) => {
+R.post("/portal", async (req, res) => {
   const auth = getAuth(req);
   if (!auth.userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -674,6 +743,9 @@ router.post("/portal", async (req, res) => {
 
   res.json({ url: portal.url });
 });
+
+// Must be registered AFTER all routes so wrapped-handler rejections land here.
+router.use(stripeErrorHandler);
 
 export { getProStatus, FREE_LEAD_LIMIT };
 export default router;

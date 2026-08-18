@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Download, Lock, Shield, Mail, Eye, Phone, Star, Sparkles, Facebook, Instagram, Twitter, Linkedin, Globe } from "lucide-react";
+import { Download, Lock, Shield, Mail, Eye, Phone, Star, Sparkles, Facebook, Instagram, Twitter, Linkedin, Globe, ChevronDown, AlertCircle, RefreshCw } from "lucide-react";
 
 import { PaymentMethods, GuaranteeCallout } from "@/components/site/trust-badges";
 import { PlatformReviews } from "@/components/site/landing-sections";
@@ -21,11 +21,10 @@ function SocialIcon({ platform }: { platform: string }) {
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-// Volume tiers in the pricing grid, for buyers who want MORE than the 100-lead
-// pack sold in the main conversion card above (that's why 100 isn't repeated
-// here — repeating it read as two competing offers). Sizes/prices must stay
-// in sync with PACK_TIERS in api-server/src/lib/packs.ts (the server
-// re-prices anyway — these are display values).
+// Volume tiers, tucked into the collapsed "every month or in bulk" section so
+// they never compete with the single $29 pack. Sizes/prices must stay in sync
+// with PACK_TIERS in api-server/src/lib/packs.ts (the server re-prices anyway —
+// these are display values).
 const PACK_TIERS_UI = [
   { size: 500, qty: "500", price: "$99", per: "$0.20/lead", save: "Save $46", highlight: false },
   { size: 1000, qty: "1,000", price: "$179", per: "$0.18/lead", save: "Save $111", highlight: true },
@@ -107,109 +106,82 @@ const US_STATES: { value: string; label: string }[] = [
   { value: "WV", label: "West Virginia" }, { value: "WI", label: "Wisconsin" }, { value: "WY", label: "Wyoming" },
 ];
 
-// The shared "buy leads" purchase widget: free-text quote + availability
-// picker, one-click $29 pack checkout, trust strip, mini social proof, volume
-// tiers, and the human-review quality section. Used on both the home page's
-// #leads-for-sale section and the pricing page. This is the single source of
+// The single "buy leads" funnel, in three ordered stages:
+//   1. Target selection — business type + location, then "Show My 5 Free Leads".
+//   2. Sample preview   — up to 5 real matching businesses (or clearly-labelled
+//      example rows when the API has none on hand yet), with an email unlock.
+//   3. Purchase         — one dominant $29 pack CTA; monthly/bulk collapsed below.
+// Shared by the home hero, /pricing, and /get-leads — the single source of
 // truth for the pack-buying flow.
-export default function LeadPackWidget({ showReviews = false }: { showReviews?: boolean }) {
-  const [packLoading, setPackLoading] = useState(false);
-  const [packError, setPackError] = useState<string | null>(null);
+export default function LeadPackWidget({ showReviews = false, hidePrice = false }: { showReviews?: boolean; hidePrice?: boolean }) {
   const [packCategory, setPackCategory] = useState("");
   const [packState, setPackState] = useState("");
-  // Free-text request path
-  const [packRequest, setPackRequest] = useState("");
-  const [quoteLoading, setQuoteLoading] = useState(false);
-  const [quote, setQuote] = useState<
-    | { ok: true; instant: boolean; available: number; label: string; location: string; displayName: string }
-    | { ok: false; message: string }
-    | null
-  >(null);
+  const [targetError, setTargetError] = useState<string | null>(null);
 
-  const handleQuote = async () => {
-    const request = packRequest.trim();
-    if (request.length < 3) return;
-    setQuoteLoading(true);
-    setQuote(null);
-    setPackError(null);
-    try {
-      const res = await fetch(`${basePath}/api/stripe/pack-quote`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setQuote({ ok: true, instant: data.instant, available: data.available, label: data.label, location: data.location, displayName: data.displayName });
-      } else {
-        setQuote({ ok: false, message: data.message ?? "We couldn't read that request — try e.g. \"roofers in Mobile, AL\"." });
-      }
-    } catch {
-      setQuote({ ok: false, message: "Couldn't check availability right now — please try again." });
+  const categoryLabel = PACK_CATEGORIES.find(c => c.value === packCategory)?.label ?? "";
+  const stateLabel = US_STATES.find(s => s.value === packState)?.label ?? "";
+
+  // ── Stage 1 validation ──────────────────────────────────────────────────────
+  // Require a business type before anything runs. A blank "all types" order is
+  // allowed via bulk, but must never look like the recommended default here.
+  const validateTarget = (): boolean => {
+    if (!packCategory) {
+      setTargetError("Choose a business type first — that's how we match your leads.");
+      return false;
     }
-    setQuoteLoading(false);
+    setTargetError(null);
+    return true;
   };
 
-  const handleBuyRequest = async () => {
-    setPackLoading(true);
-    setPackError(null);
-    try {
-      const res = await fetch(`${basePath}/api/stripe/pack-checkout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request: packRequest.trim() }),
-      });
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-        return;
-      }
-      setPackError(data.error ?? "Checkout is unavailable right now — please try again.");
-    } catch {
-      setPackError("Checkout is unavailable right now — please try again.");
-    }
-    setPackLoading(false);
-  };
-  // ── Free sample leads (proof-first email capture) ──────────────────────────
+  // ── Stage 2: free sample leads (proof-first email capture) ──────────────────
   const [sampleLoading, setSampleLoading] = useState(false);
   const [sampleError, setSampleError] = useState<string | null>(null);
   const [sample, setSample] = useState<
-    { sampleId: number; totalAvailable: number; label: string; location: string; leads: SampleLead[] } | null
+    { sampleId: number; totalAvailable: number; label: string; location: string; leads: SampleLead[]; isDemo: boolean } | null
   >(null);
   const [unlockEmail, setUnlockEmail] = useState("");
   const [unlockLoading, setUnlockLoading] = useState(false);
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [unlocked, setUnlocked] = useState<UnlockedLead[] | null>(null);
 
-  // Reset samples whenever the search changes so results always match
+  // Reset samples whenever the target changes so results always match — but keep
+  // the user's category/state selections intact.
   useEffect(() => {
     setSample(null);
     setSampleError(null);
     setUnlocked(null);
     setUnlockError(null);
-  }, [packCategory, packState, packRequest]);
+  }, [packCategory, packState]);
 
   const handleSeeSamples = async () => {
+    if (!validateTarget()) return;
     setSampleLoading(true);
     setSampleError(null);
     setUnlocked(null);
     setUnlockError(null);
-    const req = packRequest.trim();
-    const payload = req.length >= 3 ? { request: req } : { category: packCategory, state: packState };
     try {
       const res = await fetch(`${basePath}/api/stripe/pack-sample`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ category: packCategory, state: packState }),
       });
       const data = await res.json();
       if (data.ok) {
-        setSample({ sampleId: data.sampleId, totalAvailable: data.totalAvailable, label: data.label, location: data.location, leads: data.leads });
+        setSample({
+          sampleId: data.sampleId,
+          totalAvailable: data.totalAvailable,
+          label: data.label,
+          location: data.location,
+          leads: data.leads,
+          isDemo: !!data.isDemo,
+        });
+        // Bring the results into view without wiping the targeting selections.
+        setTimeout(() => document.getElementById("sample-results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
       } else {
-        setSampleError(data.message ?? "No samples for that combination yet — try another type or state.");
+        setSampleError(data.message ?? "No preview for that combination yet — try another type or state.");
       }
     } catch {
-      setSampleError("Couldn't load samples right now — please try again.");
+      setSampleError("Couldn't load a preview right now — please try again.");
     }
     setSampleLoading(false);
   };
@@ -238,15 +210,20 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
     setUnlockLoading(false);
   };
 
+  // ── Stage 3: purchase ───────────────────────────────────────────────────────
+  const [packLoading, setPackLoading] = useState(false);
+  const [packError, setPackError] = useState<string | null>(null);
+
   // null = not yet known (endpoint unreachable or still loading)
   const [packAvail, setPackAvail] = useState<{ available: number; ok: boolean } | null>(null);
   const [packAvailLoading, setPackAvailLoading] = useState(false);
 
-  // Live availability check so the buyer sees "only N available" before paying.
+  // Live availability so the buyer sees whether it ships from stock or is built
+  // to order before paying.
   useEffect(() => {
+    if (!packCategory && !packState) { setPackAvail(null); return; }
     let cancelled = false;
     setPackAvailLoading(true);
-    setPackError(null);
     const params = new URLSearchParams();
     if (packCategory) params.set("category", packCategory);
     if (packState) params.set("state", packState);
@@ -261,10 +238,37 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
   }, [packCategory, packState]);
 
   const handleBuyPack = async () => {
+    if (packLoading) return;                 // prevent duplicate checkout sessions
+    if (!validateTarget()) return;
     setPackLoading(true);
     setPackError(null);
     try {
       const res = await fetch(`${basePath}/api/stripe/pack-checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: packCategory, state: packState }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+        return;                              // keep the spinner up through redirect
+      }
+      setPackError(data.error ?? "Checkout is unavailable right now — please try again.");
+    } catch {
+      setPackError("Checkout is unavailable right now — please try again.");
+    }
+    setPackLoading(false);
+  };
+
+  // Monthly subscription checkout — same filters, recurring price.
+  const [subLoading, setSubLoading] = useState(false);
+  const handleSubscribe = async () => {
+    if (subLoading) return;
+    if (!validateTarget()) return;
+    setSubLoading(true);
+    setPackError(null);
+    try {
+      const res = await fetch(`${basePath}/api/stripe/pack-subscribe`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category: packCategory, state: packState }),
@@ -278,38 +282,11 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
     } catch {
       setPackError("Checkout is unavailable right now — please try again.");
     }
-    setPackLoading(false);
-  };
-
-  // Monthly subscription checkout — same filters, recurring price.
-  const [subLoading, setSubLoading] = useState(false);
-  const handleSubscribe = async () => {
-    if (subLoading) return;
-    setSubLoading(true);
-    setPackError(null);
-    const req = packRequest.trim();
-    const payload = req.length >= 3 ? { request: req } : { category: packCategory, state: packState };
-    try {
-      const res = await fetch(`${basePath}/api/stripe/pack-subscribe`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-        return;
-      }
-      setPackError(data.error ?? "Checkout is unavailable right now — please try again.");
-    } catch {
-      setPackError("Checkout is unavailable right now — please try again.");
-    }
     setSubLoading(false);
   };
 
-  // Volume-tier checkout (the pricing grid). Clicking a tier opens a picker
-  // so the buyer chooses WHAT kind of leads fill the pack; the picker shares
-  // packCategory/packState with the main dropdowns, so selections carry over.
+  // Volume-tier checkout (collapsed bulk section). Shares packCategory/packState
+  // with Stage 1, so the buyer's selections carry straight over.
   const [selectedTier, setSelectedTier] = useState<number | null>(null);
   const [tierLoading, setTierLoading] = useState<number | null>(null);
   const [tierError, setTierError] = useState<string | null>(null);
@@ -335,311 +312,289 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
     setTierLoading(null);
   };
 
+  const targetChosen = !!packCategory;
+  const targetSummary = [categoryLabel || null, stateLabel || "Nationwide"].filter(Boolean).join(" · ");
+
   return (
-    <div className="max-w-2xl mx-auto">
-      {/* Price + value header */}
-      <div className="text-center mb-6">
-        <div className="flex items-baseline justify-center gap-3 mb-2">
-          <span className="text-5xl font-display font-bold text-foreground">$29</span>
-        </div>
-        <p className="text-muted-foreground">100 targeted local business leads — phone, email, website, ratings & more</p>
-      </div>
-
-      {/* Free sample leads — proof-first. See 5 real leads before paying;
-          entering an email unlocks the full phone/email for those same 5. */}
-      <div className="bg-card/60 border border-primary/25 rounded-2xl p-5 mb-4">
-        <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
-            <Eye className="w-4.5 h-4.5 text-primary" />
+    <div id="pack-buy" className="max-w-2xl mx-auto">
+      {!hidePrice && (
+        <div className="text-center mb-6">
+          <div className="flex items-baseline justify-center gap-3 mb-1">
+            <span className="text-5xl font-display font-bold text-foreground">$29</span>
+            <span className="text-sm text-muted-foreground">one-time · no account required</span>
           </div>
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-foreground">See 5 real leads free — before you pay</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Pick a type/state above or type a request, then preview real matching businesses. No card, no signup.</p>
-          </div>
+          <p className="text-muted-foreground">100 targeted local business leads — business names, phone numbers, websites, publicly listed emails when available, ratings, addresses &amp; more.</p>
         </div>
+      )}
 
-        {!sample && (
+      {/* ── STAGE 1 · Target selection ─────────────────────────────────────── */}
+      <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 p-5 sm:p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-black shrink-0">1</span>
+          <p className="text-sm font-bold text-foreground">Choose your industry &amp; location</p>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4 pl-8">
+          For example: <span className="text-foreground/80">Roofers in Pensacola, FL</span> · <span className="text-foreground/80">Plumbers in Houston, TX</span> · <span className="text-foreground/80">Auto repair shops in Mobile, AL</span>
+        </p>
+
+        <div className="flex flex-col gap-4">
+          {/* Business type — comes BEFORE the sample button */}
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="select-pack-category" className="text-sm font-bold text-foreground">
+              Business type
+            </label>
+            <select
+              id="select-pack-category"
+              value={packCategory}
+              onChange={e => { setPackCategory(e.target.value); if (e.target.value) setTargetError(null); }}
+              data-testid="select-pack-category"
+              aria-invalid={!!targetError}
+              className={`w-full h-14 px-4 rounded-xl bg-white border-2 text-[#202124] text-base font-semibold focus:outline-none focus:border-primary transition-colors cursor-pointer shadow-sm ${targetError ? "border-red-400" : "border-[#e8eaed]"}`}>
+              <option value="">Select a business type…</option>
+              {PACK_CATEGORIES.map(c => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+            {targetError && (
+              <p className="flex items-center gap-1.5 text-sm text-red-500 font-medium" data-testid="text-target-error">
+                <AlertCircle className="w-4 h-4 shrink-0" /> {targetError}
+              </p>
+            )}
+          </div>
+
+          {/* Location */}
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="select-pack-state" className="text-sm font-bold text-foreground">
+              Location
+            </label>
+            <select
+              id="select-pack-state"
+              value={packState}
+              onChange={e => setPackState(e.target.value)}
+              data-testid="select-pack-state"
+              className="w-full h-14 px-4 rounded-xl bg-white border-2 border-[#e8eaed] text-[#202124] text-base font-semibold focus:outline-none focus:border-primary transition-colors cursor-pointer shadow-sm">
+              <option value="">Nationwide — any state</option>
+              {US_STATES.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Primary CTA — Show My 5 Free Leads */}
           <button
             onClick={handleSeeSamples}
             disabled={sampleLoading}
             data-testid="btn-see-samples"
-            className="mt-4 w-full flex items-center justify-center gap-2 h-11 rounded-xl border border-primary/50 text-primary font-bold text-sm hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+            className="w-full flex items-center justify-center gap-2 min-h-[52px] px-6 rounded-xl bg-primary text-primary-foreground font-bold text-base hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed shadow-lg shadow-primary/25">
             {sampleLoading ? (
-              <><span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" /> Finding samples…</>
+              <><span className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" /> Finding your leads…</>
             ) : (
-              <><Eye className="w-4 h-4" /> Show me 5 free sample leads</>
+              <><Eye className="w-5 h-5" /> Show My 5 Free Leads</>
             )}
           </button>
-        )}
-        {sampleError && <p className="text-sm text-amber-400 mt-3" data-testid="text-sample-error">{sampleError}</p>}
-
-        {sample && (
-          <div className="mt-4" data-testid="box-samples">
-            <p className="text-xs text-muted-foreground mb-2">
-              {sample.leads.length} of <strong className="text-foreground">{sample.totalAvailable.toLocaleString()}</strong> {sample.label || "leads"}{sample.location ? ` in ${sample.location}` : ""} — a real preview{unlocked ? "" : " (contact details hidden)"}:
-            </p>
-            <div className="space-y-2">
-              {sample.leads.map((lead, i) => {
-                const u = unlocked?.[i];
-                return (
-                  <div key={i} className="rounded-xl border border-border bg-background/40 p-3" data-testid={`row-sample-${i}`}>
-                    {/* Top row: name + rating */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="font-semibold text-foreground text-sm truncate">{lead.name}</div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          {lead.city}
-                          {lead.website ? (
-                            <>
-                              {" · "}
-                              <a
-                                href={u?.websiteUrl ?? `https://${lead.website}`}
-                                target="_blank"
-                                rel="noopener nofollow"
-                                className="text-foreground/70 hover:text-primary hover:underline transition-colors"
-                                data-testid={`link-website-${i}`}
-                              >
-                                {lead.website}
-                              </a>
-                            </>
-                          ) : null}
-                        </div>
-                      </div>
-                      {lead.rating != null && (
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-                          <Star className="w-3.5 h-3.5 fill-[#f59e0b] text-[#f59e0b]" />
-                          <span className="font-semibold text-foreground">{lead.rating.toFixed(1)}</span>
-                          {lead.reviewCount != null && <span>({lead.reviewCount})</span>}
-                        </div>
-                      )}
-                    </div>
-                    {/* Profile chips: category + verified */}
-                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                      {lead.category && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-semibold uppercase tracking-wide">
-                          {lead.category}
-                        </span>
-                      )}
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-semibold">
-                        <svg className="w-2.5 h-2.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>
-                        Verified by humans
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs">
-                      <span className="flex items-center gap-1.5">
-                        <Phone className="w-3.5 h-3.5 text-primary shrink-0" />
-                        {u ? (
-                          <a href={`tel:${u.phone}`} className="font-semibold text-foreground hover:text-primary hover:underline transition-colors" data-testid={`text-phone-${i}`}>{u.phone}</a>
-                        ) : (
-                          <span className="text-muted-foreground font-mono">{lead.phoneMasked}</span>
-                        )}
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <Mail className="w-3.5 h-3.5 text-primary shrink-0" />
-                        {u ? (
-                          u.email ? (
-                            <a href={`mailto:${u.email}`} className="font-semibold text-foreground hover:text-primary hover:underline transition-colors truncate max-w-[180px]" data-testid={`text-email-${i}`}>{u.email}</a>
-                          ) : (
-                            <span className="font-semibold text-foreground" data-testid={`text-email-${i}`}>—</span>
-                          )
-                        ) : lead.hasEmail ? (
-                          <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> email included</span>
-                        ) : (
-                          <span className="text-muted-foreground/60">no email</span>
-                        )}
-                      </span>
-                      {/* Social pages — always shown as a row */}
-                      <span className="flex items-center gap-1.5" data-testid={`row-socials-${i}`}>
-                        <Globe className="w-3.5 h-3.5 text-primary shrink-0" />
-                        {u ? (
-                          (u.socials ?? []).length > 0 ? (
-                            (u.socials ?? []).map((s) => (
-                              <a key={s.url} href={s.url} target="_blank" rel="noopener nofollow" title={s.platform}
-                                className="text-primary hover:opacity-70 transition-opacity">
-                                <SocialIcon platform={s.platform} />
-                              </a>
-                            ))
-                          ) : (
-                            <span className="text-muted-foreground/60">no socials</span>
-                          )
-                        ) : (lead.socials ?? []).length > 0 ? (
-                          (lead.socials ?? []).map((p) => (
-                            <span key={p} title={`${p} — unlock to open`} className="text-muted-foreground/50">
-                              <SocialIcon platform={p} />
-                            </span>
-                          ))
-                        ) : (
-                          <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> socials included</span>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {!unlocked ? (
-              <div className="mt-4 rounded-xl bg-primary/5 border border-primary/25 p-4">
-                <p className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
-                  <Lock className="w-4 h-4 text-primary" /> Unlock the full phone &amp; email for all 5 — free
-                </p>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <input
-                    type="email"
-                    value={unlockEmail}
-                    onChange={e => { setUnlockEmail(e.target.value); setUnlockError(null); }}
-                    onKeyDown={e => { if (e.key === "Enter") handleUnlock(); }}
-                    placeholder="you@email.com"
-                    data-testid="input-unlock-email"
-                    className="flex-1 h-11 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm placeholder:text-[#9aa0a6] focus:outline-none focus:border-primary transition-colors"
-                  />
-                  <button
-                    onClick={handleUnlock}
-                    disabled={unlockLoading}
-                    data-testid="btn-unlock-samples"
-                    className="h-11 px-5 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap">
-                    {unlockLoading ? "Unlocking…" : "Unlock all 5 →"}
-                  </button>
-                </div>
-                {unlockError && <p className="text-sm text-red-400 mt-2" data-testid="text-unlock-error">{unlockError}</p>}
-                <p className="text-[11px] text-muted-foreground mt-2">We'll email you these 5 and occasional lead deals. No spam — unsubscribe anytime.</p>
-              </div>
-            ) : (
-              <div className="mt-4 rounded-xl bg-primary/10 border border-primary/40 p-4 text-center">
-                <p className="text-sm font-bold text-foreground flex items-center justify-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-primary" /> That's 5 of {sample.totalAvailable.toLocaleString()}. Get the full pack of 100 for $29.
-                </p>
-                <a
-                  href="#pack-buy"
-                  onClick={() => { document.querySelector('[data-testid="btn-buy-lead-pack"]')?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
-                  data-testid="link-sample-to-buy"
-                  className="mt-3 inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 transition-opacity">
-                  <Download className="w-4 h-4" /> Get 100 Leads — $29
-                </a>
-              </div>
-            )}
-          </div>
-        )}
+          <p className="text-center text-[11px] text-muted-foreground -mt-1">Free preview · no credit card · no signup</p>
+        </div>
       </div>
 
-      {/* Main conversion card */}
-      <div className="bg-card/60 border border-primary/20 rounded-2xl p-6 shadow-lg shadow-primary/5 mb-4">
+      {sampleError && (
+        <p className="flex items-center gap-1.5 text-sm text-amber-500 mt-4" data-testid="text-sample-error">
+          <AlertCircle className="w-4 h-4 shrink-0" /> {sampleError}
+        </p>
+      )}
 
-        {/* Free-text request */}
-        <label className="block text-sm font-semibold text-foreground mb-2">Tell us what you're looking for</label>
-        <div className="flex flex-col sm:flex-row gap-3 mb-5">
-          <input
-            type="text"
-            value={packRequest}
-            onChange={e => { setPackRequest(e.target.value); setQuote(null); }}
-            onKeyDown={e => { if (e.key === "Enter") handleQuote(); }}
-            placeholder="e.g. roofers in Mobile, AL — or plumbers anywhere"
-            data-testid="input-pack-request"
-            className="flex-1 h-12 px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm placeholder:text-[#9aa0a6] focus:outline-none focus:border-primary transition-colors"
-          />
-          <button
-            onClick={handleQuote}
-            disabled={quoteLoading || packRequest.trim().length < 3}
-            data-testid="btn-pack-quote"
-            className="h-12 px-5 rounded-xl border border-primary/60 text-primary font-bold text-sm hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
-            {quoteLoading ? "Checking…" : "Check availability"}
-          </button>
-        </div>
+      {/* ── STAGE 2 · Real sample preview ──────────────────────────────────── */}
+      {sample && (
+        <div id="sample-results" className="mt-4 scroll-mt-24 bg-card/60 border border-primary/25 rounded-2xl p-5" data-testid="box-samples">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-black shrink-0">2</span>
+            <p className="text-sm font-bold text-foreground">
+              {sample.isDemo ? "Example of what your pack looks like" : "Your matching leads"}
+            </p>
+          </div>
 
-        {quote && quote.ok === false && (
-          <p className="text-sm text-amber-400 mb-4 text-left" data-testid="text-quote-error">{quote.message}</p>
-        )}
-        {quote && quote.ok && (
-          <div className="mb-5 text-left p-4 rounded-xl bg-primary/5 border border-primary/20" data-testid="box-quote-result">
-            {quote.instant ? (
-              <p className="text-sm text-primary mb-3 font-medium">
-                ✅ In stock — {quote.available.toLocaleString()} {quote.label}{quote.location ? ` in ${quote.location}` : ""} ready. CSV emailed after a quick quality check, usually within a few hours.
+          {sample.isDemo ? (
+            <p className="text-xs text-muted-foreground mb-3 pl-8" data-testid="text-sample-caption">
+              We don't have {sample.label || "these"}{sample.location ? ` in ${sample.location}` : ""} on hand yet, so here are
+              <strong className="text-foreground"> example rows</strong> showing the exact fields you'll receive. Order below and we gather 100 fresh matching leads within 24 hours.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground mb-3 pl-8" data-testid="text-sample-caption">
+              {sample.leads.length} of <strong className="text-foreground">{sample.totalAvailable.toLocaleString()}</strong> real {sample.label || "leads"}{sample.location ? ` in ${sample.location}` : ""} —
+              {unlocked ? " full contact details shown." : " contact details are locked until you unlock them below."}
+            </p>
+          )}
+
+          <div className="space-y-2">
+            {sample.leads.map((lead, i) => {
+              const u = unlocked?.[i];
+              return (
+                <div key={i} className="rounded-xl border border-border bg-background/40 p-3" data-testid={`row-sample-${i}`}>
+                  {/* Top row: name + rating */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-foreground text-sm truncate">{lead.name}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {lead.city}
+                        {lead.website ? (
+                          <>
+                            {" · "}
+                            <a
+                              href={u?.websiteUrl ?? `https://${lead.website}`}
+                              target="_blank"
+                              rel="noopener nofollow"
+                              className="text-foreground/70 hover:text-primary hover:underline transition-colors"
+                              data-testid={`link-website-${i}`}
+                            >
+                              {lead.website}
+                            </a>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                    {lead.rating != null && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+                        <Star className="w-3.5 h-3.5 fill-[#f59e0b] text-[#f59e0b]" />
+                        <span className="font-semibold text-foreground">{lead.rating.toFixed(1)}</span>
+                        {lead.reviewCount != null && <span>({lead.reviewCount})</span>}
+                      </div>
+                    )}
+                  </div>
+                  {/* Category chip */}
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                    {lead.category && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-semibold uppercase tracking-wide">
+                        {lead.category}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs">
+                    {/* Phone — visible vs locked */}
+                    <span className="flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-primary shrink-0" />
+                      {u ? (
+                        <a href={`tel:${u.phone}`} className="font-semibold text-foreground hover:text-primary hover:underline transition-colors" data-testid={`text-phone-${i}`}>{u.phone}</a>
+                      ) : (
+                        <span className="text-muted-foreground font-mono">{lead.phoneMasked}</span>
+                      )}
+                    </span>
+                    {/* Email — accurate: only shown as included when present */}
+                    <span className="flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-primary shrink-0" />
+                      {u ? (
+                        u.email ? (
+                          <a href={`mailto:${u.email}`} className="font-semibold text-foreground hover:text-primary hover:underline transition-colors truncate max-w-[180px]" data-testid={`text-email-${i}`}>{u.email}</a>
+                        ) : (
+                          <span className="text-muted-foreground" data-testid={`text-email-${i}`}>no public email</span>
+                        )
+                      ) : lead.hasEmail ? (
+                        <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> email included</span>
+                      ) : (
+                        <span className="text-muted-foreground/60">no public email</span>
+                      )}
+                    </span>
+                    {/* Social pages */}
+                    <span className="flex items-center gap-1.5" data-testid={`row-socials-${i}`}>
+                      <Globe className="w-3.5 h-3.5 text-primary shrink-0" />
+                      {u ? (
+                        (u.socials ?? []).length > 0 ? (
+                          (u.socials ?? []).map((s) => (
+                            <a key={s.url} href={s.url} target="_blank" rel="noopener nofollow" title={s.platform}
+                              className="text-primary hover:opacity-70 transition-opacity">
+                              <SocialIcon platform={s.platform} />
+                            </a>
+                          ))
+                        ) : (
+                          <span className="text-muted-foreground/60">no socials</span>
+                        )
+                      ) : (lead.socials ?? []).length > 0 ? (
+                        (lead.socials ?? []).map((p) => (
+                          <span key={p} title={`${p} — unlock to open`} className="text-muted-foreground/50">
+                            <SocialIcon platform={p} />
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-muted-foreground/60">no socials</span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Email unlock — only meaningful for real leads (demo has no live details) */}
+          {!sample.isDemo && !unlocked && (
+            <div className="mt-4 rounded-xl bg-primary/5 border border-primary/25 p-4">
+              <p className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
+                <Lock className="w-4 h-4 text-primary" /> Unlock the full phone &amp; email for all 5 — free
               </p>
-            ) : (
-              <p className="text-sm text-muted-foreground mb-3">
-                We don't have 100 {quote.label}{quote.location ? ` in ${quote.location}` : ""} on hand right now ({quote.available.toLocaleString()} in stock). Order it and we'll <strong className="text-foreground">gather 100 fresh leads and email your CSV within 24 hours</strong> — if we come up short, we automatically refund the difference.
-              </p>
-            )}
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="email"
+                  value={unlockEmail}
+                  onChange={e => { setUnlockEmail(e.target.value); setUnlockError(null); }}
+                  onKeyDown={e => { if (e.key === "Enter") handleUnlock(); }}
+                  placeholder="you@email.com"
+                  data-testid="input-unlock-email"
+                  className="flex-1 min-h-[44px] px-4 rounded-xl bg-white border border-[#e8eaed] text-[#202124] text-sm placeholder:text-[#9aa0a6] focus:outline-none focus:border-primary transition-colors"
+                />
+                <button
+                  onClick={handleUnlock}
+                  disabled={unlockLoading}
+                  data-testid="btn-unlock-samples"
+                  className="min-h-[44px] px-5 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap">
+                  {unlockLoading ? "Unlocking…" : "Unlock all 5 →"}
+                </button>
+              </div>
+              {unlockError && <p className="flex items-center gap-1.5 text-sm text-red-500 mt-2" data-testid="text-unlock-error"><AlertCircle className="w-4 h-4 shrink-0" /> {unlockError}</p>}
+              <p className="text-[11px] text-muted-foreground mt-2">We'll email you these 5 and occasional lead deals. No spam — unsubscribe anytime.</p>
+            </div>
+          )}
+
+          {/* Bridge to purchase — no navigation, buys the same target */}
+          <div className="mt-4 rounded-xl bg-primary/10 border border-primary/40 p-4 text-center">
+            <p className="text-sm font-bold text-foreground flex items-center justify-center gap-1.5 mb-3">
+              <Sparkles className="w-4 h-4 text-primary" />
+              {sample.isDemo
+                ? `Get all 100 ${sample.label || "leads"}${sample.location ? ` in ${sample.location}` : ""} for $29.`
+                : `That's 5 of ${sample.totalAvailable.toLocaleString()}. Get all 100 for $29.`}
+            </p>
             <button
-              onClick={handleBuyRequest}
+              onClick={handleBuyPack}
               disabled={packLoading}
-              data-testid="btn-buy-request"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed">
+              data-testid="btn-sample-to-buy"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed">
               {packLoading ? (
-                <><span className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" /> Redirecting…</>
+                <><span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" /> Redirecting…</>
               ) : (
-                <><Download className="w-5 h-5" /> {quote.instant ? "Buy now — $29 (emailed to you)" : "Order for $29 — email me the CSV"}</>
+                <><Download className="w-4 h-4" /> Get All 100 Leads — $29</>
               )}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ── STAGE 3 · Purchase ─────────────────────────────────────────────── */}
+      <div className="mt-4 bg-card/60 border border-primary/20 rounded-2xl p-5 sm:p-6 shadow-lg shadow-primary/5">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-black shrink-0">3</span>
+          <p className="text-sm font-bold text-foreground">Get your complete pack</p>
+        </div>
+
+        {targetChosen && (
+          <p className="text-xs text-muted-foreground mb-3 pl-8" data-testid="text-buy-target">
+            <span className="font-semibold text-foreground">{targetSummary}</span>
+          </p>
         )}
 
-        <div className="flex items-center gap-3 mb-5">
-          <div className="flex-1 h-px bg-border" />
-          <span className="text-xs text-muted-foreground font-medium">or search by category</span>
-          <div className="flex-1 h-px bg-border" />
-        </div>
-
-        {/* Big category + state pickers */}
-        <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 p-5 mb-5">
-          <p className="text-center text-sm font-bold text-foreground mb-1">
-            🎯 Choose your business type &amp; location
-          </p>
-          <p className="text-center text-xs text-muted-foreground mb-4">
-            Pick the industry you want leads from, then pick a state — we'll show you how many are in stock.
-          </p>
-
-          <div className="flex flex-col gap-4">
-            {/* Business type */}
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="select-pack-category" className="text-sm font-bold text-foreground flex items-center gap-1.5">
-                <span className="text-base">🏢</span> Business Type
-                <span className="text-xs font-normal text-muted-foreground ml-1">— What kind of businesses do you want?</span>
-              </label>
-              <select
-                id="select-pack-category"
-                value={packCategory}
-                onChange={e => setPackCategory(e.target.value)}
-                data-testid="select-pack-category"
-                className="w-full h-14 px-4 rounded-xl bg-white border-2 border-[#e8eaed] text-[#202124] text-base font-semibold focus:outline-none focus:border-primary transition-colors cursor-pointer shadow-sm">
-                <option value="">— All business types —</option>
-                {PACK_CATEGORIES.map(c => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* State */}
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="select-pack-state" className="text-sm font-bold text-foreground flex items-center gap-1.5">
-                <span className="text-base">📍</span> State / Location
-                <span className="text-xs font-normal text-muted-foreground ml-1">— Where do you want leads from?</span>
-              </label>
-              <select
-                id="select-pack-state"
-                value={packState}
-                onChange={e => setPackState(e.target.value)}
-                data-testid="select-pack-state"
-                className="w-full h-14 px-4 rounded-xl bg-white border-2 border-[#e8eaed] text-[#202124] text-base font-semibold focus:outline-none focus:border-primary transition-colors cursor-pointer shadow-sm">
-                <option value="">— Nationwide (all states) —</option>
-                {US_STATES.map(s => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Every category/state is always orderable. If we have 100+ on hand it
-            ships instantly; if not, it's built to order (queued for fulfillment,
-            24h delivery, auto refund on any shortfall) — never blocked. */}
-        {(packCategory || packState) && !packAvailLoading && packAvail && (
+        {/* Availability / delivery expectation — mirrors backend fulfillment */}
+        {targetChosen && !packAvailLoading && packAvail && (
           packAvail.ok ? (
-            <p className="text-sm text-primary mb-4 font-medium" data-testid="text-pack-available">
-              ✅ {packAvail.available.toLocaleString()} matching leads in stock — you'll get the top 100.
+            <p className="text-sm text-primary mb-4 font-medium pl-8" data-testid="text-pack-available">
+              ✅ {packAvail.available.toLocaleString()} matching leads in stock — your top 100 are emailed after a quick human quality check, usually within a few hours.
             </p>
           ) : (
-            <p className="text-sm text-primary mb-4 font-medium" data-testid="text-pack-buildorder">
+            <p className="text-sm text-primary mb-4 font-medium pl-8" data-testid="text-pack-buildorder">
               ✨ Built to order — we gather 100 fresh matching leads and email your CSV within 24 hours. Automatic refund if we come up short.
             </p>
           )
@@ -651,129 +606,117 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
           data-testid="btn-buy-lead-pack"
           className="w-full flex items-center justify-center gap-2 px-7 py-4 rounded-xl bg-primary text-primary-foreground font-bold text-lg hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed shadow-lg shadow-primary/30">
           {packLoading ? (
-            <>
-              <span className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
-              Redirecting to checkout…
-            </>
+            <><span className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" /> Redirecting to checkout…</>
           ) : (
-            <>
-              <Download className="w-5 h-5" /> Get 100 Leads — $29
-            </>
+            <><Download className="w-5 h-5" /> Get All 100 Leads — $29</>
           )}
         </button>
-        <button
-          onClick={handleSubscribe}
-          disabled={subLoading}
-          data-testid="btn-subscribe-lead-pack"
-          className="w-full flex items-center justify-center gap-2 px-7 py-3 mt-3 rounded-xl border-2 border-primary/60 text-primary font-bold hover:bg-primary/10 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-          {subLoading ? (
-            <>
-              <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              Redirecting to checkout…
-            </>
-          ) : (
-            <>🔁 100 fresh leads every month — $24/mo (save 17%)</>
-          )}
-        </button>
-        <p className="text-[11px] text-muted-foreground mt-1.5 text-center">Cancel anytime — just reply to any delivery email.</p>
-        {packError && <p className="text-sm text-red-400 mt-3">{packError}</p>}
+        <p className="text-[11px] text-muted-foreground mt-2 text-center">One-time $29 payment · no account required · CSV emailed to your Stripe receipt address.</p>
+
+        {packError && (
+          <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl border border-red-400/40 bg-red-500/5 p-3" data-testid="box-pack-error">
+            <p className="flex items-center gap-1.5 text-sm text-red-500 flex-1"><AlertCircle className="w-4 h-4 shrink-0" /> {packError}</p>
+            <button
+              onClick={handleBuyPack}
+              disabled={packLoading}
+              data-testid="btn-retry-checkout"
+              className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-4 rounded-lg border border-primary/50 text-primary font-bold text-sm hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-60">
+              <RefreshCw className="w-3.5 h-3.5" /> Retry
+            </button>
+          </div>
+        )}
 
         {/* Point-of-payment reassurance */}
         <GuaranteeCallout className="mt-4" />
         <PaymentMethods className="mt-4" />
-      </div>
 
-
-      {/* Volume pricing */}
-      <div className="mt-10">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="flex-1 h-px bg-border" />
-          <span className="text-sm font-semibold text-foreground">Need more than 100? Buy in bulk & save.</span>
-          <div className="flex-1 h-px bg-border" />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {PACK_TIERS_UI.map(tier => (
-            <div key={tier.qty} className={`relative rounded-xl p-4 text-center border transition-colors flex flex-col ${selectedTier === tier.size ? "border-primary bg-primary/10 shadow-md shadow-primary/20" : tier.highlight ? "border-primary/50 bg-primary/5 shadow-md shadow-primary/10" : "border-border bg-card/40 hover:border-primary/30"}`}>
-              {tier.highlight && (
-                <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">Most popular</div>
-              )}
-              <div className="text-xl font-display font-bold text-foreground">{tier.qty}</div>
-              <div className="text-xs text-muted-foreground mb-2">leads</div>
-              <div className="text-lg font-bold text-foreground">{tier.price}</div>
-              <div className="text-[11px] text-muted-foreground">{tier.per}</div>
-              {"save" in tier && tier.save && <div className="mt-1.5 text-[11px] font-semibold text-primary">{tier.save}</div>}
+        {/* Recurring / bulk — collapsed so it never competes with the $29 pack */}
+        <details className="group mt-5 rounded-xl border border-border bg-background/40" data-testid="details-more-options">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+            Need leads every month or in bulk?
+            <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="px-4 pb-4 pt-1 space-y-4">
+            {/* Monthly */}
+            <div>
               <button
-                onClick={() => setSelectedTier(selectedTier === tier.size ? null : tier.size)}
-                disabled={tierLoading !== null}
-                data-testid={`btn-buy-tier-${tier.size}`}
-                className={`mt-3 w-full py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${selectedTier === tier.size || tier.highlight ? "bg-primary text-primary-foreground hover:opacity-90" : "border border-primary/50 text-primary hover:bg-primary hover:text-primary-foreground"}`}>
-                {selectedTier === tier.size ? "✓ Selected" : "Buy now"}
+                onClick={handleSubscribe}
+                disabled={subLoading}
+                data-testid="btn-subscribe-lead-pack"
+                className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-xl border-2 border-primary/60 text-primary font-bold hover:bg-primary/10 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                {subLoading ? (
+                  <><span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" /> Redirecting…</>
+                ) : (
+                  <>🔁 100 fresh leads every month — $24/mo (save 17%)</>
+                )}
               </button>
+              <p className="text-[11px] text-muted-foreground mt-1.5 text-center">Cancel anytime — just reply to any delivery email.</p>
             </div>
-          ))}
-        </div>
 
-        {/* Tier picker: choose WHAT kind of leads fill the pack */}
-        {selectedTier !== null && (
-          <div className="mt-4 max-w-2xl mx-auto rounded-2xl border border-primary/40 bg-card/60 p-5 text-left" data-testid="box-tier-picker">
-            <p className="text-sm font-bold text-foreground mb-3">
-              What kind of leads do you want in your {selectedTier.toLocaleString()}-lead pack?
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 mb-3">
-              <select
-                value={packCategory}
-                onChange={e => setPackCategory(e.target.value)}
-                aria-label="Business type for this pack"
-                data-testid="select-tier-category"
-                className="h-12 flex-1 px-4 rounded-xl bg-background border border-border text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors">
-                <option value="">All business types (top-scored)</option>
-                {PACK_CATEGORIES.map(c => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
+            {/* Volume tiers */}
+            <div>
+              <p className="text-center text-sm font-semibold text-foreground mb-3">Buy in bulk &amp; save</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {PACK_TIERS_UI.map(tier => (
+                  <div key={tier.qty} className={`relative rounded-xl p-4 text-center border transition-colors flex flex-col ${selectedTier === tier.size ? "border-primary bg-primary/10 shadow-md shadow-primary/20" : tier.highlight ? "border-primary/50 bg-primary/5" : "border-border bg-card/40 hover:border-primary/30"}`}>
+                    {tier.highlight && (
+                      <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">Most popular</div>
+                    )}
+                    <div className="text-xl font-display font-bold text-foreground">{tier.qty}</div>
+                    <div className="text-xs text-muted-foreground mb-2">leads</div>
+                    <div className="text-lg font-bold text-foreground">{tier.price}</div>
+                    <div className="text-[11px] text-muted-foreground">{tier.per}</div>
+                    {"save" in tier && tier.save && <div className="mt-1.5 text-[11px] font-semibold text-primary">{tier.save}</div>}
+                    <button
+                      onClick={() => setSelectedTier(selectedTier === tier.size ? null : tier.size)}
+                      disabled={tierLoading !== null}
+                      data-testid={`btn-buy-tier-${tier.size}`}
+                      className={`mt-3 w-full py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${selectedTier === tier.size || tier.highlight ? "bg-primary text-primary-foreground hover:opacity-90" : "border border-primary/50 text-primary hover:bg-primary hover:text-primary-foreground"}`}>
+                      {selectedTier === tier.size ? "✓ Selected" : "Choose"}
+                    </button>
+                  </div>
                 ))}
-              </select>
-              <select
-                value={packState}
-                onChange={e => setPackState(e.target.value)}
-                aria-label="State for this pack"
-                data-testid="select-tier-state"
-                className="h-12 flex-1 px-4 rounded-xl bg-background border border-border text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors">
-                <option value="">All states (nationwide)</option>
-                {US_STATES.map(s => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
-              </select>
-            </div>
-            {packAvail && !packAvailLoading && (
-              <p className="text-xs text-muted-foreground mb-4" data-testid="text-tier-availability">
-                {packAvail.available.toLocaleString()} matching leads in stock —{" "}
-                {packAvail.available >= selectedTier
-                  ? <span className="text-primary font-semibold">the top {selectedTier.toLocaleString()} ship after a quick quality check (usually a few hours).</span>
-                  : <span>we'll gather the rest fresh and email your CSV within 24 hours — any shortfall is automatically refunded.</span>}
-              </p>
-            )}
-            <button
-              onClick={() => handleBuyTier(selectedTier)}
-              disabled={tierLoading !== null}
-              data-testid="btn-tier-checkout"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed">
-              {tierLoading !== null ? (
-                <><span className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" /> Redirecting…</>
-              ) : (
-                <><Download className="w-5 h-5" /> Checkout — {PACK_TIERS_UI.find(t => t.size === selectedTier)?.price}</>
+              </div>
+
+              {selectedTier !== null && (
+                <div className="mt-4 rounded-2xl border border-primary/40 bg-card/60 p-5 text-left" data-testid="box-tier-picker">
+                  <p className="text-sm font-bold text-foreground mb-3">
+                    Your {selectedTier.toLocaleString()}-lead pack: <span className="text-primary">{targetSummary}</span>
+                  </p>
+                  {packAvail && !packAvailLoading && (
+                    <p className="text-xs text-muted-foreground mb-4" data-testid="text-tier-availability">
+                      {packAvail.available.toLocaleString()} matching leads in stock —{" "}
+                      {packAvail.available >= selectedTier
+                        ? <span className="text-primary font-semibold">the top {selectedTier.toLocaleString()} ship after a quick quality check (usually a few hours).</span>
+                        : <span>we'll gather the rest fresh and email your CSV within 24 hours — any shortfall is automatically refunded.</span>}
+                    </p>
+                  )}
+                  <button
+                    onClick={() => handleBuyTier(selectedTier)}
+                    disabled={tierLoading !== null}
+                    data-testid="btn-tier-checkout"
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed">
+                    {tierLoading !== null ? (
+                      <><span className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" /> Redirecting…</>
+                    ) : (
+                      <><Download className="w-5 h-5" /> Checkout — {PACK_TIERS_UI.find(t => t.size === selectedTier)?.price}</>
+                    )}
+                  </button>
+                </div>
               )}
-            </button>
+              {tierError && <p className="flex items-center justify-center gap-1.5 text-sm text-red-500 mt-3"><AlertCircle className="w-4 h-4 shrink-0" /> {tierError}</p>}
+              <p className="text-center text-xs text-muted-foreground mt-4">
+                Want a custom volume? <a href="mailto:support@mapleadextractor.net?subject=Bulk%20Lead%20Order" className="text-primary hover:underline">Email us</a> — we handle orders of any size.
+              </p>
+            </div>
           </div>
-        )}
-        {tierError && <p className="text-center text-sm text-red-400 mt-3">{tierError}</p>}
-        <p className="text-center text-xs text-muted-foreground mt-4">
-          Want a custom volume? <a href="mailto:support@mapleadextractor.net?subject=Bulk%20Lead%20Order" className="text-primary hover:underline">Email us</a> — we handle orders of any size.
-        </p>
+        </details>
       </div>
 
       {showReviews && <PlatformReviews />}
 
       {/* Human review quality section */}
-      <div className="mt-10 rounded-2xl border border-border bg-card/30 overflow-hidden">
+      <div className="mt-8 rounded-2xl border border-border bg-card/30 overflow-hidden">
         <div className="flex items-center gap-3 px-5 py-4 border-b border-border bg-card/40">
           <Shield className="w-5 h-5 text-primary shrink-0" />
           <span className="font-display font-bold text-foreground">Every lead is human-reviewed before it ships</span>
@@ -786,8 +729,8 @@ export default function LeadPackWidget({ showReviews = false }: { showReviews?: 
             {[
               { icon: "🔍", title: "Dead records removed", desc: "Permanently closed, moved, or duplicate businesses are filtered out before delivery." },
               { icon: "📞", title: "Phone numbers spot-checked", desc: "We verify a sample of phone numbers are active and match the listed business." },
-              { icon: "✉️", title: "Email format validated", desc: "Every email address is checked for correct format and a live mail server — no obvious bounces." },
-              { icon: "📍", title: "Location confirmed", desc: "Addresses are verified to be in your requested city or region — no out-of-area listings slipping through." },
+              { icon: "✉️", title: "Emails validated when present", desc: "Publicly listed emails are format-checked against a live mail server — not every business publishes one." },
+              { icon: "📍", title: "Location confirmed", desc: "Addresses are verified to be in your requested area — no out-of-area listings slipping through." },
             ].map(item => (
               <div key={item.title} className="flex gap-3 items-start">
                 <span className="text-lg shrink-0 mt-0.5">{item.icon}</span>

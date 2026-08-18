@@ -1,228 +1,114 @@
-import React, { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
 import {
-  Zap, Package, Shield, Clock, RefreshCw, CheckCircle2,
-  ArrowRight, Phone, Mail, Globe, MapPin, Star, BadgeCheck,
-  Download, MousePointerClick, Search, FileSpreadsheet,
-  Rocket, TrendingUp, AlarmClock, DollarSign, BarChart2,
-  Map, Facebook, Instagram, ChevronDown,
+  Zap, Shield, Clock, CheckCircle2, ArrowRight, Phone, Mail, Globe,
+  MapPin, Star, BadgeCheck, BarChart2, FileSpreadsheet, Eye, Lock, Map,
+  Search, Gauge, MessageSquare, Target, Sparkles, Building2, ScrollText,
 } from "lucide-react";
-import { Show } from "@clerk/react";
 
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import ChatWidget from "@/components/chat-widget";
 import { useSeo } from "@/lib/seo";
-import { MobileNav } from "@/components/site/mobile-nav";
 import LeadPackWidget from "@/components/site/lead-pack-widget";
+import StickyCta from "@/components/site/sticky-cta";
+import TrustBadges from "@/components/site/trust-badges";
 import { BuyerReviews, PlatformReviews } from "@/components/site/landing-sections";
-import { SocialProofToast, NavReviewPill } from "@/components/site/trust-badges";
+import { SocialProofToast } from "@/components/site/trust-badges";
 
-const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+const SUPPORT_EMAIL = "support@mapleadextractor.net";
 
 // ─── Animation helpers ────────────────────────────────────────────────────────
 const fadeUp = {
-  hidden: { opacity: 0, y: 28 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.55 } },
+  hidden: { opacity: 0, y: 24 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
 };
 const stagger = {
   hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
+  visible: { opacity: 1, transition: { staggerChildren: 0.08 } },
 };
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
-const PERFECT_FOR = [
-  "SEO Agencies",
-  "Website Designers",
-  "Google Ads Agencies",
-  "Facebook Ad Agencies",
-  "Cold Email Agencies",
-  "Appointment Setters",
-  "Lead Generation Companies",
-];
-
+// Accurate field list — email is explicitly conditional so we never imply every
+// record has one. Keep in sync with the widget + trust-badges copy.
 const DATA_FIELDS = [
-  { icon: BadgeCheck, label: "Business Name" },
-  { icon: Phone,      label: "Phone Number" },
+  { icon: BadgeCheck, label: "Business name" },
+  { icon: Phone,      label: "Phone number" },
   { icon: Globe,      label: "Website" },
   { icon: MapPin,     label: "Address" },
-  { icon: Star,       label: "Google Rating" },
-  { icon: BarChart2,  label: "Review Count" },
-  { icon: Map,        label: "Business Category" },
+  { icon: Star,       label: "Google rating" },
+  { icon: BarChart2,  label: "Review count" },
+  { icon: Map,        label: "Business category" },
   { icon: Mail,       label: "Publicly listed email (when available)" },
 ];
 
-const HOW_IT_WORKS = [
-  {
-    step: "01",
-    icon: Search,
-    title: "Choose an industry",
-    desc: "Roofers, HVAC, Plumbers, Dentists, Lawyers, Restaurants, Real Estate, Electricians — any business type.",
-  },
-  {
-    step: "02",
-    icon: MapPin,
-    title: "Choose any US city",
-    desc: "Pick any city in the United States. We cover all 50 states.",
-  },
-  {
-    step: "03",
-    icon: MousePointerClick,
-    title: "Click Extract",
-    desc: "Your targeted business list is generated in minutes — 100 verified, human-reviewed leads.",
-  },
-  {
-    step: "04",
-    icon: FileSpreadsheet,
-    title: "Export to Excel and start prospecting",
-    desc: "Download a clean CSV, import it into any CRM, and start reaching out today.",
-  },
+const TRUST_BULLETS = [
+  { icon: Gauge,  text: "Every lead scored 0–100 by opportunity" },
+  { icon: Globe,  text: "Website audits find the businesses that need help" },
+  { icon: Eye,    text: "Preview real matching leads free — no card" },
 ];
 
-const WHY_AGENCIES = [
-  { icon: Rocket,      text: "Build prospect lists faster" },
-  { icon: TrendingUp,  text: "Reach more businesses every day" },
-  { icon: AlarmClock,  text: "Save hours of manual research" },
-  { icon: DollarSign,  text: "Spend more time closing clients" },
-  { icon: Download,    text: "Export clean lead lists" },
-  { icon: Map,         text: "Search businesses nationwide" },
+// The four things the software does — the core of the new positioning.
+const CAPABILITIES = [
+  { icon: Search,        title: "Finds local leads",   desc: "Pull targeted businesses by industry and area from Google, Bing & Yelp — names, phones, websites, ratings and more." },
+  { icon: Gauge,         title: "Scores the opportunity", desc: "Each lead gets a 0–100 opportunity score with plain-English reasons — no website, weak site, few reviews, no booking." },
+  { icon: Globe,         title: "Audits their website", desc: "Grades each site A–F on headline, call-to-action, mobile, quote form, call button and SEO — so you lead with a real gap." },
+  { icon: MessageSquare, title: "Writes your messages", desc: "Drafts Facebook, email, phone and follow-up messages you review and approve before anything is ever sent." },
+];
+
+// Software-first flow (find → score → audit → reach out).
+const HOW_IT_WORKS = [
+  { step: "01", icon: MapPin,        title: "Pick industry & area",   desc: "Choose a business type and a state — or go nationwide. For example: roofers in Pensacola, FL." },
+  { step: "02", icon: Gauge,         title: "See who needs you most", desc: "Leads come back scored by opportunity and graded on their website, so the best-fit businesses rise to the top." },
+  { step: "03", icon: MessageSquare, title: "Reach out with a plan",  desc: "Get an AI-picked offer and ready-to-approve messages, then work your follow-ups from one daily to-do list." },
+];
+
+// Who it's for.
+const USE_CASES = [
+  { icon: Globe,      title: "Web designers",     desc: "Find businesses with no site or a weak one — the audit hands you the pitch." },
+  { icon: BarChart2,  title: "SEO & marketers",   desc: "Spot low-review, low-visibility businesses that need to be found online." },
+  { icon: Target,     title: "Ad agencies",       desc: "Target businesses already running ads — warmer leads with real budget." },
+  { icon: Phone,      title: "Appointment setters", desc: "Work a scored list with phone scripts and follow-up dates built in." },
+  { icon: Building2,  title: "Local service pros", desc: "Offer booking, reviews or missed-call text-back to nearby businesses." },
+  { icon: FileSpreadsheet, title: "Lead resellers", desc: "Export clean, de-duplicated lists by industry and area to sell on." },
 ];
 
 const FAQ = [
   {
-    q: "Is it easy to use?",
-    a: "Yes. Search, extract, and export in just a few clicks. No technical skills required.",
+    q: "What exactly do I receive?",
+    a: "A clean CSV of up to 100 targeted local businesses in your chosen industry and area — including available business names, phone numbers, websites, publicly listed emails (when available), Google ratings, review counts, addresses, and public social links. Not every business publishes an email, so emails are included only where they're publicly listed.",
   },
   {
-    q: "Can I export to Excel?",
-    a: "Yes. Every pack downloads as a clean CSV that opens instantly in Excel, Google Sheets, or any CRM.",
+    q: "What does it cost?",
+    a: "$29, one time, for 100 leads. There's no subscription and no account required — Stripe collects the email your CSV is sent to.",
   },
   {
-    q: "Can I search any city?",
-    a: "Yes. We cover every city in all 50 US states. Just pick your target market and we handle the rest.",
+    q: "How do I choose my industry and location?",
+    a: "Use the form at the top of the page: pick a business type, then pick a state (or leave it nationwide). You'll see how many matching leads are available before you pay.",
   },
   {
-    q: "Can I search different industries?",
-    a: "Yes. Any business type works — roofers, dentists, HVAC, lawyers, restaurants, real estate, and hundreds more.",
+    q: "Can I see real leads before I buy?",
+    a: "Yes. Choose your industry and location and click \"Show My 5 Free Leads\" to preview five matching businesses. Enter your email to unlock their full phone and email — completely free, no card needed.",
   },
   {
-    q: "Is this good for agencies?",
-    a: "It's designed specifically for agencies. You get clean, targeted business information ready for outreach — organized exactly how you need it.",
+    q: "How fast do I get my pack?",
+    a: "Your CSV is emailed after a real person reviews it for quality — usually within a few hours, and never more than 24 hours.",
   },
   {
-    q: "How fast do I get my leads?",
-    a: "Most packs are delivered within hours of ordering. Every list is human-reviewed before it ships so you always get quality data.",
-  },
-  {
-    q: "What if my pack comes up short?",
-    a: "You get an automatic refund for the difference. You only ever pay for leads you actually receive.",
+    q: "What if you come up short?",
+    a: "If we deliver fewer than 100 leads, the difference is automatically refunded to your card. You only ever pay for leads you actually receive.",
   },
 ];
-
-// ─── Recent orders ticker ─────────────────────────────────────────────────────
-function useRecentOrdersTicker() {
-  const [text, setText] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`${basePath}/api/stripe/recent-orders-count?days=7`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { count: number } | null) => {
-        if (cancelled || !data) return;
-        setText(
-          data.count > 0
-            ? `${data.count} lead packs sold this week`
-            : "New this week — be one of our first buyers"
-        );
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-  return text;
-}
-
-// ─── Hero lead card ───────────────────────────────────────────────────────────
-function HeroLeadCard() {
-  return (
-    <div className="relative">
-      <div className="absolute -inset-12 rounded-full bg-primary/10 blur-3xl -z-10" aria-hidden />
-      <div className="absolute inset-x-8 -top-3 h-full rounded-2xl border border-border/50 bg-card/30 rotate-[2.5deg]" aria-hidden />
-      <div className="absolute inset-x-4 -top-1.5 h-full rounded-2xl border border-border/70 bg-card/50 rotate-[1.2deg]" aria-hidden />
-
-      <div className="relative rounded-2xl border border-primary/20 bg-card shadow-2xl shadow-black/60 overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-background/50">
-          <div className="flex items-center gap-1.5" aria-hidden>
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
-            <span className="w-2.5 h-2.5 rounded-full bg-yellow-400/60" />
-            <span className="w-2.5 h-2.5 rounded-full bg-primary/60" />
-          </div>
-          <span className="text-[11px] font-mono text-muted-foreground">roofers-dallas-tx.csv · row 1 of 100</span>
-        </div>
-        <div className="p-5">
-          <div className="flex items-start justify-between gap-3 mb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center font-bold text-primary text-sm">SR</div>
-              <div>
-                <p className="font-bold text-sm leading-tight">Summit Roofing LLC</p>
-                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><MapPin className="w-3 h-3" />Roofing · Dallas, TX</p>
-              </div>
-            </div>
-            <span className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-full bg-primary/15 border border-primary/25 text-primary text-[11px] font-bold">
-              <BadgeCheck className="w-3 h-3" /> Verified
-            </span>
-          </div>
-          <div className="flex items-center gap-1 mb-4">
-            {[1,2,3,4,5].map(s => <Star key={s} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
-            <span className="text-xs font-semibold ml-1">4.9</span>
-            <span className="text-xs text-muted-foreground">(187)</span>
-          </div>
-          <div className="space-y-2 text-xs">
-            <p className="flex items-center gap-2"><Phone className="w-3.5 h-3.5 text-primary" /><span className="font-mono">(214) 555-0173</span></p>
-            <p className="flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-primary" /><span className="font-mono">contact@summitroofing.com</span></p>
-            <p className="flex items-center gap-2"><Globe className="w-3.5 h-3.5 text-primary" /><span className="font-mono">summitroofing.com</span></p>
-          </div>
-          <div className="flex items-center gap-1.5 mt-4 pt-3.5 border-t border-border">
-            <span className="text-[11px] text-muted-foreground mr-1">Socials:</span>
-            <span className="w-6 h-6 rounded bg-secondary flex items-center justify-center"><Facebook className="w-3 h-3" /></span>
-            <span className="w-6 h-6 rounded bg-secondary flex items-center justify-center"><Instagram className="w-3 h-3" /></span>
-            <span className="w-6 h-6 rounded bg-secondary flex items-center justify-center"><Globe className="w-3 h-3" /></span>
-          </div>
-        </div>
-      </div>
-
-      <motion.div
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ delay: 0.8, duration: 0.5 }}
-        className="absolute -right-4 top-14 bg-card border border-primary/30 rounded-xl px-3 py-2 shadow-xl text-xs font-semibold flex items-center gap-1.5"
-      >
-        <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-        Delivered in 3h 22m
-      </motion.div>
-      <motion.div
-        initial={{ opacity: 0, x: -20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ delay: 1.0, duration: 0.5 }}
-        className="absolute -left-4 bottom-16 bg-card border border-border rounded-xl px-3 py-2 shadow-xl text-xs flex items-center gap-1.5"
-      >
-        <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
-        <span className="font-semibold">Human-reviewed</span>
-      </motion.div>
-
-      <p className="text-center text-[11px] text-muted-foreground mt-5">Example only — your pack contains 100 real businesses from your market.</p>
-    </div>
-  );
-}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function Home() {
   const [chatOpen, setChatOpen] = useState(false);
   const chatFiredRef = useRef(false);
-  const leadsSectionRef = useRef<HTMLElement>(null);
-  const tickerText = useRecentOrdersTicker();
+  const funnelRef = useRef<HTMLElement>(null);
 
-  // Auto-open chat after scrolling past the buy widget
+  // Auto-open chat once the funnel has scrolled out of view.
   useEffect(() => {
-    const el = leadsSectionRef.current;
+    const el = funnelRef.current;
     if (!el) return;
     let hasBeenVisible = false;
     const obs = new IntersectionObserver(([entry]) => {
@@ -257,260 +143,236 @@ export default function Home() {
   }, []);
 
   useSeo({
-    title: "Get More Clients. Find Local Business Leads in Minutes | Map Lead Extractor",
-    description: "Map Lead Extractor helps marketing agencies build targeted business lead lists in minutes. Pick any industry and city, get 100 verified leads — names, phones, emails, websites. $29 one-time.",
+    title: "Find Local Businesses That Need Your Service | MapLeadExtractor",
+    description: "MapLeadExtractor finds local leads, scores their opportunity, audits their websites, and writes your follow-up messages so you know who to contact first. Preview real matching leads free.",
     path: "/",
   });
 
   return (
     <div className="min-h-screen bg-background text-foreground overflow-x-hidden selection:bg-primary selection:text-primary-foreground">
 
-      {/* ── Navbar ───────────────────────────────────────────────────────────── */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-border">
-        <div className="container mx-auto px-6 h-16 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-2 font-display font-bold text-xl tracking-tight hover:opacity-90 transition-opacity">
+      {/* ── Minimal paid-traffic header ──────────────────────────────────────── */}
+      <header className="sticky top-0 left-0 right-0 z-50 bg-background/85 backdrop-blur-md border-b border-border">
+        <div className="container mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+          <a href="/" className="flex items-center gap-2 font-display font-bold text-lg sm:text-xl tracking-tight hover:opacity-90 transition-opacity">
             <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/15 border border-primary/30">
               <Zap className="w-4 h-4 text-primary" />
             </span>
             <span>Map<span className="text-primary">Lead</span>Extractor</span>
           </a>
-          <nav className="hidden md:flex gap-7 text-sm font-medium text-muted-foreground">
-            <a href="#how-it-works" className="hover:text-foreground transition-colors">How It Works</a>
-            <a href="#leads-for-sale" className="text-primary hover:opacity-80 transition-opacity font-semibold">Get Leads</a>
-            <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
-            <a href="/free-tool" className="hover:text-foreground transition-colors">Free Tool</a>
-            <a href="/blog" className="hover:text-foreground transition-colors">Blog</a>
-          </nav>
-          <div className="flex items-center gap-3">
-            <NavReviewPill />
-            <Show when="signed-in">
-              <a href="/dashboard" className="text-sm font-semibold text-primary hover:opacity-80 transition-opacity">Dashboard</a>
-            </Show>
-            <Show when="signed-out">
-              <a href="/sign-in" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Sign In</a>
-            </Show>
-            <MobileNav />
-            <Button asChild size="sm" className="font-bold">
-              <a href="#leads-for-sale" data-testid="link-nav-buy-leads">
-                <Package className="md:mr-2" />
-                <span className="hidden md:inline">Get Leads — $29</span>
-              </a>
-            </Button>
+          <div className="flex items-center gap-4">
+            <span className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Lock className="w-3.5 h-3.5 text-primary" /> Secure Stripe checkout
+            </span>
+            <a href={`mailto:${SUPPORT_EMAIL}`} className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" data-testid="link-header-support">
+              Support
+            </a>
           </div>
         </div>
       </header>
 
-      <main className="pt-16">
+      <main>
 
-        {/* ── Hero ──────────────────────────────────────────────────────────── */}
-        <section className="relative pt-20 pb-28 overflow-hidden">
+        {/* ── Hero: copy + price (left) · funnel (right) ─────────────────────── */}
+        <section
+          ref={funnelRef}
+          id="leads-for-sale"
+          className="relative pt-8 lg:pt-12 pb-16 overflow-hidden scroll-mt-20"
+        >
           <div className="absolute inset-0 -z-10">
-            <div className="absolute inset-0 bg-[linear-gradient(to_right,hsl(var(--border)/0.4)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.4)_1px,transparent_1px)] bg-[size:56px_56px] [mask-image:radial-gradient(ellipse_80%_70%_at_50%_0%,black,transparent)]" />
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_50%_0%,hsl(var(--primary)/0.13),transparent)]" />
+            <div className="absolute inset-0 bg-[linear-gradient(to_right,hsl(var(--border)/0.4)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.4)_1px,transparent_1px)] bg-[size:56px_56px] [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,black,transparent)]" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_50%_0%,hsl(var(--primary)/0.12),transparent)]" />
           </div>
 
-          <div className="container mx-auto px-6">
-            <div className="grid lg:grid-cols-2 gap-16 items-center max-w-6xl mx-auto">
+          <div className="container mx-auto px-4 sm:px-6">
+            <div className="grid lg:grid-cols-2 gap-10 lg:gap-14 items-start max-w-6xl mx-auto">
 
-              {/* Left: copy */}
-              <motion.div initial="hidden" animate="visible" variants={stagger}>
-                {tickerText && (
-                  <motion.div variants={fadeUp} className="inline-flex items-center gap-2 mb-6 px-3.5 py-1.5 rounded-full bg-primary/10 border border-primary/25 text-sm">
-                    <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
-                    </span>
-                    <span className="text-primary font-semibold">{tickerText}</span>
-                  </motion.div>
-                )}
+              {/* Left: the offer */}
+              <motion.div initial="hidden" animate="visible" variants={stagger} className="lg:pt-6">
+                <motion.div variants={fadeUp} className="inline-flex items-center gap-2 mb-5 px-3.5 py-1.5 rounded-full bg-primary/10 border border-primary/25 text-sm">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                  </span>
+                  <span className="text-primary font-semibold">Find · Score · Audit · Message</span>
+                </motion.div>
 
-                <motion.h1 variants={fadeUp} className="text-5xl md:text-[3.75rem] font-display font-bold leading-[1.08] tracking-tight mb-4">
-                  Get More Clients.<br />
-                  <span className="text-primary">Close More Deals.</span>
+                <motion.h1 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold leading-[1.08] tracking-tight mb-4">
+                  Find Local Businesses That Need Your Service <span className="text-primary">Before Your Competitors Do</span>
                 </motion.h1>
 
-                <motion.p variants={fadeUp} className="text-2xl font-semibold text-muted-foreground mb-4">
-                  Find Local Business Leads in Minutes
+                <motion.p variants={fadeUp} className="text-lg text-muted-foreground leading-relaxed mb-6 max-w-lg">
+                  MapLeadExtractor finds local leads, scores their opportunity, audits their websites, and
+                  writes your follow-up messages — so you know exactly who to contact first.
                 </motion.p>
 
-                <motion.p variants={fadeUp} className="text-lg text-muted-foreground leading-relaxed mb-8 max-w-lg">
-                  Stop spending hours searching Google Maps manually. Map Lead Extractor helps marketing agencies build targeted business lead lists in minutes — so you can spend more time selling and less time prospecting.
-                </motion.p>
-
-                <motion.div variants={fadeUp} className="flex flex-col sm:flex-row gap-3 mb-6">
-                  <Button asChild size="lg" className="h-14 px-8 text-base font-bold shadow-[0_0_40px_rgba(0,230,90,0.3)] hover:shadow-[0_0_60px_rgba(0,230,90,0.5)] hover:-translate-y-0.5 transition-all">
-                    <a href="#leads-for-sale" data-testid="btn-hero-buy-leads">
-                      <Package className="mr-2 h-5 w-5" /> Get 100 Leads — $29
-                    </a>
-                  </Button>
-                  <Button asChild size="lg" variant="outline" className="h-14 px-8 text-base font-bold">
-                    <a href="/free-tool" data-testid="btn-hero-free-tool">
-                      <Search className="mr-2 h-5 w-5" /> Try Free Tool
-                    </a>
-                  </Button>
-                </motion.div>
-
-                <motion.div variants={fadeUp} className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
-                  {[
-                    { icon: Shield, text: "Money-back guarantee" },
-                    { icon: Clock,  text: "Delivered in hours" },
-                    { icon: RefreshCw, text: "One-time payment" },
-                  ].map(({ icon: Icon, text }) => (
-                    <span key={text} className="flex items-center gap-1.5">
-                      <Icon className="w-4 h-4 text-primary" />{text}
-                    </span>
+                <motion.ul variants={fadeUp} className="space-y-2.5 mb-8">
+                  {TRUST_BULLETS.map(({ icon: Icon, text }) => (
+                    <li key={text} className="flex items-center gap-2.5 text-[15px] font-medium">
+                      <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/12 border border-primary/25 shrink-0">
+                        <Icon className="w-3.5 h-3.5 text-primary" />
+                      </span>
+                      {text}
+                    </li>
                   ))}
+                </motion.ul>
+
+                {/* On mobile the form is directly below; this jump is a desktop nicety */}
+                <motion.div variants={fadeUp} className="hidden lg:flex items-center gap-3">
+                  <Button asChild size="lg" className="h-14 px-8 text-base font-bold shadow-[0_0_40px_rgba(0,230,90,0.25)] hover:-translate-y-0.5 transition-all">
+                    <a href="#leads-for-sale" data-testid="btn-hero-scroll">
+                      <Search className="mr-2 h-5 w-5" /> Find Leads Now
+                    </a>
+                  </Button>
+                  <a href="/pricing" className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors">See plans →</a>
                 </motion.div>
               </motion.div>
 
-              {/* Right: lead card */}
+              {/* Right: the funnel widget (starts with the target form) */}
               <motion.div
-                initial={{ opacity: 0, x: 40 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.7, delay: 0.2 }}
-                className="hidden lg:block"
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.15 }}
               >
-                <HeroLeadCard />
+                <LeadPackWidget hidePrice />
               </motion.div>
             </div>
           </div>
         </section>
 
-        {/* ── Perfect For ───────────────────────────────────────────────────── */}
-        <section className="border-y border-border bg-card/30 py-10">
-          <div className="container mx-auto px-6">
-            <p className="text-center text-xs font-bold uppercase tracking-[0.22em] text-primary mb-6">Perfect For</p>
-            <div className="flex flex-wrap justify-center gap-3 max-w-3xl mx-auto">
-              {PERFECT_FOR.map((item) => (
-                <span key={item} className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-border bg-background text-sm font-medium">
-                  <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
-                  {item}
-                </span>
-              ))}
+        {/* ── What the software does + demo preview ─────────────────────────── */}
+        <section id="demo" className="py-16 md:py-20 scroll-mt-20">
+          <div className="container mx-auto px-4 sm:px-6 max-w-6xl">
+            <div className="text-center mb-12">
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Your AI lead team</p>
+              <h2 className="text-3xl md:text-4xl font-display font-bold tracking-tight mb-4">Find the right businesses, then reach out first</h2>
+              <p className="text-base text-muted-foreground max-w-2xl mx-auto">
+                MapLeadExtractor does the research for you — surfacing the businesses most likely to need your service and handing you the pitch.
+              </p>
             </div>
-          </div>
-        </section>
 
-        {/* ── Who Is This For ───────────────────────────────────────────────── */}
-        <section className="py-24">
-          <div className="container mx-auto px-6 max-w-5xl">
-            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={stagger} className="text-center mb-14">
-              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Built For You</motion.p>
-              <motion.h2 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-5">Who Is This For?</motion.h2>
-              <motion.p variants={fadeUp} className="text-lg text-muted-foreground max-w-xl mx-auto">Anyone who needs a steady pipeline of local business prospects.</motion.p>
-            </motion.div>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {([
-                { icon: TrendingUp, label: "Marketing Agencies", desc: "Build prospect lists for your sales team in minutes." },
-                { icon: Search, label: "SEO Companies", desc: "Find local businesses that need your services." },
-                { icon: Globe, label: "Website Designers", desc: "Target businesses with outdated or no website." },
-                { icon: Facebook, label: "Facebook Ad Agencies", desc: "Prospect local businesses ready to run ads." },
-                { icon: MapPin, label: "Google Ads Agencies", desc: "Find businesses spending on local search." },
-                { icon: DollarSign, label: "Sales Teams", desc: "Fill your CRM with verified local leads." },
-                { icon: Zap, label: "Freelancers", desc: "Land new clients without cold calling directories." },
-                { icon: BarChart2, label: "Consultants", desc: "Expand your book of business faster." },
-              ] as { icon: React.ElementType; label: string; desc: string }[]).map(({ icon: Icon, label, desc }, i) => (
-                <motion.div key={label} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.06, duration: 0.45 }}
-                  className="flex flex-col items-center text-center p-6 rounded-2xl border border-border bg-card/50 hover:border-primary/30 hover:bg-card transition-all">
-                  <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
-                    <Icon className="w-5 h-5 text-primary" />
+            <div className="grid lg:grid-cols-2 gap-10 items-center">
+              {/* Capabilities */}
+              <div className="grid sm:grid-cols-2 gap-4">
+                {CAPABILITIES.map(({ icon: Icon, title, desc }, i) => (
+                  <motion.div
+                    key={title}
+                    initial={{ opacity: 0, y: 16 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: i * 0.06, duration: 0.4 }}
+                    className="p-5 rounded-2xl border border-border bg-card/40 hover:border-primary/30 transition-colors"
+                  >
+                    <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10 border border-primary/25 mb-3">
+                      <Icon className="w-5 h-5 text-primary" />
+                    </span>
+                    <h3 className="font-bold text-base mb-1">{title}</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
+                  </motion.div>
+                ))}
+              </div>
+
+              {/* Product preview mock (representative — not a live account) */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5 }}
+                className="rounded-2xl border border-border bg-card shadow-xl overflow-hidden"
+              >
+                <div className="flex items-center gap-1.5 px-4 py-3 border-b border-border bg-background/60">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-400/70" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-yellow-400/70" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-green-400/70" />
+                  <span className="ml-2 text-xs text-muted-foreground flex items-center gap-1.5"><Sparkles className="w-3 h-3 text-primary" /> AI Command Center</span>
+                </div>
+                <div className="p-4 space-y-3 text-sm">
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-background/60">
+                    <div>
+                      <div className="font-semibold">Gulf Coast Roofing Co.</div>
+                      <div className="text-xs text-muted-foreground">Mobile, AL · Roofing</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-muted-foreground">Opportunity</div>
+                      <div className="font-bold text-primary text-lg leading-none">92</div>
+                    </div>
                   </div>
-                  <h3 className="font-bold text-sm mb-1">{label}</h3>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
-                </motion.div>
-              ))}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-red-100 text-red-700 border border-red-200">Site grade F</span>
+                    <span className="px-2 py-0.5 rounded-md text-xs bg-muted text-muted-foreground border border-border">No quote form</span>
+                    <span className="px-2 py-0.5 rounded-md text-xs bg-muted text-muted-foreground border border-border">Not mobile-ready</span>
+                    <span className="px-2 py-0.5 rounded-md text-xs bg-muted text-muted-foreground border border-border">Few reviews</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20">
+                    <div className="text-xs font-semibold text-primary mb-1">Recommended offer · Website rebuild</div>
+                    <div className="text-xs text-muted-foreground">No mobile site and no way to request a quote — a clean rebuild puts them ahead of local competitors.</div>
+                  </div>
+                  <div className="p-3 rounded-xl border border-border bg-background/60">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-semibold text-muted-foreground">Message draft · needs your approval</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border">Not sent</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      "Hi — I came across Gulf Coast Roofing and noticed your site isn't mobile-friendly yet. A lot of roofing searches happen on phones. Happy to show you a quick fix if useful?"
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
             </div>
+            <p className="text-center text-xs text-muted-foreground mt-6">Preview shown for illustration. Your results are built from real, publicly available business data.</p>
           </div>
         </section>
 
-        {/* ── Generate Thousands ────────────────────────────────────────────── */}
-        <section className="py-24">
-          <div className="container mx-auto px-6 max-w-5xl">
-            <motion.div
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: "-80px" }}
-              variants={stagger}
-              className="text-center mb-14"
-            >
-              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">What You Get</motion.p>
-              <motion.h2 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-5">
-                Generate Thousands of<br />Local Business Leads
-              </motion.h2>
-              <motion.p variants={fadeUp} className="text-lg text-muted-foreground max-w-xl mx-auto">
-                Search any city. Search any industry. Build highly targeted prospect lists in minutes.
-              </motion.p>
-            </motion.div>
-
-            <p className="text-center text-sm text-muted-foreground mb-8 font-medium">Extract publicly available business information including:</p>
-
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* ── What's in every lead ──────────────────────────────────────────── */}
+        <section className="py-16 md:py-20 bg-card/20 border-y border-border">
+          <div className="container mx-auto px-4 sm:px-6 max-w-5xl">
+            <div className="text-center mb-10">
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">What you receive</p>
+              <h2 className="text-3xl md:text-4xl font-display font-bold tracking-tight mb-4">Every field in your CSV</h2>
+              <p className="text-base text-muted-foreground max-w-xl mx-auto">
+                Publicly available business information, structured and de-duplicated — ready to drop into any CRM or dialer.
+              </p>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {DATA_FIELDS.map(({ icon: Icon, label }, i) => (
                 <motion.div
                   key={label}
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 16 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
-                  transition={{ delay: i * 0.06, duration: 0.45 }}
-                  className="flex items-center gap-3 p-4 rounded-xl border border-border bg-card/50 hover:border-primary/30 hover:bg-card transition-all"
+                  transition={{ delay: i * 0.05, duration: 0.4 }}
+                  className="flex items-center gap-3 p-4 rounded-xl border border-border bg-background/60 hover:border-primary/30 transition-colors"
                 >
                   <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 shrink-0">
-                    <Icon className="w-4.5 h-4.5 text-primary" />
+                    <Icon className="w-4 h-4 text-primary" />
                   </span>
                   <span className="text-sm font-medium leading-tight">{label}</span>
                 </motion.div>
               ))}
             </div>
+            <p className="text-center text-xs text-muted-foreground mt-6">
+              Not every business publishes an email — emails are included only where they're publicly listed.
+            </p>
           </div>
         </section>
 
-        {/* ── What Can You Search ───────────────────────────────────────────── */}
-        <section className="py-24 bg-card/20 border-y border-border">
-          <div className="container mx-auto px-6 max-w-5xl">
-            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={stagger} className="text-center mb-14">
-              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Any Industry</motion.p>
-              <motion.h2 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-5">What Can You Search?</motion.h2>
-              <motion.p variants={fadeUp} className="text-lg text-muted-foreground max-w-xl mx-auto">Hundreds of business categories across every city in the US.</motion.p>
-            </motion.div>
-            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-40px" }} variants={stagger} className="flex flex-wrap justify-center gap-2">
-              {["Roofers","Plumbers","HVAC","Dentists","Lawyers","Restaurants","Real Estate Agents","Electricians","Insurance Agents","Auto Repair","Tree Service","Pest Control","Chiropractors","Landscapers","Contractors","Painters","Gyms","Salons","Movers","Photographers","Florists","Accountants","Veterinarians","And Hundreds More…"].map((cat) => (
-                <motion.span key={cat} variants={fadeUp}
-                  className={`px-4 py-2 rounded-full text-sm font-medium border ${cat === "And Hundreds More…" ? "border-primary/40 bg-primary/10 text-primary font-bold" : "border-border bg-background text-foreground/80"}`}>
-                  {cat}
-                </motion.span>
-              ))}
-            </motion.div>
-          </div>
-        </section>
-
-        {/* ── How It Works ──────────────────────────────────────────────────── */}
-        <section id="how-it-works" className="py-24 bg-card/20 border-y border-border">
-          <div className="container mx-auto px-6 max-w-5xl">
-            <motion.div
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: "-80px" }}
-              variants={stagger}
-              className="text-center mb-16"
-            >
-              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Simple Process</motion.p>
-              <motion.h2 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold tracking-tight">
-                How It Works
-              </motion.h2>
-            </motion.div>
-
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 relative">
-              {/* Connector line on desktop */}
-              <div className="hidden lg:block absolute top-10 left-[12.5%] right-[12.5%] h-px bg-gradient-to-r from-transparent via-border to-transparent" aria-hidden />
-
+        {/* ── How it works ──────────────────────────────────────────────────── */}
+        <section className="py-16 md:py-20">
+          <div className="container mx-auto px-4 sm:px-6 max-w-5xl">
+            <div className="text-center mb-12">
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Simple process</p>
+              <h2 className="text-3xl md:text-4xl font-display font-bold tracking-tight">How it works</h2>
+            </div>
+            <div className="grid md:grid-cols-3 gap-6 relative">
+              <div className="hidden md:block absolute top-10 left-[16%] right-[16%] h-px bg-gradient-to-r from-transparent via-border to-transparent" aria-hidden />
               {HOW_IT_WORKS.map(({ step, icon: Icon, title, desc }, i) => (
                 <motion.div
                   key={step}
-                  initial={{ opacity: 0, y: 24 }}
+                  initial={{ opacity: 0, y: 20 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
-                  transition={{ delay: i * 0.1, duration: 0.5 }}
-                  className="relative flex flex-col items-center text-center p-6 rounded-2xl border border-border bg-background hover:border-primary/30 transition-colors"
+                  transition={{ delay: i * 0.1, duration: 0.45 }}
+                  className="relative flex flex-col items-center text-center p-6 rounded-2xl border border-border bg-card/40 hover:border-primary/30 transition-colors"
                 >
                   <div className="relative mb-5">
                     <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/25 flex items-center justify-center">
@@ -525,363 +387,96 @@ export default function Home() {
                 </motion.div>
               ))}
             </div>
-          </div>
-        </section>
-
-        {/* ── Customer Journey ──────────────────────────────────────────────── */}
-        <section className="py-24 bg-card/20 border-y border-border">
-          <div className="container mx-auto px-6 max-w-4xl">
-            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={stagger} className="text-center mb-14">
-              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Getting Started</motion.p>
-              <motion.h2 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-5">From Purchase to Prospecting</motion.h2>
-              <motion.p variants={fadeUp} className="text-lg text-muted-foreground max-w-xl mx-auto">You can be finding new prospects within minutes of buying.</motion.p>
-            </motion.div>
-            <div className="flex flex-col md:flex-row items-center justify-center">
-              {([
-                { icon: Download, step: "Buy Today", desc: "One-time payment" },
-                { icon: Package, step: "Download", desc: "Instant access" },
-                { icon: MousePointerClick, step: "Install", desc: "Windows app" },
-                { icon: Search, step: "Search", desc: "Any city, any industry" },
-                { icon: FileSpreadsheet, step: "Export", desc: "CSV / Excel" },
-                { icon: Rocket, step: "Prospect", desc: "Start closing deals" },
-              ] as { icon: React.ElementType; step: string; desc: string }[]).map(({ icon: Icon, step, desc }, i, arr) => (
-                <div key={step} className="flex flex-col md:flex-row items-center">
-                  <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.1, duration: 0.45 }}
-                    className="flex flex-col items-center text-center px-5 py-2">
-                    <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/25 flex items-center justify-center mb-3">
-                      <Icon className="w-6 h-6 text-primary" />
-                    </div>
-                    <p className="font-bold text-sm">{step}</p>
-                    <p className="text-xs text-muted-foreground">{desc}</p>
-                  </motion.div>
-                  {i < arr.length - 1 && <ArrowRight className="w-5 h-5 text-primary/40 shrink-0 mx-1 rotate-90 md:rotate-0" />}
-                </div>
-              ))}
+            <div className="text-center mt-10">
+              <Button asChild size="lg" className="h-14 px-10 text-base font-bold shadow-[0_0_40px_rgba(0,230,90,0.25)] hover:-translate-y-0.5 transition-all">
+                <a href="#leads-for-sale" data-testid="btn-howitworks-cta">
+                  Show My 5 Free Leads <ArrowRight className="ml-2 h-5 w-5" />
+                </a>
+              </Button>
             </div>
           </div>
         </section>
 
-        {/* ── Why Agencies Love ─────────────────────────────────────────────── */}
-        <section className="py-24">
-          <div className="container mx-auto px-6 max-w-5xl">
-            <motion.div
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: "-80px" }}
-              variants={stagger}
-              className="text-center mb-14"
-            >
-              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Benefits</motion.p>
-              <motion.h2 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold tracking-tight">
-                Why Agencies Love<br />Map Lead Extractor
-              </motion.h2>
-            </motion.div>
-
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {WHY_AGENCIES.map(({ icon: Icon, text }, i) => (
+        {/* ── Who it's for ──────────────────────────────────────────────────── */}
+        <section className="py-16 md:py-20 bg-card/20 border-y border-border">
+          <div className="container mx-auto px-4 sm:px-6 max-w-5xl">
+            <div className="text-center mb-12">
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Who it's for</p>
+              <h2 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Built for anyone selling to local businesses</h2>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {USE_CASES.map(({ icon: Icon, title, desc }, i) => (
                 <motion.div
-                  key={text}
-                  initial={{ opacity: 0, y: 20 }}
+                  key={title}
+                  initial={{ opacity: 0, y: 16 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
-                  transition={{ delay: i * 0.08, duration: 0.45 }}
-                  className="flex items-center gap-4 p-5 rounded-xl border border-border bg-card/50 hover:border-primary/30 hover:bg-card transition-all"
+                  transition={{ delay: i * 0.05, duration: 0.4 }}
+                  className="p-5 rounded-2xl border border-border bg-background/60 hover:border-primary/30 transition-colors"
                 >
-                  <span className="flex items-center justify-center w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 shrink-0">
-                    <Icon className="w-5 h-5 text-primary" />
+                  <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 mb-3">
+                    <Icon className="w-4 h-4 text-primary" />
                   </span>
-                  <span className="font-semibold text-sm leading-tight">{text}</span>
+                  <h3 className="font-bold text-sm mb-1">{title}</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
                 </motion.div>
               ))}
             </div>
           </div>
         </section>
 
-        {/* ── Money-Back Guarantee ──────────────────────────────────────────── */}
-        <section className="py-16">
-          <div className="container mx-auto px-6 max-w-3xl">
-            <motion.div initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.55 }}
-              className="flex flex-col sm:flex-row items-center gap-6 rounded-2xl border border-primary/30 bg-primary/5 p-8">
-              <div className="w-20 h-20 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
-                <Shield className="w-10 h-10 text-primary" />
-              </div>
-              <div>
-                <p className="font-display font-bold text-2xl mb-2">30-Day Money-Back Guarantee</p>
-                <p className="text-muted-foreground leading-relaxed">
-                  Try Map Lead Extractor risk-free for 30 days. If it doesn't help you find more prospects, just email us and we'll refund every penny — no questions asked.
-                </p>
-              </div>
-            </motion.div>
-          </div>
-        </section>
-
-        {/* ── Watch It Work (video placeholder) ────────────────────────────── */}
-        <section className="py-24 bg-card/20 border-y border-border">
-          <div className="container mx-auto px-6 max-w-4xl">
-            <motion.div
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: "-80px" }}
-              variants={stagger}
-              className="text-center mb-10"
-            >
-              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">See It In Action</motion.p>
-              <motion.h2 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-4">
-                Watch It Work
-              </motion.h2>
-              <motion.p variants={fadeUp} className="text-muted-foreground">
-                See how to go from zero to 100 targeted leads in under 60 seconds.
-              </motion.p>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, scale: 0.97 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5 }}
-              className="relative rounded-2xl border border-border bg-card overflow-hidden shadow-2xl shadow-black/40"
-            >
-              <video
-                src={`${basePath}/demo.mp4`}
-                autoPlay
-                muted
-                loop
-                playsInline
-                controls
-                className="w-full h-auto block"
-              />
-            </motion.div>
-          </div>
-        </section>
-
-        {/* ── Pricing ───────────────────────────────────────────────────────── */}
-        <section className="py-24">
-          <div className="container mx-auto px-6 max-w-2xl">
-            <motion.div
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: "-80px" }}
-              variants={stagger}
-            >
-              {/* Badge */}
-              <motion.div variants={fadeUp} className="flex justify-center mb-8">
-                <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/30 text-primary text-sm font-bold">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
-                  </span>
-                  Limited-Time Launch Offer
-                </span>
-              </motion.div>
-
-              {/* Main pricing card */}
-              <motion.div
-                variants={fadeUp}
-                className="rounded-2xl border border-primary/25 bg-card overflow-hidden shadow-[0_0_60px_rgba(0,230,90,0.1)]"
-              >
-                {/* Header */}
-                <div className="bg-primary/10 border-b border-primary/20 px-8 py-6 text-center">
-                  <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-2">Get Map Lead Extractor Today</p>
-                  <div className="flex items-center justify-center gap-4 mb-1">
-                    <span className="text-muted-foreground line-through text-xl">$297</span>
-                    <span className="text-5xl font-display font-black text-foreground">$197</span>
-                  </div>
-                  <p className="text-primary font-bold text-lg">One-Time Payment</p>
-                </div>
-
-                {/* Body */}
-                <div className="px-8 py-8 space-y-8">
-                  {/* No recurring charges callout */}
-                  <div className="flex flex-col sm:flex-row gap-3 text-center">
-                    {["No monthly subscription.", "No recurring charges.", "Pay once and own your license."].map((text) => (
-                      <div key={text} className="flex-1 rounded-xl border border-border bg-background/60 px-4 py-3 text-sm font-medium text-muted-foreground">
-                        {text}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* What's Included */}
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-4">What's Included</p>
-                    <ul className="space-y-3">
-                      {[
-                        "Lifetime access to the current version",
-                        "Export to Excel",
-                        "Search by business category",
-                        "Search any city",
-                        "Fast lead extraction",
-                        "Future bug fixes",
-                        "Customer support",
-                      ].map((item) => (
-                        <li key={item} className="flex items-center gap-3 text-sm">
-                          <CheckCircle2 className="w-4.5 h-4.5 text-primary shrink-0" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Why Pay Monthly */}
-                  <div className="rounded-xl border border-border bg-background/40 p-6">
-                    <p className="font-bold mb-2">Why Pay Monthly?</p>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      Most lead generation tools charge every month. With Map Lead Extractor, you pay once and keep using it.
-                    </p>
-                    <p className="text-sm font-semibold text-foreground">
-                      If this software helps you land just one new client, it can easily <span className="text-primary">pay for itself.</span>
-                    </p>
-                  </div>
-
-                  {/* Secure checkout note */}
-                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                    <Shield className="w-4 h-4 text-primary shrink-0" />
-                    <span><strong className="text-foreground">100% Secure Checkout.</strong> Processed through a secure payment system. Instant access after payment.</span>
-                  </div>
-
-                  {/* CTA */}
-                  <div className="text-center space-y-3 pt-2">
-                    <p className="font-bold text-lg">Ready to Find More Clients?</p>
-                    <p className="text-sm text-muted-foreground">Stop spending hours searching manually. Start building targeted business lead lists today.</p>
-                    <Button
-                      asChild
-                      size="lg"
-                      className="w-full h-16 text-lg font-bold shadow-[0_0_40px_rgba(0,230,90,0.3)] hover:shadow-[0_0_60px_rgba(0,230,90,0.5)] hover:-translate-y-0.5 transition-all"
-                    >
-                      <a href="https://buy.stripe.com/6oU14f0JHfbJeajeRBdAk00" target="_blank" rel="noopener" data-testid="btn-pricing-buy">
-                        BUY NOW — $197 <ArrowRight className="ml-2 h-5 w-5" />
-                      </a>
-                    </Button>
-                    <p className="text-xs text-muted-foreground">
-                      One-time payment &nbsp;·&nbsp; No monthly fees &nbsp;·&nbsp; Instant access after purchase
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            </motion.div>
-          </div>
-        </section>
-
-        {/* ── Imagine This ──────────────────────────────────────────────────── */}
-        <section className="py-24">
-          <div className="container mx-auto px-6 max-w-3xl">
-            <motion.div
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: "-80px" }}
-              variants={stagger}
-              className="text-center"
-            >
-              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Think About It</motion.p>
-              <motion.h2 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-8">
-                Imagine This…
-              </motion.h2>
-              <motion.div variants={fadeUp} className="rounded-2xl border border-primary/20 bg-card/60 p-8 md:p-12 space-y-5 text-left relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" aria-hidden />
-                <p className="text-lg font-semibold text-foreground relative">
-                  One new marketing client could be worth <span className="text-primary">hundreds or thousands of dollars per month.</span>
-                </p>
-                <p className="text-muted-foreground leading-relaxed relative text-lg">
-                  Instead of spending hours looking for prospects on Google Maps manually…
-                </p>
-                <p className="text-foreground font-bold text-2xl relative">
-                  Spend <span className="text-primary">minutes</span> finding them.
-                </p>
-                <motion.div variants={fadeUp} className="pt-4 relative">
-                  <Button asChild size="lg" className="h-14 px-10 text-base font-bold shadow-[0_0_40px_rgba(0,230,90,0.3)] hover:shadow-[0_0_60px_rgba(0,230,90,0.5)] hover:-translate-y-0.5 transition-all">
-                    <a href="#leads-for-sale">
-                      Get 100 Leads — $29 <ArrowRight className="ml-2 h-5 w-5" />
-                    </a>
-                  </Button>
-                </motion.div>
-              </motion.div>
-            </motion.div>
-          </div>
-        </section>
-
-        {/* ── Buy ───────────────────────────────────────────────────────────── */}
-        <section id="leads-for-sale" ref={leadsSectionRef} className="py-24 bg-card/20 border-y border-border">
-          <div className="container mx-auto px-6 max-w-4xl">
-            <div className="text-center mb-12">
-              <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Ready to Start?</p>
-              <h2 className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-4">
-                Get Your Lead Pack Now
-              </h2>
-              <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-                Tell us your industry and city. Preview 5 real leads free — then grab all 100 for $29 if they look like money.
-              </p>
+        {/* ── Trust badges ──────────────────────────────────────────────────── */}
+        <section className="py-16 md:py-20">
+          <div className="container mx-auto px-4 sm:px-6 max-w-5xl">
+            <div className="text-center mb-10">
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Buy with confidence</p>
+              <h2 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Why it's safe to order</h2>
             </div>
-            <LeadPackWidget />
+            <TrustBadges />
           </div>
         </section>
 
-        {/* ── Customer Testimonials Video ───────────────────────────────────── */}
-        <section className="py-24 bg-card/20 border-y border-border">
-          <div className="container mx-auto px-6 max-w-4xl">
-            <motion.div
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: "-80px" }}
-              variants={stagger}
-              className="text-center mb-10"
-            >
-              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Real Customers</motion.p>
-              <motion.h2 variants={fadeUp} className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-4">
-                Hear From 15 of Our Customers
-              </motion.h2>
-              <motion.p variants={fadeUp} className="text-muted-foreground">
-                Real people. Real results. No scripts.
-              </motion.p>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, scale: 0.97 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5 }}
-              className="flex justify-center"
-            >
-              {/* Portrait phone-style frame */}
-              <div className="relative w-full max-w-xs rounded-[2rem] border-4 border-border bg-card overflow-hidden shadow-2xl shadow-black/50">
-                {/* Notch bar */}
-                <div className="h-6 bg-black flex items-center justify-center">
-                  <div className="w-16 h-1.5 rounded-full bg-zinc-700" />
-                </div>
-                <video
-                  src={`${basePath}/testimonials.mp4`}
-                  autoPlay
-                  muted
-                  loop
-                  playsInline
-                  controls
-                  className="w-full h-auto block"
-                />
-              </div>
-            </motion.div>
-
-            <motion.p
-              initial={{ opacity: 0 }}
-              whileInView={{ opacity: 1 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.3 }}
-              className="text-center text-xs text-muted-foreground mt-6"
-            >
-              15 verified customer testimonials — recorded independently
-            </motion.p>
-          </div>
-        </section>
-
-        {/* ── Reviews ───────────────────────────────────────────────────────── */}
+        {/* ── Social proof ──────────────────────────────────────────────────── */}
         <PlatformReviews />
         <BuyerReviews />
 
+        {/* ── Pricing teaser ────────────────────────────────────────────────── */}
+        <section className="py-16 md:py-20">
+          <div className="container mx-auto px-4 sm:px-6 max-w-5xl">
+            <div className="text-center mb-10">
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Simple pricing</p>
+              <h2 className="text-3xl md:text-4xl font-display font-bold tracking-tight mb-3">Start free, or grab a ready-made pack</h2>
+              <p className="text-base text-muted-foreground max-w-2xl mx-auto">
+                Software plans from <span className="font-semibold text-foreground">$49/mo</span> for finding, scoring and auditing leads yourself — or buy a done-for-you CSV pack from <span className="font-semibold text-foreground">$29</span>, no account needed.
+              </p>
+            </div>
+            <div className="grid sm:grid-cols-3 gap-4 max-w-3xl mx-auto">
+              {[
+                { name: "Starter", price: "$49", note: "250 leads/mo · CRM · scoring" },
+                { name: "Pro", price: "$149", note: "2,000 leads/mo · audits · messages", highlight: true },
+                { name: "Agency", price: "$499", note: "10,000 leads/mo · automation · team" },
+              ].map((p) => (
+                <div key={p.name} className={`rounded-2xl border p-5 text-center ${p.highlight ? "border-primary bg-card shadow-lg shadow-primary/10" : "border-border bg-card/40"}`}>
+                  <div className="font-display font-bold">{p.name}</div>
+                  <div className="text-3xl font-display font-bold my-1">{p.price}<span className="text-sm text-muted-foreground font-normal">/mo</span></div>
+                  <div className="text-xs text-muted-foreground">{p.note}</div>
+                </div>
+              ))}
+            </div>
+            <div className="text-center mt-8">
+              <Button asChild size="lg" variant="outline" className="h-12 px-8 font-semibold">
+                <a href="/pricing">See full pricing <ArrowRight className="ml-2 h-4 w-4" /></a>
+              </Button>
+            </div>
+          </div>
+        </section>
+
         {/* ── FAQ ───────────────────────────────────────────────────────────── */}
-        <section id="faq" className="py-24 bg-card/20 border-y border-border">
-          <div className="container mx-auto px-6 max-w-3xl">
-            <div className="text-center mb-12">
-              <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Got Questions?</p>
-              <h2 className="text-4xl md:text-5xl font-display font-bold tracking-tight">
-                Frequently Asked Questions
-              </h2>
+        <section className="py-16 md:py-20 bg-card/20 border-y border-border">
+          <div className="container mx-auto px-4 sm:px-6 max-w-3xl">
+            <div className="text-center mb-10">
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Before you buy</p>
+              <h2 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Questions, answered</h2>
             </div>
             <Accordion type="single" collapsible className="space-y-3">
               {FAQ.map((item, i) => (
@@ -903,100 +498,79 @@ export default function Home() {
         </section>
 
         {/* ── Final CTA ─────────────────────────────────────────────────────── */}
-        <section className="py-28 relative overflow-hidden">
+        <section className="py-20 relative overflow-hidden">
           <div className="absolute inset-0 -z-10">
             <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_60%_at_50%_50%,hsl(var(--primary)/0.12),transparent)]" />
           </div>
-          <div className="container mx-auto px-6 text-center max-w-2xl">
-            <motion.div
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: "-80px" }}
-              variants={stagger}
-            >
-              <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.22em] text-primary mb-3">Ready to Grow?</motion.p>
-              <motion.h2 variants={fadeUp} className="text-4xl md:text-6xl font-display font-bold tracking-tight mb-5">
-                Ready to Get<br />More Clients?
-              </motion.h2>
-              <motion.p variants={fadeUp} className="text-lg text-muted-foreground mb-10">
-                Stop wasting time searching. Start finding your next customers today.
-              </motion.p>
-              <motion.div variants={fadeUp} className="flex flex-col sm:flex-row gap-4 justify-center">
-                <Button asChild size="lg" className="h-16 px-12 text-lg font-bold shadow-[0_0_50px_rgba(0,230,90,0.4)] hover:shadow-[0_0_80px_rgba(0,230,90,0.6)] hover:-translate-y-1 transition-all">
-                  <a href="#leads-for-sale" data-testid="btn-final-cta">
-                    Get 100 Leads — $29 <ArrowRight className="ml-2 h-5 w-5" />
-                  </a>
-                </Button>
-                <Button asChild size="lg" variant="outline" className="h-16 px-12 text-lg font-bold">
-                  <a href="/free-tool">
-                    Try Free Tool First
-                  </a>
-                </Button>
-              </motion.div>
-              <motion.div variants={fadeUp} className="flex flex-wrap justify-center gap-x-6 gap-y-2 mt-8 text-sm text-muted-foreground">
-                <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-primary" />Fast</span>
-                <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-primary" />Easy</span>
-                <span className="flex items-center gap-1.5"><Shield className="w-4 h-4 text-primary" />Secure Checkout</span>
-                <span className="flex items-center gap-1.5"><RefreshCw className="w-4 h-4 text-primary" />Regular Software Updates</span>
-              </motion.div>
-            </motion.div>
+          <div className="container mx-auto px-4 sm:px-6 text-center max-w-2xl">
+            <h2 className="text-3xl md:text-5xl font-display font-bold tracking-tight mb-4">
+              Preview your leads free
+            </h2>
+            <p className="text-lg text-muted-foreground mb-8">
+              Choose your industry and location, see five real matching businesses, then get all 100 for $29.
+            </p>
+            <Button asChild size="lg" className="h-16 px-12 text-lg font-bold shadow-[0_0_50px_rgba(0,230,90,0.35)] hover:shadow-[0_0_80px_rgba(0,230,90,0.55)] hover:-translate-y-1 transition-all">
+              <a href="#leads-for-sale" data-testid="btn-final-cta">
+                Show My 5 Free Leads <ArrowRight className="ml-2 h-5 w-5" />
+              </a>
+            </Button>
+            <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 mt-8 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-primary" />One-time $29</span>
+              <span className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-primary" />Delivered within 24 hours</span>
+              <span className="flex items-center gap-1.5"><Shield className="w-4 h-4 text-primary" />Secure Stripe checkout</span>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Compliance note ───────────────────────────────────────────────── */}
+        <section className="py-10 border-t border-border">
+          <div className="container mx-auto px-4 sm:px-6 max-w-3xl">
+            <div className="flex items-start gap-3 text-sm text-muted-foreground bg-card/40 border border-border rounded-xl p-5">
+              <ScrollText className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+              <p className="leading-relaxed">
+                <span className="font-semibold text-foreground">How we keep it clean:</span> MapLeadExtractor gathers only
+                publicly available business information. Outreach messages are drafts you review and send yourself — you
+                choose who to contact, and opt-out requests are always honored. We don't send spam on your behalf and we
+                never promise guaranteed income or results.
+              </p>
+            </div>
           </div>
         </section>
 
       </main>
 
-      {/* ── Footer ────────────────────────────────────────────────────────────── */}
+      {/* ── Minimal footer ─────────────────────────────────────────────────────── */}
       <footer className="border-t border-border bg-card/30">
-        <div className="container mx-auto px-6 py-12">
-          <div className="grid md:grid-cols-3 gap-8 mb-10">
-            <div>
-              <a href="/" className="flex items-center gap-2 font-display font-bold text-lg tracking-tight mb-3">
-                <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-primary/15 border border-primary/30">
-                  <Zap className="w-3.5 h-3.5 text-primary" />
-                </span>
-                Map<span className="text-primary">Lead</span>Extractor
-              </a>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Spend Less Time Searching.<br />Spend More Time Closing.
-              </p>
-            </div>
-            <div>
-              <p className="text-sm font-semibold mb-3">Product</p>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="#leads-for-sale" className="hover:text-primary transition-colors">Get Leads</a></li>
-                <li><a href="/free-tool" className="hover:text-primary transition-colors">Free Tool</a></li>
-                <li><a href="/pricing" className="hover:text-primary transition-colors">Pricing</a></li>
-                <li><a href="/blog" className="hover:text-primary transition-colors">Blog</a></li>
-              </ul>
-            </div>
-            <div>
-              <p className="text-sm font-semibold mb-3">Support</p>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="#faq" className="hover:text-primary transition-colors">FAQ</a></li>
-                <li><a href="/privacy" className="hover:text-primary transition-colors">Privacy Policy</a></li>
-                <li><a href="/terms" className="hover:text-primary transition-colors">Terms of Service</a></li>
-                <li><a href="mailto:support@mapleadextractor.net" className="hover:text-primary transition-colors">Contact Support</a></li>
-              </ul>
+        <div className="container mx-auto px-4 sm:px-6 py-10">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <a href="/" className="flex items-center gap-2 font-display font-bold text-lg tracking-tight">
+              <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-primary/15 border border-primary/30">
+                <Zap className="w-3.5 h-3.5 text-primary" />
+              </span>
+              Map<span className="text-primary">Lead</span>Extractor
+            </a>
+            <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
+              <a href="/privacy" className="hover:text-primary transition-colors">Privacy</a>
+              <a href="/terms" className="hover:text-primary transition-colors">Terms</a>
+              <a href={`mailto:${SUPPORT_EMAIL}`} className="hover:text-primary transition-colors">Contact Support</a>
             </div>
           </div>
-
-          <div className="border-t border-border pt-6 mb-4">
-            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
+          <div className="border-t border-border mt-8 pt-6 flex flex-col md:flex-row justify-between items-center text-xs text-muted-foreground gap-2">
+            <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
               <span className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5 text-primary" />256-bit SSL · Powered by Stripe</span>
-              <span className="flex items-center gap-1.5"><RefreshCw className="w-3.5 h-3.5 text-primary" />Money-back if we come up short</span>
               <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-primary" />Every lead human-reviewed</span>
               <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-primary" />Delivered within 24 hours</span>
             </div>
-          </div>
-
-          <div className="flex flex-col md:flex-row justify-between items-center text-xs text-muted-foreground gap-2">
-            <div>&copy; {new Date().getFullYear()} MapLeadExtractor. All rights reserved.</div>
-            <div className="flex items-center gap-5">
+            <div className="flex items-center gap-4">
+              <span>&copy; {new Date().getFullYear()} MapLeadExtractor</span>
               <a href="/admin-login" rel="nofollow" className="text-muted-foreground/40 hover:text-muted-foreground transition-colors">Admin</a>
             </div>
           </div>
         </div>
       </footer>
+
+      {/* Mobile sticky CTA — appears only once the funnel scrolls out of view */}
+      <StickyCta free label="Show 5 Free Leads" target="leads-for-sale" />
 
       <SocialProofToast />
       <ChatWidget externalOpen={chatOpen} onExternalOpenHandled={() => setChatOpen(false)} />

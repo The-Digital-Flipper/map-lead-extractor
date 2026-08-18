@@ -8,10 +8,13 @@ import { ArrowRight, ShieldCheck } from "lucide-react";
 export default function StickyCta({
   label = "Get 100 for $29",
   free = false,
+  target = "buy",
 }: {
   label?: string;
   /** Sample-first pages lead with the free preview instead of the price. */
   free?: boolean;
+  /** Id of the section the CTA scrolls to / hides behind. */
+  target?: string;
 }) {
   const [pastHero, setPastHero] = useState(false);
   const [buyInView, setBuyInView] = useState(false);
@@ -20,7 +23,7 @@ export default function StickyCta({
     const onScroll = () => setPastHero(window.scrollY > 480);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
-    const buy = document.getElementById("buy");
+    const buy = document.getElementById(target);
     let io: IntersectionObserver | null = null;
     if (buy && "IntersectionObserver" in window) {
       io = new IntersectionObserver(
@@ -33,7 +36,7 @@ export default function StickyCta({
       window.removeEventListener("scroll", onScroll);
       io?.disconnect();
     };
-  }, []);
+  }, [target]);
 
   const show = pastHero && !buyInView;
 
@@ -67,7 +70,7 @@ export default function StickyCta({
             )}
           </div>
           <a
-            href="#buy"
+            href={`#${target}`}
             data-testid="btn-sticky-cta"
             className="shrink-0 inline-flex items-center gap-1.5 h-12 px-5 rounded-xl bg-primary text-primary-foreground font-bold text-sm shadow-lg shadow-primary/30 hover:opacity-90 transition-opacity"
           >

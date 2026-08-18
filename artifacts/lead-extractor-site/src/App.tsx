@@ -33,6 +33,7 @@ const AUTH_PREFIXES = [
   "/admin",
   "/admin-login",
   "/command-center",
+  "/command",
   "/scraper",
   "/sign-in",
   "/sign-up",

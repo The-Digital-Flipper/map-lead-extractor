@@ -1,11 +1,37 @@
 import { useEffect } from "react";
 import { useUser } from "@clerk/react";
 import { motion } from "framer-motion";
-import { Zap, Star } from "lucide-react";
+import { Zap, Star, Check } from "lucide-react";
 import { useSeo } from "@/lib/seo";
 import LeadPackWidget from "@/components/site/lead-pack-widget";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// Software subscription plans (display-only for now — billing is not wired yet,
+// so the CTA sends people to a free account rather than a broken checkout).
+const PLANS = [
+  {
+    name: "Starter",
+    price: 49,
+    tagline: "Solo prospecting",
+    features: ["250 leads / month", "Lead CRM", "Basic lead scoring", "CSV export"],
+    highlight: false,
+  },
+  {
+    name: "Pro",
+    price: 149,
+    tagline: "Full AI toolkit",
+    features: ["2,000 leads / month", "AI opportunity scoring", "Website audits", "AI message writer", "Follow-up system"],
+    highlight: true,
+  },
+  {
+    name: "Agency",
+    price: 499,
+    tagline: "Teams & white-label",
+    features: ["10,000 leads / month", "Advanced automation", "Team access", "White-label exports", "Demo / audit pages"],
+    highlight: false,
+  },
+];
 
 const PRICING_FAQ = [
   { q: "How much do leads cost?", a: "Done-for-you lead packs start at $29 for 100 leads ($0.29/lead) and drop to $0.12/lead when you buy 5,000. Pick your industry and state above to check availability and buy." },
@@ -81,6 +107,54 @@ export default function Pricing() {
             </h1>
             <p className="text-muted-foreground text-lg max-w-xl mx-auto">
               Human-reviewed business leads delivered as a CSV — usually within hours. Buy in bulk and the per-lead price drops. Every pack is refund-backed.
+            </p>
+          </motion.div>
+
+          {/* Software subscription plans (display-only). These are the monthly
+              software tiers; the one-time done-for-you lead packs stay available
+              in the widget below. Billing for these plans is not live yet, so the
+              CTA opens a free account instead of a checkout — no fake purchase. */}
+          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.08 }} className="mb-16">
+            <div className="text-center mb-8">
+              <h2 className="text-2xl md:text-3xl font-display font-bold">Software plans</h2>
+              <p className="text-muted-foreground mt-1">Find, score, audit and follow up on leads yourself.</p>
+            </div>
+            <div className="grid md:grid-cols-3 gap-5 max-w-4xl mx-auto">
+              {PLANS.map((plan) => (
+                <div
+                  key={plan.name}
+                  className={`relative rounded-2xl border p-6 flex flex-col ${plan.highlight ? "border-primary shadow-lg shadow-primary/10 bg-card" : "border-border bg-card"}`}
+                >
+                  {plan.highlight && (
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold">
+                      Most popular
+                    </div>
+                  )}
+                  <div className="font-display font-bold text-lg">{plan.name}</div>
+                  <div className="text-sm text-muted-foreground mb-3">{plan.tagline}</div>
+                  <div className="mb-4">
+                    <span className="text-4xl font-display font-bold">${plan.price}</span>
+                    <span className="text-muted-foreground text-sm">/month</span>
+                  </div>
+                  <ul className="space-y-2 mb-6 flex-1">
+                    {plan.features.map((f) => (
+                      <li key={f} className="flex items-start gap-2 text-sm">
+                        <Check className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <a
+                    href={isSignedIn ? `${basePath}/dashboard` : `${basePath}/sign-up`}
+                    className={`block text-center rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90 ${plan.highlight ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground border border-border"}`}
+                  >
+                    Get started free
+                  </a>
+                </div>
+              ))}
+            </div>
+            <p className="text-center text-xs text-muted-foreground mt-4">
+              Monthly plan billing is rolling out — start with a free account today and we'll move you onto a plan when it's ready. Prices shown are the planned rates.
             </p>
           </motion.div>
 
